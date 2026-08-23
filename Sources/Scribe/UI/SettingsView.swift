@@ -347,7 +347,7 @@ private struct AudioTab: View {
             }
 
             Section {
-                Toggle("Voice activity detection", isOn: Binding(
+                Toggle("Trim silence before transcribing", isOn: Binding(
                     get: { coordinator.settingsStore.settings.voiceActivityDetection },
                     set: { coordinator.settingsStore.settings.voiceActivityDetection = $0 }))
 
@@ -359,6 +359,11 @@ private struct AudioTab: View {
                                in: 0...1)
                         .frame(width: 160)
                     }
+                    Text("Silence at either end is cut before transcribing, "
+                         + "which is faster. Raise the sensitivity if quiet "
+                         + "speech is being clipped.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
 
                 LabeledContent("Maximum length") {
@@ -496,6 +501,32 @@ private struct FeedbackTab: View {
                 Toggle("Play sound when cancelled", isOn: Binding(
                     get: { coordinator.settingsStore.settings.playSoundOnCancel },
                     set: { coordinator.settingsStore.settings.playSoundOnCancel = $0 }))
+            }
+
+            Section {
+                Toggle("Keep history after quitting", isOn: Binding(
+                    get: { coordinator.settingsStore.settings.keepHistoryOnDisk },
+                    set: {
+                        coordinator.settingsStore.settings.keepHistoryOnDisk = $0
+                        coordinator.applySettings()
+                    }))
+
+                LabeledContent("Stored") {
+                    Text("\(coordinator.history.entries.count) of "
+                         + "\(HistoryStore.limit)")
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("Clear History") { coordinator.history.clear() }
+                    .disabled(coordinator.history.entries.isEmpty)
+            } header: {
+                Text("History")
+            } footer: {
+                Text("The last \(HistoryStore.limit) transcripts are kept in "
+                     + "memory so you can re-copy them. Writing them to disk is "
+                     + "off by default — dictated text is whatever you said.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

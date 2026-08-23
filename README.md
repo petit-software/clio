@@ -7,7 +7,7 @@ Full design in [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-s
 
 ## Status
 
-**Milestones 0–4, less VAD.** Scribe dictates: hold the shortcut, speak,
+**Milestones 0–5.** Scribe dictates: hold the shortcut, speak,
 and the text lands in the app you were typing in. Real transcription, on
 device, no network.
 
@@ -21,7 +21,7 @@ protocol — it makes the UI testable without loading a model.
 | 2 · ASR — WhisperKit, warm-load strategy | ✅ |
 | 3 · Injection — paste with clipboard restore, secure-input fallback | ✅ |
 | 4 · Models — catalog, download, verify, auto-discovery | ✅ |
-| 5 · Polish — VAD, sounds, history | ⬜ overlay + settings done; VAD and sounds pending |
+| 5 · Polish — VAD, sounds, history | ✅ |
 | 6 · Ship — Developer ID, notarization, Sparkle, DMG | ⬜ |
 
 ## Build
@@ -67,6 +67,9 @@ Sources/ScribeCore/   no SwiftUI — testable on its own
   ModelCatalog            what we offer; bundled JSON + built-in fallback
   ModelTransport          Hugging Face listing and download, SHA-256 verified
   ModelManager            install, discover, delete, progress
+  VoiceActivityTrimmer    cuts silence off both ends before transcribing
+  FeedbackPlayer          start / stop / cancel cues
+  HistoryStore            last 20 transcripts, disk is opt-in
   TranscriptionEngine     the protocol, plus a stub for testing
   WhisperKitEngine        CoreML on the Neural Engine — the real one
   TranscriptFormatter     replacements, capitalization, initial prompt
@@ -114,6 +117,39 @@ install also pulls the matching `openai/whisper-*` tokenizer into a `tokenizer/`
 subfolder (a subfolder because that repo has its own `config.json`, which next
 to the model would overwrite WhisperKit's), and the engine is configured with
 `download: false` so it cannot go looking.
+
+## What trimming silence is actually for
+
+Not latency, for normal dictation — that assumption was measured and it was
+wrong. Whisper transcribes in **30-second windows** and pads to fill one, so
+cutting 8 seconds of silence off a 10-second clip buys nothing: both are a
+single window, and both measured ~47 ms. The inference win only appears when
+trimming removes a whole window:
+
+```
+padded  34.7s → 70 ms   (two windows)
+trimmed  2.7s → 46 ms   (one window)
+```
+
+What it fixes below 30 seconds is **quality**. Whisper invents text over
+silence. The same clip, padded and trimmed:
+
+```
+padded:  The quick brown fox jumps over the lazy dog. you
+trimmed: The quick brown fox jumps over the lazy dog.
+```
+
+That trailing `you` is a hallucination, and it would have been pasted into
+whatever you were typing in. The integration test asserts it stays gone.
+
+A clip with no speech at all is never sent to the model — it reports "No speech
+detected" instead of paying for a transcription that comes back as invented
+text.
+
+VAD is WhisperKit's own `EnergyVAD`, not Silero via onnxruntime as the spec
+planned. It is already a dependency, so this needs no extra package and no
+bundled ONNX model. Silero would slot in behind `VoiceActivityTrimmer.trim` if
+noisy rooms ever prove the energy gate insufficient.
 
 ## Two things that will bite you
 

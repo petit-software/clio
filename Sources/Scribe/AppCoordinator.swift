@@ -17,30 +17,31 @@ public final class AppCoordinator {
         didSet { overlay?.model.level = inputLevel }
     }
     public private(set) var lastTranscript: String?
-    /// Most recent first, capped. In memory only for now (§4, HistoryStore).
-    public private(set) var history: [String] = []
 
     public let settingsStore: SettingsStore
     public let permissions: PermissionsCoordinator
     public let models: ModelManager
+    public let history: HistoryStore
 
     private let hotkeys = HotkeyManager()
     private let recorder = AudioRecorder()
+    private let feedback = FeedbackPlayer()
     private let engine: any TranscriptionEngine
     private var overlay: OverlayController?
 
     private var resetTask: Task<Void, Never>?
     private var maxDurationTask: Task<Void, Never>?
 
-    private static let historyLimit = 20
-
     public init(settingsStore: SettingsStore = SettingsStore(),
                 permissions: PermissionsCoordinator = PermissionsCoordinator(),
                 models: ModelManager = ModelManager(),
+                history: HistoryStore? = nil,
                 engine: any TranscriptionEngine = WhisperKitEngine()) {
         self.settingsStore = settingsStore
         self.permissions = permissions
         self.models = models
+        self.history = history
+            ?? HistoryStore(persistsToDisk: settingsStore.settings.keepHistoryOnDisk)
         self.engine = engine
     }
 
@@ -98,6 +99,7 @@ public final class AppCoordinator {
         let settings = settingsStore.settings
         hotkeys.hotkey = settings.hotkey
         hotkeys.mode = settings.hotkeyMode
+        history.persistsToDisk = settings.keepHistoryOnDisk
     }
 
     public var isHotkeyRunning: Bool { hotkeys.isRunning }
@@ -123,6 +125,7 @@ public final class AppCoordinator {
 
         state = .recording
         overlay?.show(position: settings.overlayPosition)
+        feedback.play(.start, enabled: settings.playSoundOnStart)
 
         // Warm the model while the user is still talking — cold load is what
         // dominates perceived latency (§5.4). Failures are swallowed here on
@@ -144,10 +147,10 @@ public final class AppCoordinator {
         maxDurationTask?.cancel()
         maxDurationTask = nil
 
-        let samples = recorder.stop()
+        let captured = recorder.stop()
         inputLevel = 0
 
-        guard samples.count > Int(0.2 * AudioRecorder.sampleRate) else {
+        guard captured.count > Int(0.2 * AudioRecorder.sampleRate) else {
             fail("That was too short to transcribe.")
             return
         }
@@ -157,8 +160,22 @@ public final class AppCoordinator {
             return
         }
 
-        state = .transcribing
         let settings = settingsStore.settings
+        feedback.play(.stop, enabled: settings.playSoundOnStop)
+
+        // Trim silence before handing it over. Whisper pads to a 30s window
+        // internally, so this is the cheapest latency win there is (§5.3).
+        var samples = captured
+        if settings.voiceActivityDetection {
+            guard let trimmed = VoiceActivityTrimmer.trim(
+                captured, sensitivity: settings.vadSensitivity) else {
+                fail("No speech detected.")
+                return
+            }
+            samples = trimmed.samples
+        }
+
+        state = .transcribing
 
         Task { [weak self, engine] in
             do {
@@ -188,8 +205,7 @@ public final class AppCoordinator {
 
         state = .injecting
         lastTranscript = text
-        history.insert(text, at: 0)
-        if history.count > Self.historyLimit { history.removeLast() }
+        history.add(text)
 
         let result = await TextInjector.inject(text,
                                                action: settings.outputAction,
@@ -215,6 +231,7 @@ public final class AppCoordinator {
         inputLevel = 0
         state = .idle
         overlay?.hide()
+        feedback.play(.cancel, enabled: settingsStore.settings.playSoundOnCancel)
     }
 
     private func fail(_ message: String) {
@@ -224,6 +241,7 @@ public final class AppCoordinator {
         inputLevel = 0
         state = .failed(message)
         overlay?.show(position: settingsStore.settings.overlayPosition)
+        feedback.play(.cancel, enabled: settingsStore.settings.playSoundOnCancel)
         scheduleReturnToIdle(after: .seconds(2.5))
     }
 
@@ -242,6 +260,10 @@ public final class AppCoordinator {
     public func copyLastTranscript() {
         guard let lastTranscript else { return }
         TextInjector.copy(lastTranscript)
+    }
+
+    public func copy(_ entry: TranscriptEntry) {
+        TextInjector.copy(entry.text)
     }
 
 }

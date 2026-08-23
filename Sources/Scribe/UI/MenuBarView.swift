@@ -32,6 +32,19 @@ struct MenuBarView: View {
             }
             .disabled(coordinator.lastTranscript == nil)
 
+            if !coordinator.history.entries.isEmpty {
+                Menu("Recent") {
+                    // Picking one copies it rather than pasting: the menu has
+                    // already taken focus, so the app the text belongs in is
+                    // no longer frontmost.
+                    ForEach(coordinator.history.entries) { entry in
+                        Button(entry.menuLabel) { coordinator.copy(entry) }
+                    }
+                    Divider()
+                    Button("Clear History") { coordinator.history.clear() }
+                }
+            }
+
             Divider()
 
             SettingsLink { Text("Settings…") }

@@ -14,7 +14,10 @@ import WhisperKit
 private let integrationEnabled =
     ProcessInfo.processInfo.environment["SCRIBE_INTEGRATION"] != nil
 
-@Suite("Integration", .enabled(if: integrationEnabled))
+// Serialized: the tests share one installed model directory, and two of them
+// installing it at once raced on the .partial files. Serial also keeps the
+// timing test off a CPU busy transcribing for another test.
+@Suite("Integration", .enabled(if: integrationEnabled), .serialized)
 struct IntegrationTests {
 
     /// Speech to transcribe, produced by macOS's own synthesizer so the test
@@ -37,46 +40,55 @@ struct IntegrationTests {
         return try AudioProcessor.loadAudioAsFloatArray(fromPath: file.path)
     }
 
-    @Test("A downloaded model transcribes real speech, entirely offline")
-    func endToEnd() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("scribe-integration-\(UUID().uuidString)")
+    /// Installed once and kept, so a second run of this suite does not
+    /// re-download 81 MB. Cleared by a reboot like anything else in /tmp.
+    private var sharedModelRoot: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("scribe-integration-models", isDirectory: true)
+    }
+
+    private func installTinyModel() async throws -> InstalledModel {
+        let root = sharedModelRoot
         try FileManager.default.createDirectory(at: root,
                                                 withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
 
         let model = try #require(
             ModelCatalog.builtIn.first { $0.id == "openai_whisper-tiny" })
 
-        // 1. Install it the way the app does.
         let manager = await ModelManager(
             transport: HuggingFaceTransport(),
             modelsDirectory: root,
             huggingFaceCache: URL(fileURLWithPath: "/nonexistent"))
-        await manager.download(model)
 
-        let deadline = ContinuousClock.now + .seconds(600)
-        while await !manager.isInstalled(model.id) {
-            if let failure = await manager.failures[model.id] {
-                Issue.record("Download failed: \(failure)")
-                return
+        if await !manager.isInstalled(model.id) {
+            await manager.download(model)
+            let deadline = ContinuousClock.now + .seconds(600)
+            while await !manager.isInstalled(model.id) {
+                if let failure = await manager.failures[model.id] {
+                    throw IntegrationError.downloadFailed(failure)
+                }
+                guard ContinuousClock.now < deadline else {
+                    throw IntegrationError.downloadFailed("timed out")
+                }
+                try await Task.sleep(for: .milliseconds(250))
             }
-            guard ContinuousClock.now < deadline else {
-                Issue.record("Download timed out")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(250))
         }
 
-        let installed = try #require(await manager.installed.first)
+        return try #require(await manager.installed.first { $0.id == model.id })
+    }
 
-        // 2. The tokenizer must be installed alongside, or the first
-        //    transcription silently reaches for the network.
+    enum IntegrationError: Error { case downloadFailed(String) }
+
+    @Test("A downloaded model transcribes real speech, entirely offline")
+    func endToEnd() async throws {
+        let installed = try await installTinyModel()
+
+        // The tokenizer must be installed alongside, or the first
+        // transcription silently reaches for the network.
         let tokenizer = ModelManager.tokenizerDirectory(for: installed)
             .appendingPathComponent("tokenizer.json")
         #expect(FileManager.default.fileExists(atPath: tokenizer.path))
 
-        // 3. Load and transcribe.
         let engine = WhisperKitEngine()
         try await engine.load(model: installed)
         #expect(await engine.isLoaded)
@@ -94,5 +106,71 @@ struct IntegrationTests {
 
         await engine.unload()
         #expect(await engine.isLoaded == false)
+    }
+
+    /// Measured, and it corrected the assumption behind this milestone.
+    ///
+    /// Whisper transcribes in 30-second windows and pads to fill one. Trimming
+    /// 8s of silence off a 10s clip therefore buys nothing at all — both are a
+    /// single window, and both measured ~47ms. The inference win only appears
+    /// when trimming removes a whole window, which needs the padded clip to
+    /// cross 30 seconds.
+    ///
+    /// For ordinary dictation, under 30 seconds, trimming is a *quality* fix
+    /// (Whisper hallucinates text over silence), not a speed one.
+    @Test("Trimming silence cuts a whole Whisper window off a long clip")
+    func vadCutsLatency() async throws {
+        let installed = try await installTinyModel()
+        let engine = WhisperKitEngine()
+        try await engine.load(model: installed)
+        defer { Task { await engine.unload() } }
+
+        let speech = try makeSpokenAudio("The quick brown fox jumps over the lazy dog.")
+        // 16s either side, so the padded clip is ~35s: two windows to the
+        // trimmed clip's one.
+        let padding = [Float](repeating: 0,
+                              count: Int(16 * AudioRecorder.sampleRate))
+        let padded = padding + speech + padding
+        #expect(Double(padded.count) / AudioRecorder.sampleRate > 30)
+
+        let options = TranscribeOptions(language: "en")
+
+        // Warm up: the first run pays for lazy CoreML setup and would make
+        // whichever case ran first look slower.
+        _ = try await engine.transcribe(samples: speech, options: options)
+
+        let paddedStart = ContinuousClock.now
+        let paddedResult = try await engine.transcribe(samples: padded, options: options)
+        let paddedTime = ContinuousClock.now - paddedStart
+
+        let trimmed = try #require(
+            VoiceActivityTrimmer.trim(padded, sensitivity: 0.5))
+
+        let trimmedStart = ContinuousClock.now
+        let trimmedResult = try await engine.transcribe(samples: trimmed.samples,
+                                                        options: options)
+        let trimmedTime = ContinuousClock.now - trimmedStart
+
+        print("[integration] padded  \(Double(padded.count) / AudioRecorder.sampleRate)s "
+              + "in \(paddedTime)")
+        print("[integration] trimmed \(Double(trimmed.samples.count) / AudioRecorder.sampleRate)s "
+              + "in \(trimmedTime)")
+        print("[integration] trimmed away \(trimmed.totalTrimmedSeconds)s")
+
+        print("[integration] padded text:  \(paddedResult.text)")
+        print("[integration] trimmed text: \(trimmedResult.text)")
+
+        #expect(trimmed.samples.count < padded.count)
+        #expect(trimmedTime < paddedTime)
+        // The words still come back...
+        #expect(trimmedResult.text.lowercased().contains("quick brown fox"))
+        #expect(paddedResult.text.lowercased().contains("quick brown fox"))
+
+        // ...and cleanly. This is the real reason to trim: Whisper invents
+        // text over silence. The padded clip reliably comes back with a
+        // trailing hallucination ("… lazy dog. you"); the trimmed one ends
+        // where the speech does.
+        #expect(trimmedResult.text.hasSuffix("dog."))
+        #expect(trimmedResult.text.count <= paddedResult.text.count)
     }
 }

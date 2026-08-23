@@ -44,6 +44,11 @@ public struct Settings: Codable, Equatable, Sendable {
     public var playSoundOnStop: Bool = true
     public var playSoundOnCancel: Bool = true
 
+    // History
+    /// Off by default: dictated text is whatever the user happened to say, so
+    /// keeping a log of it on disk is opt-in.
+    public var keepHistoryOnDisk: Bool = false
+
     public init() {}
 }
 
