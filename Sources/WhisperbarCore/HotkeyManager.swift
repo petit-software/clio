@@ -85,13 +85,7 @@ public final class HotkeyManager {
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: mask,
-            callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let manager = Unmanaged<HotkeyManager>
-                    .fromOpaque(refcon).takeUnretainedValue()
-                manager.handleFromTap(type: type, event: event)
-                return Unmanaged.passUnretained(event)
-            },
+            callback: hotkeyTapCallback,
             userInfo: refcon
         ) else {
             throw HotkeyError.tapCreationFailed
@@ -161,7 +155,7 @@ public final class HotkeyManager {
 
     // MARK: Tap callback (off the main actor)
 
-    private nonisolated func handleFromTap(type: CGEventType, event: CGEvent) {
+    fileprivate nonisolated func handleFromTap(type: CGEventType, event: CGEvent) {
         // macOS disables taps that are slow or that error out. Re-enable and bail.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             Task { @MainActor [weak self] in
@@ -308,6 +302,26 @@ public final class HotkeyManager {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
     }
+}
+
+/// The tap callback, deliberately at file scope rather than a closure inside
+/// `start()`.
+///
+/// A closure literal written inside a @MainActor type inherits main-actor
+/// isolation. As a C function pointer it cannot hop, so the compiler emits a
+/// runtime isolation assertion at entry instead — which fires on the tap
+/// thread and kills the process with EXC_BREAKPOINT on the first key event.
+/// A file-scope function is nonisolated, so no check is emitted.
+private func hotkeyTapCallback(
+    proxy: CGEventTapProxy,
+    type: CGEventType,
+    event: CGEvent,
+    refcon: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+    guard let refcon else { return Unmanaged.passUnretained(event) }
+    let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+    manager.handleFromTap(type: type, event: event)
+    return Unmanaged.passUnretained(event)
 }
 
 /// Locked storage for the tap thread's run loop.
