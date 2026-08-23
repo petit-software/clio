@@ -25,6 +25,10 @@ rm -rf "$APP/Contents/Resources"
 mkdir -p "$APP/Contents/Resources"
 
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# The model catalog. Read through Bundle.main, so it belongs in Contents/
+# Resources -- see the comment in ModelCatalog.swift for why this is not a
+# SwiftPM resource bundle.
+cp Resources/models.json "$APP/Contents/Resources/models.json"
 
 # Copied to a temp name and moved into place: replacing the binary of a RUNNING
 # app in place fails, and a half-written executable is worse than an old one.

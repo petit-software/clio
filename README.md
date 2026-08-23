@@ -7,8 +7,9 @@ Full design in [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-s
 
 ## Status
 
-**Milestone 0 — skeleton.** The app runs, the four UI surfaces are in place, and
-the loop goes end to end: hotkey → record → overlay → clipboard → paste.
+**Milestones 0, 1, 3 and 4.** The app runs, the four UI surfaces are in place,
+the loop goes end to end — hotkey → record → overlay → clipboard → paste — and
+models can be downloaded, verified and deleted.
 
 Transcription is stubbed. `StubTranscriptionEngine` returns obviously-fake
 placeholder text on purpose — WhisperKit lands in Milestone 2 behind the
@@ -21,7 +22,7 @@ when it does.
 | 1 · Capture — hotkey down/up, push-to-talk and toggle | ✅ audio capture done; VAD pending |
 | 2 · ASR — WhisperKit, warm-load strategy | ⬜ |
 | 3 · Injection — paste with clipboard restore, secure-input fallback | ✅ |
-| 4 · Models — catalog, download, verify, auto-discovery | ⬜ |
+| 4 · Models — catalog, download, verify, auto-discovery | ✅ |
 | 5 · Polish — VAD, sounds, history | ⬜ overlay + settings done |
 | 6 · Ship — Developer ID, notarization, Sparkle, DMG | ⬜ |
 
@@ -54,6 +55,9 @@ Sources/WhisperbarCore/   no SwiftUI — testable on its own
   HotkeyManager           CGEventTap, push-to-talk and toggle
   PermissionsCoordinator  mic + Accessibility, polled
   AudioRecorder           AVAudioEngine → 16 kHz mono Float32
+  ModelCatalog            what we offer; bundled JSON + built-in fallback
+  ModelTransport          Hugging Face listing and download, SHA-256 verified
+  ModelManager            install, discover, delete, progress
   TranscriptionEngine     protocol + stub; WhisperKit goes here
   TranscriptFormatter     replacements, capitalization, initial prompt
   TextInjector            clipboard + synthesized ⌘V, with restore
@@ -68,6 +72,30 @@ Sources/Whisperbar/       the app
   UI/SettingsView         the seven tabs
   UI/OnboardingView       permission walkthrough
 ```
+
+## Models
+
+The catalog ships as `Resources/models.json`, copied into `Contents/Resources`
+and read through `Bundle.main`. `ModelCatalog.builtIn` is a compiled-in copy of
+the same list, used if the file is missing; a test asserts the two match so they
+cannot drift.
+
+**Not** a SwiftPM resource bundle. That accessor looks for its bundle at the root
+of the `.app` (which codesign does not want), otherwise falls back to a build
+path hardcoded to the machine that compiled it, and calls `fatalError` when it
+finds neither — a build that works locally and crashes everywhere else.
+
+The ids are the *quantized* variants. The spec's suggested sizes name them
+implicitly: `distil-whisper_distil-large-v3` is 1.5 GB on disk, and the ~600 MB
+model it means is `distil-whisper_distil-large-v3_594MB`.
+
+Files are verified against the SHA-256 that Hugging Face reports as the LFS
+`oid`, written to a `.partial` sibling and moved into place only once the hash
+matches. A folder counts as installed when it contains a `.mlmodelc`, so an
+interrupted download never reads as a working model.
+
+Models already in `~/.cache/huggingface/hub` are found and reused. Those are
+never deleted — they belong to whatever tool put them there.
 
 ## Two things that will bite you
 

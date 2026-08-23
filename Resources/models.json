@@ -1,0 +1,38 @@
+[
+  {
+    "id": "openai_whisper-tiny",
+    "displayName": "Whisper Tiny",
+    "repo": "argmaxinc/whisperkit-coreml",
+    "approximateBytes": 77000000,
+    "tier": "fast",
+    "languages": "multilingual",
+    "note": "Smallest download. Good for checking everything works."
+  },
+  {
+    "id": "openai_whisper-small_216MB",
+    "displayName": "Whisper Small",
+    "repo": "argmaxinc/whisperkit-coreml",
+    "approximateBytes": 217000000,
+    "tier": "fast",
+    "languages": "multilingual",
+    "note": "Low-RAM machines, multilingual."
+  },
+  {
+    "id": "distil-whisper_distil-large-v3_594MB",
+    "displayName": "Distil Large v3",
+    "repo": "argmaxinc/whisperkit-coreml",
+    "approximateBytes": 595000000,
+    "tier": "balanced",
+    "languages": "english",
+    "note": "Default. English, fast, accurate."
+  },
+  {
+    "id": "openai_whisper-large-v3_turbo_954MB",
+    "displayName": "Whisper Large v3 Turbo",
+    "repo": "argmaxinc/whisperkit-coreml",
+    "approximateBytes": 1053000000,
+    "tier": "best",
+    "languages": "multilingual",
+    "note": "Best quality, multilingual."
+  }
+]

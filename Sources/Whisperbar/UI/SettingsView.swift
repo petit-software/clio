@@ -161,18 +161,34 @@ private struct HotkeyRecorder: View {
 
 private struct ModelTab: View {
     @Bindable var coordinator: AppCoordinator
+    @State private var deleteError: String?
+
+    private var models: ModelManager { coordinator.models }
 
     var body: some View {
         Form {
             Section {
-                Label("No models installed yet.", systemImage: "shippingbox")
-                Text("Model download and selection arrive with the WhisperKit "
-                     + "engine in Milestone 2. Until then dictation runs against "
-                     + "a stub that returns placeholder text.")
+                ForEach(models.catalog) { model in
+                    ModelRow(coordinator: coordinator,
+                             model: model,
+                             deleteError: $deleteError)
+                }
+            } header: {
+                Text("Models")
+            } footer: {
+                Text("Models are downloaded once and run entirely on this Mac. "
+                     + "Whisperbar also finds models other tools have already "
+                     + "downloaded to the shared Hugging Face cache.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-            } header: {
-                Text("Installed")
+            }
+
+            if let deleteError {
+                Section {
+                    Label(deleteError, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .font(.callout)
+                }
             }
 
             Section {
@@ -184,8 +200,130 @@ private struct ModelTab: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Text("Transcription still runs against a stub. WhisperKit is "
+                     + "wired up in Milestone 2 — downloading a model now means "
+                     + "it is ready when that lands.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+        .onAppear { models.refreshInstalled() }
+    }
+}
+
+private struct ModelRow: View {
+    @Bindable var coordinator: AppCoordinator
+    let model: CatalogModel
+    @Binding var deleteError: String?
+
+    private var models: ModelManager { coordinator.models }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                // The active model is chosen by selecting an installed row,
+                // rather than a separate picker that can point at nothing.
+                Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                    .onTapGesture { if installed != nil { makeActive() } }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.displayName).font(.body)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+                controls
+            }
+
+            if let progress = models.downloads[model.id] {
+                VStack(alignment: .leading, spacing: 2) {
+                    ProgressView(value: progress.fraction)
+                    Text(progressLabel(progress))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let failure = models.failures[model.id] {
+                Text(failure)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        if models.isDownloading(model.id) {
+            Button("Cancel") { models.cancel(model.id) }
+                .controlSize(.small)
+        } else if let installed {
+            if models.canDelete(installed) {
+                Button("Delete", role: .destructive) { delete(installed) }
+                    .controlSize(.small)
+            } else {
+                Text("Shared cache")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Button("Download") { models.download(model) }
+                .controlSize(.small)
+        }
+    }
+
+    private var installed: InstalledModel? {
+        models.installed.first { $0.id == model.id }
+    }
+
+    private var isActive: Bool {
+        coordinator.settingsStore.settings.activeModelID == model.id
+    }
+
+    private var subtitle: String {
+        var parts = [model.tier.label, model.languages.label]
+        if let installed {
+            parts.append(Self.format(installed.sizeBytes) + " on disk")
+        } else {
+            parts.append(Self.format(model.approximateBytes) + " download")
+        }
+        if let note = model.note { parts.append(note) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func progressLabel(_ progress: DownloadProgress) -> String {
+        "\(Self.format(progress.receivedBytes)) of "
+        + "\(Self.format(progress.totalBytes)) · file "
+        + "\(progress.completedFiles + 1) of \(progress.totalFiles)"
+    }
+
+    private func makeActive() {
+        coordinator.settingsStore.settings.activeModelID = model.id
+    }
+
+    private func delete(_ installed: InstalledModel) {
+        do {
+            try models.delete(installed)
+            deleteError = nil
+            if isActive {
+                coordinator.settingsStore.settings.activeModelID = nil
+            }
+        } catch {
+            deleteError = error.localizedDescription
+        }
+    }
+
+    private static func format(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }
 

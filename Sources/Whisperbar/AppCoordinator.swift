@@ -22,6 +22,7 @@ public final class AppCoordinator {
 
     public let settingsStore: SettingsStore
     public let permissions: PermissionsCoordinator
+    public let models: ModelManager
 
     private let hotkeys = HotkeyManager()
     private let recorder = AudioRecorder()
@@ -35,10 +36,20 @@ public final class AppCoordinator {
 
     public init(settingsStore: SettingsStore = SettingsStore(),
                 permissions: PermissionsCoordinator = PermissionsCoordinator(),
+                models: ModelManager = ModelManager(),
                 engine: any TranscriptionEngine = StubTranscriptionEngine()) {
         self.settingsStore = settingsStore
         self.permissions = permissions
+        self.models = models
         self.engine = engine
+    }
+
+    /// The model transcription should use: whatever is selected, falling back
+    /// to any installed model so a fresh install works before the user has
+    /// picked one. Nil means nothing is installed yet.
+    public var activeModel: InstalledModel? {
+        models.installedModel(id: settingsStore.settings.activeModelID)
+            ?? models.installed.first
     }
 
     // MARK: Lifecycle
@@ -115,8 +126,8 @@ public final class AppCoordinator {
 
         // Warm the model while the user is still talking — cold load is what
         // dominates perceived latency (§5.4).
-        Task { [engine] in
-            try? await engine.load(model: Self.placeholderModel)
+        Task { [engine, model = activeModel ?? Self.placeholderModel] in
+            try? await engine.load(model: model)
         }
 
         // Runaway captures are capped rather than left to fill the buffer.
@@ -143,6 +154,7 @@ public final class AppCoordinator {
         state = .transcribing
         let settings = settingsStore.settings
 
+        let model = activeModel ?? Self.placeholderModel
         Task { [weak self, engine] in
             do {
                 let options = TranscribeOptions(
@@ -150,7 +162,7 @@ public final class AppCoordinator {
                     translateToEnglish: settings.translateToEnglish,
                     initialPrompt: TranscriptFormatter.initialPrompt(
                         from: settings.customVocabulary))
-                try await engine.load(model: Self.placeholderModel)
+                try await engine.load(model: model)
                 let transcript = try await engine.transcribe(samples: samples,
                                                              options: options)
                 await self?.deliver(transcript)
@@ -227,7 +239,9 @@ public final class AppCoordinator {
         TextInjector.copy(lastTranscript)
     }
 
-    /// Stands in for the real catalog until ModelManager lands in Milestone 4.
+    /// Used only while the engine is the stub, which ignores it. Once
+    /// WhisperKit lands, `activeModel` is the real answer and a nil there has
+    /// to become a visible "no model installed" error rather than this.
     private static let placeholderModel = InstalledModel(
         id: "stub",
         displayName: "Stub engine",
