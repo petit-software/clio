@@ -1,0 +1,5 @@
+.build/
+.swiftpm/
+*.xcodeproj
+Whisperbar.app/
+.DS_Store
