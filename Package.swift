@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "Whisperbar",
+    name: "Scribe",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "WhisperbarCore", targets: ["WhisperbarCore"]),
-        .executable(name: "Whisperbar", targets: ["Whisperbar"]),
+        .library(name: "ScribeCore", targets: ["ScribeCore"]),
+        .executable(name: "Scribe", targets: ["Scribe"]),
     ],
     dependencies: [
         // CoreML Whisper with an Apple Neural Engine path -- the whole reason
@@ -18,10 +18,10 @@ let package = Package(
         // Everything that is not SwiftUI: settings, permissions, the hotkey tap,
         // audio capture, transcription, text injection. Kept separate so the parts
         // with real logic are testable without standing up an app.
-        .target(name: "WhisperbarCore",
+        .target(name: "ScribeCore",
                 dependencies: [.product(name: "WhisperKit", package: "WhisperKit")]),
         // The app itself: menu bar, overlay panel, settings, onboarding.
-        .executableTarget(name: "Whisperbar", dependencies: ["WhisperbarCore"]),
-        .testTarget(name: "WhisperbarCoreTests", dependencies: ["WhisperbarCore"]),
+        .executableTarget(name: "Scribe", dependencies: ["ScribeCore"]),
+        .testTarget(name: "ScribeCoreTests", dependencies: ["ScribeCore"]),
     ]
 )

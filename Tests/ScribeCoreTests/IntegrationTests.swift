@@ -1,18 +1,18 @@
 import Testing
 import Foundation
 import WhisperKit
-@testable import WhisperbarCore
+@testable import ScribeCore
 
 /// End-to-end against the real Hugging Face repo and a real CoreML model.
 ///
 /// Off by default: it downloads ~81 MB and takes a while. Run it deliberately:
 ///
-///     WHISPERBAR_INTEGRATION=1 swift test --filter Integration
+///     SCRIBE_INTEGRATION=1 swift test --filter Integration
 ///
 /// It is the only thing that actually proves the ASR path works, so it exists
 /// rather than being replaced by a mock that always agrees with us.
 private let integrationEnabled =
-    ProcessInfo.processInfo.environment["WHISPERBAR_INTEGRATION"] != nil
+    ProcessInfo.processInfo.environment["SCRIBE_INTEGRATION"] != nil
 
 @Suite("Integration", .enabled(if: integrationEnabled))
 struct IntegrationTests {
@@ -21,7 +21,7 @@ struct IntegrationTests {
     /// carries no audio fixture.
     private func makeSpokenAudio(_ phrase: String) throws -> [Float] {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("whisperbar-say-\(UUID().uuidString)")
+            .appendingPathComponent("scribe-say-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory,
                                                 withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -40,7 +40,7 @@ struct IntegrationTests {
     @Test("A downloaded model transcribes real speech, entirely offline")
     func endToEnd() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("whisperbar-integration-\(UUID().uuidString)")
+            .appendingPathComponent("scribe-integration-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root,
                                                 withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

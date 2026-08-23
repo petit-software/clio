@@ -82,7 +82,7 @@ public actor StubTranscriptionEngine: TranscriptionEngine {
         try await Task.sleep(for: latency)
         let seconds = Double(samples.count) / AudioRecorder.sampleRate
         let text = String(
-            format: "[Whisperbar stub] captured %.1fs of audio (%d samples). "
+            format: "[Scribe stub] captured %.1fs of audio (%d samples). "
                   + "Real transcription arrives in Milestone 2.",
             seconds, samples.count)
         return Transcript(text: text, language: options.language, duration: seconds)

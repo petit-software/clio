@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
-import WhisperbarCore
+import ScribeCore
 
 /// Wires the hotkey, the recorder, the engine and the injector into the state
 /// machine from §4, and owns the one piece of state every UI surface reads.
@@ -109,7 +109,7 @@ public final class AppCoordinator {
         resetTask?.cancel()
 
         guard permissions.microphone.isGranted else {
-            fail("Whisperbar needs microphone access.")
+            fail("Scribe needs microphone access.")
             return
         }
 

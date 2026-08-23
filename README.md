@@ -1,4 +1,4 @@
-# Whisperbar
+# Scribe
 
 Native macOS dictation. Hold a key, speak, get text pasted into whatever app
 you're in. Fully offline — local models only.
@@ -7,7 +7,7 @@ Full design in [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-s
 
 ## Status
 
-**Milestones 0–4, less VAD.** Whisperbar dictates: hold the shortcut, speak,
+**Milestones 0–4, less VAD.** Scribe dictates: hold the shortcut, speak,
 and the text lands in the app you were typing in. Real transcription, on
 device, no network.
 
@@ -29,8 +29,8 @@ protocol — it makes the UI testable without loading a model.
 ```sh
 swift build            # library + executable
 swift test             # unit tests, no network
-./scripts/build-app.sh # Whisperbar.app, ad-hoc signed
-open Whisperbar.app
+./scripts/build-app.sh # Scribe.app, ad-hoc signed
+open Scribe.app
 ```
 
 The end-to-end test is off by default — it downloads ~81 MB and takes about
@@ -38,7 +38,7 @@ The end-to-end test is off by default — it downloads ~81 MB and takes about
 run it when touching the engine:
 
 ```sh
-WHISPERBAR_INTEGRATION=1 swift test --filter Integration
+SCRIBE_INTEGRATION=1 swift test --filter Integration
 ```
 
 It installs the tiny model, speaks a sentence through `say`, transcribes it,
@@ -56,7 +56,7 @@ signed with a stable Developer ID identity (Milestone 6).
 ## Layout
 
 ```
-Sources/WhisperbarCore/   no SwiftUI — testable on its own
+Sources/ScribeCore/   no SwiftUI — testable on its own
   AppPaths                where things live on disk
   Settings                one Codable struct, one JSON file
   SettingsStore           debounced, atomic writes
@@ -73,8 +73,8 @@ Sources/WhisperbarCore/   no SwiftUI — testable on its own
   TextInjector            clipboard + synthesized ⌘V, with restore
   DictationState          the state machine
 
-Sources/Whisperbar/       the app
-  WhisperbarApp           @main, MenuBarExtra + Settings scene
+Sources/Scribe/       the app
+  ScribeApp           @main, MenuBarExtra + Settings scene
   AppCoordinator          wires it all together
   UI/MenuBarView          system menu
   UI/OverlayController    non-activating NSPanel

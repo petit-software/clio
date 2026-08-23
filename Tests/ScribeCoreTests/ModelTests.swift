@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import WhisperbarCore
+@testable import ScribeCore
 
 // MARK: - Helpers
 
@@ -10,7 +10,7 @@ private let noCache = URL(fileURLWithPath: "/nonexistent/huggingface-cache")
 
 private func makeTempDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("whisperbar-models-\(UUID().uuidString)")
+        .appendingPathComponent("scribe-models-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
@@ -61,7 +61,7 @@ private func remoteFiles(id: String) -> [RemoteFile] {
 /// is run from.
 private var repositoryCatalogURL: URL {
     URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()   // WhisperbarCoreTests
+        .deletingLastPathComponent()   // ScribeCoreTests
         .deletingLastPathComponent()   // Tests
         .deletingLastPathComponent()   // repo root
         .appendingPathComponent("Resources/models.json")

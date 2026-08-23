@@ -24,7 +24,7 @@ final class OnboardingWindowController {
             backing: .buffered,
             defer: false)
 
-        window.title = "Welcome to Whisperbar"
+        window.title = "Welcome to Scribe"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.center()

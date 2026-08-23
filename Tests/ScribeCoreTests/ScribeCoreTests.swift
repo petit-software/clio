@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import WhisperbarCore
+@testable import ScribeCore
 
 // MARK: - Settings persistence
 
@@ -8,26 +8,26 @@ import Foundation
 @Test("Settings round-trip through disk")
 func settingsRoundTrip() throws {
     let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("whisperbar-test-\(UUID().uuidString).json")
+        .appendingPathComponent("scribe-test-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: url) }
 
     let store = SettingsStore(fileURL: url)
     store.settings.capitalizeFirstLetter = false
     store.settings.maxRecordingSeconds = 45
-    store.settings.customVocabulary = ["Whisperbar", "WhisperKit"]
+    store.settings.customVocabulary = ["Scribe", "WhisperKit"]
     store.flush()
 
     let reloaded = SettingsStore(fileURL: url)
     #expect(reloaded.settings.capitalizeFirstLetter == false)
     #expect(reloaded.settings.maxRecordingSeconds == 45)
-    #expect(reloaded.settings.customVocabulary == ["Whisperbar", "WhisperKit"])
+    #expect(reloaded.settings.customVocabulary == ["Scribe", "WhisperKit"])
 }
 
 @MainActor
 @Test("A corrupt settings file falls back to defaults and is kept")
 func corruptSettingsFallsBack() throws {
     let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("whisperbar-test-\(UUID().uuidString).json")
+        .appendingPathComponent("scribe-test-\(UUID().uuidString).json")
     defer {
         try? FileManager.default.removeItem(at: url)
         try? FileManager.default.removeItem(at: url.appendingPathExtension("corrupt"))
@@ -86,8 +86,8 @@ func replacementsIgnoreCaseAndBlanks() {
 func vocabularyBecomesPrompt() {
     #expect(TranscriptFormatter.initialPrompt(from: []) == nil)
     #expect(TranscriptFormatter.initialPrompt(from: ["  ", ""]) == nil)
-    #expect(TranscriptFormatter.initialPrompt(from: ["Bart", " Whisperbar "])
-            == "Bart, Whisperbar")
+    #expect(TranscriptFormatter.initialPrompt(from: ["Bart", " Scribe "])
+            == "Bart, Scribe")
 }
 
 // MARK: - Hotkey

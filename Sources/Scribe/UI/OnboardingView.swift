@@ -1,5 +1,5 @@
 import SwiftUI
-import WhisperbarCore
+import ScribeCore
 
 /// The permission walkthrough (§7).
 ///
@@ -13,7 +13,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Welcome to Whisperbar")
+                Text("Welcome to Scribe")
                     .font(.title2.weight(.semibold))
                 Text("Dictation that never leaves your Mac. Two permissions and "
                      + "you're set.")
@@ -22,7 +22,7 @@ struct OnboardingView: View {
 
             step(number: 1,
                  title: "Microphone",
-                 detail: "So Whisperbar can hear you. Audio is transcribed on "
+                 detail: "So Scribe can hear you. Audio is transcribed on "
                        + "device and never uploaded.",
                  state: coordinator.permissions.microphone,
                  primary: "Allow Microphone",
@@ -31,7 +31,7 @@ struct OnboardingView: View {
 
             step(number: 2,
                  title: "Accessibility",
-                 detail: "So Whisperbar can see its shortcut and paste into the "
+                 detail: "So Scribe can see its shortcut and paste into the "
                        + "app you're typing in. macOS requires you to grant this "
                        + "in System Settings.",
                  state: coordinator.permissions.accessibility,

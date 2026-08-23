@@ -1,6 +1,6 @@
 //
 //  HotkeyManager.swift
-//  Whisperbar
+//  Scribe
 //
 //  Global hotkey handling for push-to-talk and toggle dictation.
 //
@@ -142,7 +142,7 @@ final class HotkeyManager {
                 CFRunLoopRunInMode(.defaultMode, 0.25, false)
             }
         }
-        thread.name = "com.whisperbar.hotkey-tap"
+        thread.name = "com.scribe.hotkey-tap"
         thread.qualityOfService = .userInteractive
         thread.start()
         tapThread = thread
@@ -333,7 +333,7 @@ enum HotkeyError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .accessibilityNotTrusted:
-            return "Whisperbar needs Accessibility access to listen for its shortcut."
+            return "Scribe needs Accessibility access to listen for its shortcut."
         case .tapCreationFailed:
             return "Could not create the keyboard event tap."
         }

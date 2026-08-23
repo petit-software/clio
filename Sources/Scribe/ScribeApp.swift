@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
-import WhisperbarCore
+import ScribeCore
 
 @main
-struct WhisperbarApp: App {
+struct ScribeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {

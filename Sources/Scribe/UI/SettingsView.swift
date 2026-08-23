@@ -1,7 +1,7 @@
 import Carbon.HIToolbox
 import ServiceManagement
 import SwiftUI
-import WhisperbarCore
+import ScribeCore
 
 /// The tabs from §6. Model and Audio-device pickers are intentionally thin
 /// here — ModelManager is Milestone 4 — but every control that Milestone 0 can
@@ -177,7 +177,7 @@ private struct ModelTab: View {
                 Text("Models")
             } footer: {
                 Text("Models are downloaded once and run entirely on this Mac. "
-                     + "Whisperbar also finds models other tools have already "
+                     + "Scribe also finds models other tools have already "
                      + "downloaded to the shared Hugging Face cache.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -450,7 +450,7 @@ private struct OutputTab: View {
             } footer: {
                 Text("The transcript always lands on the clipboard. Password "
                      + "fields and some terminals block synthetic keystrokes; "
-                     + "there Whisperbar copies instead and tells you.")
+                     + "there Scribe copies instead and tells you.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

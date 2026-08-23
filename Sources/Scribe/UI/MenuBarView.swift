@@ -1,5 +1,5 @@
 import SwiftUI
-import WhisperbarCore
+import ScribeCore
 
 /// The system menu: what state we're in, the shortcut, and the few actions
 /// worth having without opening Settings.
@@ -37,7 +37,7 @@ struct MenuBarView: View {
             SettingsLink { Text("Settings…") }
                 .keyboardShortcut(",", modifiers: .command)
 
-            Button("Quit Whisperbar") {
+            Button("Quit Scribe") {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q", modifiers: .command)

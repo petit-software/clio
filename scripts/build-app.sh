@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Whisperbar.app from the current checkout.
+# Build Scribe.app from the current checkout.
 #
 # SwiftPM produces a bare executable, and a bare executable has no Info.plist —
 # so it cannot own a bundle identifier, request the microphone, or hide its Dock
@@ -13,11 +13,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP="Whisperbar.app"
+APP="Scribe.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
 
-echo "Building Whisperbar $VERSION — release…"
-swift build -c release --product Whisperbar
+echo "Building Scribe $VERSION — release…"
+swift build -c release --product Scribe
 
 mkdir -p "$APP/Contents/MacOS"
 # Rebuilt from scratch so a renamed or dropped resource cannot linger.
@@ -32,14 +32,14 @@ cp Resources/models.json "$APP/Contents/Resources/models.json"
 
 # Copied to a temp name and moved into place: replacing the binary of a RUNNING
 # app in place fails, and a half-written executable is worse than an old one.
-cp ".build/release/Whisperbar" "$APP/Contents/MacOS/Whisperbar.new"
-mv "$APP/Contents/MacOS/Whisperbar.new" "$APP/Contents/MacOS/Whisperbar"
+cp ".build/release/Scribe" "$APP/Contents/MacOS/Scribe.new"
+mv "$APP/Contents/MacOS/Scribe.new" "$APP/Contents/MacOS/Scribe"
 
 codesign --force --sign - \
-	--entitlements Resources/Whisperbar.entitlements \
+	--entitlements Resources/Scribe.entitlements \
 	--options runtime \
 	"$APP" 2>/dev/null || codesign --force --sign - \
-	--entitlements Resources/Whisperbar.entitlements \
+	--entitlements Resources/Scribe.entitlements \
 	"$APP"
 
 echo "Built $APP"

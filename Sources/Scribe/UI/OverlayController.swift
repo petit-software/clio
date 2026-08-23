@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
-import WhisperbarCore
+import ScribeCore
 
 /// What the overlay draws. Deliberately smaller than the coordinator: the
 /// panel gets state and a level, nothing else. That also keeps the ownership

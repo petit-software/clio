@@ -1,8 +1,8 @@
-# Whisperbar — Native macOS Dictation App
+# Scribe — Native macOS Dictation App
 
 *A Swift/SwiftUI rewrite of the Handy concept: press a key, speak, get text pasted into whatever app you're in. Fully offline, local models only.*
 
-Working codename: **Whisperbar**. (Handy's MIT license covers its code, not its name, logo, or icon — pick your own branding.)
+Name: **Scribe**. (Handy's MIT license covers its code, not its name, logo, or icon, so the branding here is our own.)
 
 ---
 
@@ -30,7 +30,7 @@ Working codename: **Whisperbar**. (Handy's MIT license covers its code, not its 
 
 ## 2. What Handy does and how we diverge
 
-| Concern | Handy | Whisperbar |
+| Concern | Handy | Scribe |
 |---|---|---|
 | Shell | Tauri (Rust + WebView) | Native SwiftUI, no webview |
 | Audio I/O | `cpal` | `AVAudioEngine` |
@@ -60,7 +60,7 @@ The big win of going native is the Apple Neural Engine. WhisperKit runs the enco
 ## 4. Architecture
 
 ```
-WhisperbarApp (SwiftUI @main)
+ScribeApp (SwiftUI @main)
 ├── AppCoordinator            state machine, wires everything
 ├── HotkeyManager             CGEventTap, push-to-talk & toggle
 ├── PermissionsCoordinator    mic + Accessibility, onboarding flow
