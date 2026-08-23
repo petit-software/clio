@@ -201,12 +201,13 @@ private struct ModelTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section {
-                Text("Transcription still runs against a stub. WhisperKit is "
-                     + "wired up in Milestone 2 — downloading a model now means "
-                     + "it is ready when that lands.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            if models.installed.isEmpty {
+                Section {
+                    Label("Download a model to start dictating.",
+                          systemImage: "arrow.down.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)

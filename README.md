@@ -7,33 +7,42 @@ Full design in [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-s
 
 ## Status
 
-**Milestones 0, 1, 3 and 4.** The app runs, the four UI surfaces are in place,
-the loop goes end to end — hotkey → record → overlay → clipboard → paste — and
-models can be downloaded, verified and deleted.
+**Milestones 0–4, less VAD.** Whisperbar dictates: hold the shortcut, speak,
+and the text lands in the app you were typing in. Real transcription, on
+device, no network.
 
-Transcription is stubbed. `StubTranscriptionEngine` returns obviously-fake
-placeholder text on purpose — WhisperKit lands in Milestone 2 behind the
-existing `TranscriptionEngine` protocol, and nothing above that seam changes
-when it does.
+`StubTranscriptionEngine` is still there behind the `TranscriptionEngine`
+protocol — it makes the UI testable without loading a model.
 
 | Milestone | State |
 |---|---|
 | 0 · Skeleton — menu bar, settings, onboarding, permissions | ✅ |
-| 1 · Capture — hotkey down/up, push-to-talk and toggle | ✅ audio capture done; VAD pending |
-| 2 · ASR — WhisperKit, warm-load strategy | ⬜ |
+| 1 · Capture — hotkey down/up, push-to-talk and toggle | ✅ |
+| 2 · ASR — WhisperKit, warm-load strategy | ✅ |
 | 3 · Injection — paste with clipboard restore, secure-input fallback | ✅ |
 | 4 · Models — catalog, download, verify, auto-discovery | ✅ |
-| 5 · Polish — VAD, sounds, history | ⬜ overlay + settings done |
+| 5 · Polish — VAD, sounds, history | ⬜ overlay + settings done; VAD and sounds pending |
 | 6 · Ship — Developer ID, notarization, Sparkle, DMG | ⬜ |
 
 ## Build
 
 ```sh
 swift build            # library + executable
-swift test             # unit tests
+swift test             # unit tests, no network
 ./scripts/build-app.sh # Whisperbar.app, ad-hoc signed
 open Whisperbar.app
 ```
+
+The end-to-end test is off by default — it downloads ~81 MB and takes about
+20 seconds. It is the only thing that actually proves the ASR path works, so
+run it when touching the engine:
+
+```sh
+WHISPERBAR_INTEGRATION=1 swift test --filter Integration
+```
+
+It installs the tiny model, speaks a sentence through `say`, transcribes it,
+and asserts the words come back.
 
 Requires macOS 14+ and Swift 6.
 
@@ -58,7 +67,8 @@ Sources/WhisperbarCore/   no SwiftUI — testable on its own
   ModelCatalog            what we offer; bundled JSON + built-in fallback
   ModelTransport          Hugging Face listing and download, SHA-256 verified
   ModelManager            install, discover, delete, progress
-  TranscriptionEngine     protocol + stub; WhisperKit goes here
+  TranscriptionEngine     the protocol, plus a stub for testing
+  WhisperKitEngine        CoreML on the Neural Engine — the real one
   TranscriptFormatter     replacements, capitalization, initial prompt
   TextInjector            clipboard + synthesized ⌘V, with restore
   DictationState          the state machine
@@ -96,6 +106,14 @@ interrupted download never reads as a working model.
 
 Models already in `~/.cache/huggingface/hub` are found and reused. Those are
 never deleted — they belong to whatever tool put them there.
+
+**The tokenizer is installed alongside the model.** WhisperKit's CoreML folders
+carry no `tokenizer.json`, so WhisperKit would fetch one from the network on
+first load — which would quietly break the whole promise of the app. Each
+install also pulls the matching `openai/whisper-*` tokenizer into a `tokenizer/`
+subfolder (a subfolder because that repo has its own `config.json`, which next
+to the model would overwrite WhisperKit's), and the engine is configured with
+`download: false` so it cannot go looking.
 
 ## Two things that will bite you
 

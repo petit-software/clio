@@ -34,17 +34,24 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var displayName: String
     public var repo: String
+    /// The matching `openai/whisper-*` repo, whose tokenizer WhisperKit needs.
+    /// The CoreML model folders do not carry one, so we install it alongside —
+    /// otherwise the first transcription reaches for the network, which the
+    /// whole point of this app is not to do.
+    public var tokenizerRepo: String?
     public var approximateBytes: Int64
     public var tier: QualityTier
     public var languages: ModelLanguages
     public var note: String?
 
     public init(id: String, displayName: String, repo: String,
+                tokenizerRepo: String? = nil,
                 approximateBytes: Int64, tier: QualityTier,
                 languages: ModelLanguages, note: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.repo = repo
+        self.tokenizerRepo = tokenizerRepo
         self.approximateBytes = approximateBytes
         self.tier = tier
         self.languages = languages
@@ -94,6 +101,7 @@ public enum ModelCatalog {
             id: "openai_whisper-tiny",
             displayName: "Whisper Tiny",
             repo: "argmaxinc/whisperkit-coreml",
+            tokenizerRepo: "openai/whisper-tiny",
             approximateBytes: 77_000_000,
             tier: .fast,
             languages: .multilingual,
@@ -102,6 +110,7 @@ public enum ModelCatalog {
             id: "openai_whisper-small_216MB",
             displayName: "Whisper Small",
             repo: "argmaxinc/whisperkit-coreml",
+            tokenizerRepo: "openai/whisper-small",
             approximateBytes: 217_000_000,
             tier: .fast,
             languages: .multilingual,
@@ -110,6 +119,7 @@ public enum ModelCatalog {
             id: "distil-whisper_distil-large-v3_594MB",
             displayName: "Distil Large v3",
             repo: "argmaxinc/whisperkit-coreml",
+            tokenizerRepo: "openai/whisper-large-v3",
             approximateBytes: 595_000_000,
             tier: .balanced,
             languages: .english,
@@ -118,6 +128,7 @@ public enum ModelCatalog {
             id: "openai_whisper-large-v3_turbo_954MB",
             displayName: "Whisper Large v3 Turbo",
             repo: "argmaxinc/whisperkit-coreml",
+            tokenizerRepo: "openai/whisper-large-v3",
             approximateBytes: 1_053_000_000,
             tier: .best,
             languages: .multilingual,

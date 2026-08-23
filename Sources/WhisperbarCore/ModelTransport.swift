@@ -53,8 +53,10 @@ public struct HuggingFaceTransport: ModelTransport {
     }
 
     public func list(repo: String, path: String) async throws -> [RemoteFile] {
+        // An empty path means the repo root; the API wants no trailing slash.
+        let suffix = path.isEmpty ? "" : "/\(path)"
         var components = URLComponents(
-            string: "https://huggingface.co/api/models/\(repo)/tree/main/\(path)")!
+            string: "https://huggingface.co/api/models/\(repo)/tree/main\(suffix)")!
         components.queryItems = [URLQueryItem(name: "recursive", value: "true")]
 
         let (data, response) = try await session.data(from: components.url!)

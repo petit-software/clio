@@ -165,15 +165,45 @@ public final class ModelManager {
         refreshInstalled()
     }
 
+    /// Where the tokenizer for an installed model lives.
+    ///
+    /// A subfolder rather than the model folder itself: the tokenizer repo has
+    /// its own `config.json`, and dropping that next to WhisperKit's would
+    /// overwrite it.
+    public nonisolated static func tokenizerDirectory(for model: InstalledModel) -> URL {
+        model.url.appendingPathComponent("tokenizer", isDirectory: true)
+    }
+
+    /// Model weights only — the tokenizer repo also carries PyTorch, TF and
+    /// ONNX copies of the model that we have no use for.
+    static let weightExtensions: Set<String> = [
+        "bin", "safetensors", "msgpack", "h5", "onnx", "ot", "pt", "ckpt",
+    ]
+
     private func performDownload(_ model: CatalogModel) async {
         defer { tasks[model.id] = nil }
 
         do {
-            let files = try await transport.list(repo: model.repo, path: model.id)
-            let total = files.reduce(Int64(0)) { $0 + $1.size }
+            var files = try await transport.list(repo: model.repo, path: model.id)
+                .map { (file: $0, subdirectory: String?.none) }
+
+            if let tokenizerRepo = model.tokenizerRepo {
+                let tokenizerFiles = try await transport.list(repo: tokenizerRepo, path: "")
+                    .filter { file in
+                        let ext = (file.path as NSString).pathExtension.lowercased()
+                        return !Self.weightExtensions.contains(ext)
+                    }
+                files.append(contentsOf: tokenizerFiles.map { (file: $0, subdirectory: "tokenizer") })
+            }
+
+            let total = files.reduce(Int64(0)) { $0 + $1.file.size }
+            // Captured as a plain Int: the progress callback is @Sendable, and
+            // reaching into `files` from inside it would send a non-Sendable
+            // array across isolation.
+            let fileCount = files.count
             downloads[model.id] = DownloadProgress(
                 receivedBytes: 0, totalBytes: total,
-                completedFiles: 0, totalFiles: files.count)
+                completedFiles: 0, totalFiles: fileCount)
 
             let destinationRoot = modelsDirectory.appendingPathComponent(model.id)
             try FileManager.default.createDirectory(
@@ -181,15 +211,19 @@ public final class ModelManager {
 
             var completedBytes: Int64 = 0
 
-            for (index, file) in files.enumerated() {
+            for (index, entry) in files.enumerated() {
                 try Task.checkCancellation()
+                let file = entry.file
 
                 // Paths in the listing are repo-relative and start with the
                 // model id; strip it so the folder is not nested twice.
                 let relative = file.path.hasPrefix(model.id + "/")
                     ? String(file.path.dropFirst(model.id.count + 1))
                     : file.path
-                let destination = destinationRoot.appendingPathComponent(relative)
+                let destination = entry.subdirectory
+                    .map { destinationRoot.appendingPathComponent($0)
+                                          .appendingPathComponent(relative) }
+                    ?? destinationRoot.appendingPathComponent(relative)
 
                 // Already there and the right size — a retry after a failure
                 // resumes at file granularity rather than starting over.
@@ -198,26 +232,29 @@ public final class ModelManager {
                     completedBytes += file.size
                     downloads[model.id] = DownloadProgress(
                         receivedBytes: completedBytes, totalBytes: total,
-                        completedFiles: index + 1, totalFiles: files.count)
+                        completedFiles: index + 1, totalFiles: fileCount)
                     continue
                 }
 
                 let base = completedBytes
+                let sourceRepo = entry.subdirectory == nil
+                    ? model.repo
+                    : (model.tokenizerRepo ?? model.repo)
                 try await transport.download(
-                    repo: model.repo, file: file, to: destination
+                    repo: sourceRepo, file: file, to: destination
                 ) { [weak self] received in
                     Task { @MainActor [weak self] in
                         guard let self, self.downloads[model.id] != nil else { return }
                         self.downloads[model.id] = DownloadProgress(
                             receivedBytes: base + received, totalBytes: total,
-                            completedFiles: index, totalFiles: files.count)
+                            completedFiles: index, totalFiles: fileCount)
                     }
                 }
 
                 completedBytes += file.size
                 downloads[model.id] = DownloadProgress(
                     receivedBytes: completedBytes, totalBytes: total,
-                    completedFiles: index + 1, totalFiles: files.count)
+                    completedFiles: index + 1, totalFiles: fileCount)
             }
 
             downloads[model.id] = nil

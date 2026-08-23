@@ -37,7 +37,7 @@ public final class AppCoordinator {
     public init(settingsStore: SettingsStore = SettingsStore(),
                 permissions: PermissionsCoordinator = PermissionsCoordinator(),
                 models: ModelManager = ModelManager(),
-                engine: any TranscriptionEngine = StubTranscriptionEngine()) {
+                engine: any TranscriptionEngine = WhisperKitEngine()) {
         self.settingsStore = settingsStore
         self.permissions = permissions
         self.models = models
@@ -125,9 +125,10 @@ public final class AppCoordinator {
         overlay?.show(position: settings.overlayPosition)
 
         // Warm the model while the user is still talking — cold load is what
-        // dominates perceived latency (§5.4).
-        Task { [engine, model = activeModel ?? Self.placeholderModel] in
-            try? await engine.load(model: model)
+        // dominates perceived latency (§5.4). Failures are swallowed here on
+        // purpose; finishRecording loads again and reports properly.
+        if let model = activeModel {
+            Task { [engine] in try? await engine.load(model: model) }
         }
 
         // Runaway captures are capped rather than left to fill the buffer.
@@ -151,10 +152,14 @@ public final class AppCoordinator {
             return
         }
 
+        guard let model = activeModel else {
+            fail("No model installed — open Settings ▸ Model to download one.")
+            return
+        }
+
         state = .transcribing
         let settings = settingsStore.settings
 
-        let model = activeModel ?? Self.placeholderModel
         Task { [weak self, engine] in
             do {
                 let options = TranscribeOptions(
@@ -239,12 +244,4 @@ public final class AppCoordinator {
         TextInjector.copy(lastTranscript)
     }
 
-    /// Used only while the engine is the stub, which ignores it. Once
-    /// WhisperKit lands, `activeModel` is the real answer and a nil there has
-    /// to become a visible "no model installed" error rather than this.
-    private static let placeholderModel = InstalledModel(
-        id: "stub",
-        displayName: "Stub engine",
-        sizeBytes: 0,
-        url: AppPaths.modelsDirectory)
 }
