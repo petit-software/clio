@@ -54,12 +54,32 @@ if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
 	exit 1
 fi
 
-echo "==> Signing updates in $UPDATES_DIR and writing the appcast"
+# Only this version's disk image is fed to the generator.
+#
+# --download-url-prefix is a single prefix applied to every item, and GitHub
+# puts each release's assets under its own tag. Hand the generator a directory
+# holding two versions and the older one is written with this version's tag in
+# its URL -- a download that 404s, offered to exactly the users furthest behind.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+cp "$UPDATES_DIR/Clio-$VERSION.dmg" "$STAGE/" 2>/dev/null || {
+	echo "error: $UPDATES_DIR/Clio-$VERSION.dmg not found — run scripts/release.sh" >&2
+	exit 66
+}
+
+OTHERS="$(ls "$UPDATES_DIR"/*.dmg 2>/dev/null | grep -cv "Clio-$VERSION.dmg" || true)"
+if [ "$OTHERS" -gt 0 ]; then
+	echo "note: ignoring $OTHERS disk image(s) for other versions in $UPDATES_DIR."
+	echo "      Sparkle only needs the newest; older items would be written with"
+	echo "      this release's tag in their download URL."
+fi
+
+echo "==> Signing Clio $VERSION and writing the appcast"
 "$TOOL" \
 	--download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" \
 	--link "https://github.com/$REPO/releases" \
 	-o "$UPDATES_DIR/appcast.xml" \
-	"$UPDATES_DIR"
+	"$STAGE"
 
 echo
 echo "Wrote $UPDATES_DIR/appcast.xml"
