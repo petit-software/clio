@@ -68,7 +68,11 @@ struct OverlayView: View {
             Circle()
                 .fill(Self.recordDot)
                 .frame(width: h * 0.21, height: h * 0.21)
-                .padding(.leading, h * 0.25)
+                // 8pt beyond the drawing's inset. The record dot is small and
+                // round where the other states lead with a spinner or a run of
+                // text, so the same measured padding leaves it looking closer
+                // to the edge than they do.
+                .padding(.leading, h * 0.25 + 8)
                 .padding(.trailing, h * 0.29)
         case .transcribing, .injecting:
             Spinner(diameter: h * 0.29, colour: ink)

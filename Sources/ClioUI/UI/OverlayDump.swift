@@ -40,6 +40,7 @@ public enum OverlayDump {
         default: state = .recording
         }
         controller.model.level = 0.75
+        controller.model.captureIsLive = true
         if let raw = ProcessInfo.processInfo.environment["CLIO_OVERLAY_OPACITY"],
            let value = Double(raw) {
             controller.model.surface = PillSurface(opacity: value)
@@ -71,10 +72,19 @@ public enum OverlayDump {
             return model
         }
 
-        rows.append(("recording", model { $0.state = .recording; $0.level = 0.75 }))
-        rows.append(("recording-quiet", model { $0.state = .recording; $0.level = 0.1 }))
+        // captureIsLive matters: without it the meter renders dimmed and flat,
+        // which is the waking pose rather than the recording one.
+        rows.append(("recording", model {
+            $0.state = .recording; $0.level = 0.75; $0.captureIsLive = true
+        }))
+        rows.append(("recording-quiet", model {
+            $0.state = .recording; $0.level = 0.1; $0.captureIsLive = true
+        }))
+        rows.append(("recording-waking", model {
+            $0.state = .recording; $0.level = 0.75   // captureIsLive stays false
+        }))
         rows.append(("recording-near-limit", model {
-            $0.state = .recording; $0.level = 0.6
+            $0.state = .recording; $0.level = 0.6; $0.captureIsLive = true
             $0.progress = RecordingProgress(elapsed: 588, limit: 600)
         }))
         rows.append(("transcribing", model { $0.state = .transcribing }))
