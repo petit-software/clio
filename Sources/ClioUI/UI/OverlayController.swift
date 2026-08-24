@@ -173,7 +173,12 @@ public final class OverlayController {
         panel.isFloatingPanel = true
         // Set per state by update(state:) — see there.
         panel.ignoresMouseEvents = true
-        panel.hasShadow = true
+        // The window draws NO shadow of its own. macOS derives one from the
+        // content's alpha and caches it, and this panel both resizes per state
+        // and is translucent — so the cached shape goes stale and renders as a
+        // hard outline tracing a pill that is no longer there. The shadow in
+        // OverlayView follows the capsule exactly and redraws with it.
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
