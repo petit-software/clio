@@ -596,6 +596,32 @@ private struct AboutTab: View {
                                value: coordinator.isHotkeyRunning ? "Running" : "Stopped")
             }
 
+            if let updates = coordinator.updates {
+                Section {
+                    Toggle("Check for updates automatically", isOn: Binding(
+                        get: { updates.automaticallyChecks },
+                        set: { updates.automaticallyChecks = $0 }))
+
+                    LabeledContent("Last checked") {
+                        Text(updates.lastCheckDate.map {
+                            $0.formatted(date: .abbreviated, time: .shortened)
+                        } ?? "Never")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("Check Now") { updates.checkForUpdates() }
+                        .disabled(!updates.canCheck)
+                } header: {
+                    Text("Updates")
+                } footer: {
+                    Text("Scribe is distributed outside the App Store, so this "
+                         + "is how fixes reach you. Updates are downloaded only "
+                         + "after you agree to them.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section {
                 PermissionBanner(coordinator: coordinator)
             } header: {

@@ -29,7 +29,7 @@ struct ScribeApp: App {
 /// quit inside the debounce window would otherwise lose the last change.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let coordinator = AppCoordinator()
+    let coordinator = AppCoordinator(updates: UpdateManager())
     private let onboarding = OnboardingWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {

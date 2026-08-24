@@ -54,6 +54,11 @@ struct MenuBarView: View {
             SettingsLink { Text("Settings…") }
                 .keyboardShortcut(",", modifiers: .command)
 
+            if let updates = coordinator.updates {
+                Button("Check for Updates…") { updates.checkForUpdates() }
+                    .disabled(!updates.canCheck)
+            }
+
             Button("Quit Scribe") {
                 NSApplication.shared.terminate(nil)
             }

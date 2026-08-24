@@ -22,7 +22,7 @@ protocol — it makes the UI testable without loading a model.
 | 3 · Injection — paste with clipboard restore, secure-input fallback | ✅ |
 | 4 · Models — catalog, download, verify, auto-discovery | ✅ |
 | 5 · Polish — VAD, sounds, history | ✅ |
-| 6 · Ship — Developer ID, notarization, Sparkle, DMG | ⬜ |
+| 6 · Ship — Developer ID, notarization, Sparkle, DMG | ✅ (app icon still missing) |
 
 ## Build
 
@@ -263,6 +263,42 @@ To look at it after a change:
 ```sh
 SCRIBE_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 ```
+
+## Updates
+
+Scribe ships outside the App Store, so Sparkle is the only route a fix has to
+someone who already downloaded it.
+
+- **Feed:** `https://petit-software.github.io/clio/appcast.xml`, served from
+  this repo's `docs/` by GitHub Pages
+- **Downloads:** releases on this repo, attached as DMGs
+- **Signing:** EdDSA, private key in the developer's Keychain, public half in
+  the signed `Info.plist`
+
+Updates are offered, never applied silently. Scribe is held open by a global
+event tap and may be mid-dictation; relaunching underneath someone in the
+middle of a sentence is worse than waiting for them to say yes.
+
+`SUPublicEDKey` lives in `Info.plist` deliberately — that file is signed and
+notarized, so an attacker cannot swap the key that validates the payload
+without breaking the signature. It is the same key ultra-swift uses: Sparkle's
+own tooling says one key covers every app a developer ships.
+
+Releasing:
+
+```sh
+scripts/release.sh              # signed, notarized, stapled DMG in dist/
+scripts/generate-appcast.sh     # signs it and writes dist/appcast.xml
+```
+
+Then create the GitHub release, attach the DMG, and only then copy
+`dist/appcast.xml` to `docs/appcast.xml` and push. That order matters: an
+appcast pointing at a download which does not exist yet turns every running
+copy's update check into a failure.
+
+`generate-appcast.sh` refuses to run if the Keychain's key stops matching
+`SUPublicEDKey` — updates signed with the wrong key are rejected by every
+installed copy, and that is a miserable thing to discover from a user.
 
 ## Previews
 

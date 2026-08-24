@@ -23,6 +23,9 @@ public final class AppCoordinator {
     public let models: ModelManager
     public let history: HistoryStore
     public let audioDevices: AudioDeviceMonitor
+    /// Nil in previews and tests: starting a real updater would schedule
+    /// network checks from a preview canvas.
+    public let updates: UpdateManager?
 
     private let hotkeys = HotkeyManager()
     private let recorder = AudioRecorder()
@@ -38,11 +41,13 @@ public final class AppCoordinator {
                 models: ModelManager = ModelManager(),
                 audioDevices: AudioDeviceMonitor = AudioDeviceMonitor(),
                 history: HistoryStore? = nil,
+                updates: UpdateManager? = nil,
                 engine: any TranscriptionEngine = WhisperKitEngine()) {
         self.settingsStore = settingsStore
         self.permissions = permissions
         self.models = models
         self.audioDevices = audioDevices
+        self.updates = updates
         self.history = history
             ?? HistoryStore(persistsToDisk: settingsStore.settings.keepHistoryOnDisk)
         self.engine = engine

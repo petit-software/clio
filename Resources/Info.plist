@@ -29,5 +29,33 @@
 	<string>Scribe records your voice so it can transcribe it. Audio is processed entirely on this Mac and is never uploaded.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+
+	<!-- Sparkle. Scribe ships outside the App Store, so this is the only route
+	     a fix has to someone who already downloaded it.
+
+	     SUPublicEDKey is the public half of the EdDSA key in the developer's
+	     Keychain; the private half never leaves it. Sparkle refuses any update
+	     whose signature does not match, which is what stops a compromised host
+	     or a hijacked connection from serving a different app. It is deliberately
+	     in the signed Info.plist: changing it means re-signing and re-notarizing,
+	     so an attacker cannot swap the key that validates the payload.
+
+	     One key covers every app a developer ships -- Sparkle's own tooling says
+	     so -- and this is the same key ultra-swift uses. -->
+	<key>SUFeedURL</key>
+	<string>https://petit-software.github.io/clio/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>SribIcG3bOjhcAnl9uSgRmlTpXg4txE8gGCGSP05LX4=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<!-- Daily. A dictation utility does not need to ask more often, and every
+	     check is a request from a user who did not ask for one. -->
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<!-- Downloads are applied on the user's say-so rather than silently: this
+	     app is held open by a global event tap, and relaunching underneath
+	     someone mid-sentence is worse than waiting. -->
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 </dict>
 </plist>
