@@ -36,6 +36,11 @@ public final class ModelManager {
     public private(set) var downloads: [String: DownloadProgress] = [:]
     public private(set) var failures: [String: String] = [:]
 
+    /// Fires when the installed set changes — a download finished, a model was
+    /// deleted, one was found in the shared cache. The app uses it to keep its
+    /// selected model pointing at something that exists.
+    public var onInstalledChanged: (() -> Void)?
+
     private let transport: any ModelTransport
     private let modelsDirectory: URL
     private let huggingFaceCache: URL
@@ -98,7 +103,10 @@ public final class ModelManager {
                                        url: url)
         }
 
-        installed = found.values.sorted { $0.displayName < $1.displayName }
+        let sorted = found.values.sorted { $0.displayName < $1.displayName }
+        guard sorted != installed else { return }
+        installed = sorted
+        onInstalledChanged?()
     }
 
     public func isInstalled(_ id: String) -> Bool {

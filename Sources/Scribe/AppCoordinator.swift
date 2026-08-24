@@ -48,12 +48,29 @@ public final class AppCoordinator {
         self.engine = engine
     }
 
-    /// The model transcription should use: whatever is selected, falling back
-    /// to any installed model so a fresh install works before the user has
-    /// picked one. Nil means nothing is installed yet.
+    /// The model transcription will use. Nil means nothing is installed.
     public var activeModel: InstalledModel? {
         models.installedModel(id: settingsStore.settings.activeModelID)
             ?? models.installed.first
+    }
+
+    /// Keep the stored selection pointing at a model that is actually there.
+    ///
+    /// `activeModel` already falls back to the first installed model, so
+    /// dictation worked with no selection stored — but Settings read the
+    /// stored value and showed nothing selected, which said the app was
+    /// broken when it was not. This writes the fallback down so the two agree.
+    ///
+    /// It also covers the selection going stale on its own: the active model
+    /// being deleted, or the bundle identifier changing and moving Application
+    /// Support out from under a stored id.
+    public func reconcileActiveModel() {
+        let stored = settingsStore.settings.activeModelID
+        if let stored, models.isInstalled(stored) { return }
+
+        let replacement = models.installed.first?.id
+        guard replacement != stored else { return }
+        settingsStore.settings.activeModelID = replacement
     }
 
     // MARK: Lifecycle
@@ -83,6 +100,10 @@ public final class AppCoordinator {
             if trusted { self.hotkeys.restart() } else { self.hotkeys.stop() }
         }
         permissions.beginPolling()
+
+        // A download finishing or a deletion can invalidate the stored choice.
+        models.onInstalledChanged = { [weak self] in self?.reconcileActiveModel() }
+        reconcileActiveModel()
 
         applySettings()
         try? hotkeys.start()

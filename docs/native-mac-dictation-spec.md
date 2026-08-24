@@ -102,7 +102,15 @@ The riskiest module — prototype this first. Requirements:
 - Watch for tap disable events (`tapDisabledByTimeout`) and re-enable — macOS will kill a slow tap.
 - Esc always cancels while recording, regardless of the configured hotkey.
 
-A reference implementation is in `HotkeyManager.swift` alongside this spec.
+The implementation is `Sources/ScribeCore/HotkeyManager.swift`.
+
+**Do not write the tap callback as a closure inside the manager.** The
+manager is `@MainActor`, so a closure literal there inherits main-actor
+isolation; as a C function pointer it cannot hop, so the compiler emits a
+runtime isolation assertion that fires on the tap thread and kills the
+process on the first keystroke. It must be a file-scope function, which is
+nonisolated. This is not theoretical — it shipped, and the crash report
+named `_dispatch_assert_queue_fail` under `processEventTapData`.
 
 **Warning:** shortcuts containing `fn` (Globe) only fire on Apple keyboards. `fn` is a vendor-specific HID usage that macOS surfaces only for Apple devices; third-party keyboards handle it in firmware and send nothing. Don't make it a default; show a warning if a user picks it.
 

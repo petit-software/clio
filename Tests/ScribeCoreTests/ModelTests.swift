@@ -268,3 +268,33 @@ func containmentIsNotStringPrefix() {
     #expect(ModelManager.isDescendant(
         URL(fileURLWithPath: "/elsewhere/whisper-tiny"), of: models) == false)
 }
+
+// MARK: - Installed-set change notification
+
+@MainActor
+@Test("Installing and deleting notify, an unchanged rescan does not")
+func installedChangesAreAnnounced() async throws {
+    let root = try makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let id = "openai_whisper-tiny"
+    let manager = ModelManager(transport: StubTransport(files: remoteFiles(id: id)),
+                               modelsDirectory: root, huggingFaceCache: noCache)
+    var notifications = 0
+    manager.onInstalledChanged = { notifications += 1 }
+
+    manager.download(CatalogModel(id: id, displayName: "Tiny",
+                                  repo: "argmaxinc/whisperkit-coreml",
+                                  approximateBytes: 2880, tier: .fast,
+                                  languages: .multilingual))
+    try await waitUntil { manager.isInstalled(id) }
+    #expect(notifications == 1)
+
+    // A rescan that finds the same thing must stay quiet, or anything
+    // listening reconciles in a loop.
+    manager.refreshInstalled()
+    #expect(notifications == 1)
+
+    try manager.delete(try #require(manager.installed.first))
+    #expect(notifications == 2)
+}
