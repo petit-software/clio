@@ -32,6 +32,9 @@ struct ClioApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let coordinator = AppCoordinator(updates: UpdateManager())
     private let onboarding = OnboardingWindowController()
+    #if DEBUG
+    private var overlayPreview: OverlayController?
+    #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
@@ -39,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let directory = ProcessInfo.processInfo.environment["CLIO_OVERLAY_DUMP"] {
             OverlayDump.write(to: URL(fileURLWithPath: directory))
             NSApp.terminate(nil)
+            return
+        }
+        // Shows the panel and stays up, so glass can be judged on screen.
+        if let state = ProcessInfo.processInfo.environment["CLIO_OVERLAY_SHOW"] {
+            overlayPreview = OverlayDump.show(state: state)
             return
         }
         #endif

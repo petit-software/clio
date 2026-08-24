@@ -8,28 +8,28 @@ import ClioCore
 /// one-directional (coordinator → controller → panel) with no cycle.
 @MainActor
 @Observable
-final class OverlayModel {
-    var state: DictationState = .idle
-    var level: Float = 0
+public final class OverlayModel {
+    public var state: DictationState = .idle
+    public var level: Float = 0
     /// Set by the panel's tracking area, not by SwiftUI's `.onHover`.
-    var isHovering = false
+    public var isHovering = false
 
     /// How long the current recording has been running, and the cap it is
     /// heading for. Shown because the recording stops at that cap whether or
     /// not the user has finished a sentence, and being cut off mid-thought
     /// with no warning is the worst version of that.
-    var progress = RecordingProgress()
+    public var progress = RecordingProgress()
 
     /// Something worth saying after the fact — that the recording hit its
     /// limit, say — shown under the main label.
-    var note: String?
+    public var note: String?
 
     /// Only while recording — a finished pill must not glow orange.
-    var isNearLimit: Bool { state == .recording && progress.isNearLimit }
+    public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 
     /// The design shows the ✕ while recording as well as transcribing, so
     /// both are clickable. Injecting is over before a cursor could reach it.
-    var isCancellableByClick: Bool {
+    public var isCancellableByClick: Bool {
         state == .recording || state == .transcribing
     }
 }
@@ -94,8 +94,8 @@ final class OverlayHostingView: NSHostingView<OverlayView> {
 /// frontmost app changes and the paste lands in the wrong place — the single
 /// most-reported bug class in the app this one is modelled on.
 @MainActor
-final class OverlayController {
-    let model = OverlayModel()
+public final class OverlayController {
+    public let model = OverlayModel()
 
     private var panel: NSPanel?
     private var hostingView: OverlayHostingView?
@@ -115,16 +115,19 @@ final class OverlayController {
     /// Called when the user clicks the pill to abandon a transcription.
     var onCancel: (() -> Void)?
 
-    init() {}
+    /// Where the panel currently sits, for tooling that needs to capture it.
+    public var panelFrame: NSRect? { panel?.frame }
+
+    public init() {}
 
     /// Mirrors the machine's state into the pill, and decides whether the panel
     /// takes the pointer at all.
     /// Drives the elapsed readout while recording.
-    func updateProgress(elapsed: TimeInterval, limit: TimeInterval) {
+    public func updateProgress(elapsed: TimeInterval, limit: TimeInterval) {
         model.progress = RecordingProgress(elapsed: elapsed, limit: limit)
     }
 
-    func update(state: DictationState, note: String? = nil) {
+    public func update(state: DictationState, note: String? = nil) {
         model.state = state
         model.note = note
         if state == .recording { model.progress.elapsed = 0 }
@@ -140,7 +143,7 @@ final class OverlayController {
         panel?.ignoresMouseEvents = !model.isCancellableByClick
     }
 
-    func show(position: OverlayPosition) {
+    public func show(position: OverlayPosition) {
         guard position != .none else { return hide() }
         currentPosition = position
 

@@ -11,6 +11,43 @@ import ClioCore
 @MainActor
 public enum OverlayDump {
 
+    /// Put the real panel on screen in one state and leave it there.
+    ///
+    /// Glass and materials sample what is behind the window, and ImageRenderer
+    /// has nothing behind it — it draws them flat. So the surface can only be
+    /// judged honestly on screen, and this gets it there without starting a
+    /// recording and opening the microphone to do it.
+    ///
+    ///     CLIO_OVERLAY_SHOW=recording swift run Clio
+    @discardableResult
+    public static func show(state named: String) -> OverlayController {
+        // Forced on this app only, so the dark appearance can be judged
+        // without flipping the whole system to look at a pill.
+        // Non-empty, not merely present: an exported-but-empty variable is
+        // how a shell loop sets "off", and != nil treats that as on.
+        if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"]?.isEmpty == false {
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+        let controller = OverlayController()
+        let state: DictationState
+        switch named {
+        case "transcribing": state = .transcribing
+        case "error": state = .failed("Nothing returned")
+        case "finished": state = .finished("Hello")
+        default: state = .recording
+        }
+        controller.model.level = 0.75
+        controller.update(state: state)
+        controller.updateProgress(elapsed: 4, limit: 600)
+        controller.show(position: .topCenter)
+        if let frame = controller.panelFrame, let screen = NSScreen.main?.frame.height {
+            // Converted to screencapture's top-left origin.
+            print("[overlay show] \(named) rect=\(Int(frame.minX)),"
+                  + "\(Int(screen - frame.maxY)),\(Int(frame.width)),\(Int(frame.height))")
+        }
+        return controller
+    }
+
     public static func write(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory,
                                                  withIntermediateDirectories: true)
