@@ -3,6 +3,16 @@
     <channel>
         <title>Clio</title>
         <item>
+            <title>0.3</title>
+            <pubDate>Mon, 24 Aug 2026 15:11:46 +0200</pubDate>
+            <link>https://github.com/petit-software/clio/releases</link>
+            <sparkle:version>31</sparkle:version>
+            <sparkle:shortVersionString>0.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/petit-software/clio/releases/download/v0.3/Clio-0.3.dmg" length="2747848" type="application/octet-stream" sparkle:edSignature="nai3B0BKTDccoDQdbqzKyMdDroHXREV6dfTGBQ+6z/uLAUMi9bmZkOwzzl3EzZ2rcHffdP2V2u1KiwP4fPE0AA=="/>
+        </item>
+        <item>
             <title>0.2</title>
             <pubDate>Mon, 24 Aug 2026 14:16:09 +0200</pubDate>
             <link>https://github.com/petit-software/clio/releases</link>
