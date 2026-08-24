@@ -68,6 +68,7 @@ Sources/ScribeCore/   no SwiftUI — testable on its own
   ModelTransport          Hugging Face listing and download, SHA-256 verified
   ModelManager            install, discover, delete, progress
   VoiceActivityTrimmer    cuts silence off both ends before transcribing
+  WaveformIcon            the menu bar mark, drawn in three poses
   FeedbackPlayer          start / stop / cancel cues
   HistoryStore            last 20 transcripts, disk is opt-in
   TranscriptionEngine     the protocol, plus a stub for testing
@@ -150,6 +151,39 @@ VAD is WhisperKit's own `EnergyVAD`, not Silero via onnxruntime as the spec
 planned. It is already a dependency, so this needs no extra package and no
 bundled ONNX model. Silero would slot in behind `VoiceActivityTrimmer.trim` if
 noisy rooms ever prove the energy gate insufficient.
+
+## The menu bar mark
+
+Four capsule bars on a 5pt pitch, heights 6 / 16 / 10 / 6 in an 18×16 box, the
+last at 40% opacity. Drawn in code rather than shipped as an asset, because the
+menu bar needs it in three poses and generating them from one set of
+proportions keeps them identical in weight:
+
+- **resting** — the drawing as-is
+- **live** — the same silhouette scaled by input level, so the mark itself is
+  the meter while recording
+- **muted** — the same shape dimmed, when Scribe cannot hear its shortcut
+
+Every bar shares one centre line, which is what makes the live pose work: only
+heights change, so it breathes instead of jumping.
+
+Rendered at 15pt tall, not the design's 16 — the menu bar leaves about 16pt
+once its own padding is out, and a mark that fills all of them sits proud of
+the system items beside it.
+
+It is a **template image**, so macOS tints it: black on a light menu bar, white
+on a dark one, inverted while the menu is open. The black it is drawn in is
+only ever a mask. A test asserts this, because losing it is invisible until
+someone runs the other appearance.
+
+The live pose is quantised to 8 steps and cached, or a steady voice would
+redraw the menu bar at the recorder's 30 Hz.
+
+To look at it after a change:
+
+```sh
+SCRIBE_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
+```
 
 ## Two things that will bite you
 

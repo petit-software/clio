@@ -77,19 +77,37 @@ struct MenuBarLabel: View {
     @Bindable var coordinator: AppCoordinator
 
     var body: some View {
-        Image(systemName: symbol)
-            .symbolRenderingMode(.hierarchical)
+        Image(nsImage: icon)
+            // The NSImage is already a template; saying so again costs nothing
+            // and keeps the tinting right if the image is ever swapped.
+            .renderingMode(.template)
     }
 
-    private var symbol: String {
+    private var icon: NSImage {
         switch coordinator.state {
-        case .recording: return "mic.fill"
-        case .transcribing, .injecting: return "waveform.circle"
-        case .failed: return "exclamationmark.triangle"
-        case .idle, .finished:
-            // A struck-through mic when we cannot actually hear the hotkey is
-            // more useful than a cosmetic "ready" icon that is lying.
-            return coordinator.permissions.allGranted ? "waveform" : "mic.slash"
+        case .recording:
+            // The mark itself becomes the level meter — same silhouette,
+            // moving. Quantised and cached inside WaveformIcon, so a steady
+            // voice does not redraw the menu bar 30 times a second.
+            return WaveformIcon.live(level: coordinator.inputLevel)
+
+        case .failed:
+            // The one state that earns a different glyph: something is wrong
+            // and the mark alone cannot say so.
+            return NSImage(systemSymbolName: "exclamationmark.triangle",
+                           accessibilityDescription: "Scribe — something went wrong")
+                ?? WaveformIcon.resting
+
+        case .idle, .finished, .transcribing, .injecting:
+            // Transcribing keeps the resting mark rather than a third pose:
+            // it is usually sub-second, and a flicker in the menu bar reads as
+            // a glitch. The overlay is what reports progress.
+            //
+            // Dimmed when we cannot actually hear the shortcut — more useful
+            // than a "ready" icon that is lying.
+            return coordinator.permissions.allGranted
+                ? WaveformIcon.resting
+                : WaveformIcon.muted
         }
     }
 }
