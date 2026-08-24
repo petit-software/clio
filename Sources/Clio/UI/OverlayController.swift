@@ -14,6 +14,19 @@ final class OverlayModel {
     /// Set by the panel's tracking area, not by SwiftUI's `.onHover`.
     var isHovering = false
 
+    /// How long the current recording has been running, and the cap it is
+    /// heading for. Shown because the recording stops at that cap whether or
+    /// not the user has finished a sentence, and being cut off mid-thought
+    /// with no warning is the worst version of that.
+    var progress = RecordingProgress()
+
+    /// Something worth saying after the fact — that the recording hit its
+    /// limit, say — shown under the main label.
+    var note: String?
+
+    /// Only while recording — a finished pill must not glow orange.
+    var isNearLimit: Bool { state == .recording && progress.isNearLimit }
+
     /// Transcribing can take seconds on a large model, and it is the one wait
     /// worth offering a way out of. Recording already ends by releasing the
     /// key, and injecting is over before a cursor could reach it.
@@ -94,8 +107,15 @@ final class OverlayController {
 
     /// Mirrors the machine's state into the pill, and decides whether the panel
     /// takes the pointer at all.
-    func update(state: DictationState) {
+    /// Drives the elapsed readout while recording.
+    func updateProgress(elapsed: TimeInterval, limit: TimeInterval) {
+        model.progress = RecordingProgress(elapsed: elapsed, limit: limit)
+    }
+
+    func update(state: DictationState, note: String? = nil) {
         model.state = state
+        model.note = note
+        if state == .recording { model.progress.elapsed = 0 }
         if !model.isCancellableByClick {
             model.isHovering = false
         }

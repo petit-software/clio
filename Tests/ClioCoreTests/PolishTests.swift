@@ -142,3 +142,52 @@ func menuLabelIsCompact() {
     #expect(long.menuLabel.count == 49)   // 48 + ellipsis
     #expect(long.menuLabel.hasSuffix("…"))
 }
+
+// MARK: - Recording limit
+
+@Test("The warning window opens only in the last stretch")
+func nearLimitWindow() {
+    var progress = RecordingProgress(elapsed: 10, limit: 120)
+    #expect(progress.remaining == 110)
+    #expect(progress.isNearLimit == false)
+    #expect(progress.display == "0:10")
+
+    progress.elapsed = 105                       // 15s left
+    #expect(progress.isNearLimit)
+    #expect(progress.display == "0:15")          // switches to what remains
+}
+
+@Test("Remaining never goes negative")
+func remainingIsClamped() {
+    let progress = RecordingProgress(elapsed: 45, limit: 30)
+    #expect(progress.remaining == 0)
+    #expect(progress.isNearLimit)
+}
+
+@Test("The elapsed readout is minutes and seconds")
+func displayFormatting() {
+    #expect(RecordingProgress(elapsed: 0, limit: 600).display == "0:00")
+    #expect(RecordingProgress(elapsed: 9, limit: 600).display == "0:09")
+    #expect(RecordingProgress(elapsed: 83, limit: 600).display == "1:23")
+    #expect(RecordingProgress(elapsed: 599, limit: 600).display == "0:01")
+}
+
+@Test("The cap explains itself in the units it was set in")
+func limitDescription() {
+    // The user has to understand why the recording ended without them.
+    #expect(RecordingProgress.limitDescription(seconds: 120)
+            == "Stopped at the 2:00 limit")
+    #expect(RecordingProgress.limitDescription(seconds: 90)
+            == "Stopped at the 1:30 limit")
+    #expect(RecordingProgress.limitDescription(seconds: 30)
+            == "Stopped at the 30s limit")
+}
+
+@Test("The recording buffer is sized from the configured cap")
+func bufferMatchesTheCap() {
+    var settings = Settings()
+    settings.maxRecordingSeconds = 30
+    #expect(Int(settings.maxRecordingSeconds * AudioRecorder.sampleRate) == 480_000)
+    // The default the app ships with.
+    #expect(Settings().maxRecordingSeconds == 120)
+}

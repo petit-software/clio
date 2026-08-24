@@ -10,7 +10,7 @@ import ClioCore
 public final class AppCoordinator {
 
     public private(set) var state: DictationState = .idle {
-        didSet { overlay?.update(state: state) }
+        didSet { overlay?.update(state: state, note: limitNote) }
     }
     /// 0…1, driven by the recorder at ~30 Hz. The overlay's waveform.
     public private(set) var inputLevel: Float = 0 {
@@ -46,6 +46,11 @@ public final class AppCoordinator {
     /// transcript would be pasted into the user's document after they had
     /// already pressed Esc.
     private var sessionToken = 0
+
+    /// Set when the maximum-duration cap ended the recording rather than the
+    /// user releasing the key.
+    private var stoppedAtLimit = false
+    private var limitNote: String?
 
     public init(settingsStore: SettingsStore = SettingsStore(),
                 permissions: PermissionsCoordinator = PermissionsCoordinator(),
@@ -99,7 +104,11 @@ public final class AppCoordinator {
         overlay?.onCancel = { [weak self] in self?.cancel() }
 
         recorder.onLevel = { [weak self] level in
-            self?.inputLevel = level
+            guard let self else { return }
+            self.inputLevel = level
+            self.overlay?.updateProgress(
+                elapsed: self.recorder.duration,
+                limit: self.settingsStore.settings.maxRecordingSeconds)
         }
         recorder.onFailure = { [weak self] error in
             self?.fail(error.localizedDescription)
@@ -151,6 +160,8 @@ public final class AppCoordinator {
     public func beginRecording() {
         guard !state.isBusy else { return }
         resetTask?.cancel()
+        stoppedAtLimit = false
+        limitNote = nil
 
         guard permissions.microphone.isGranted else {
             fail("Clio needs microphone access.")
@@ -181,6 +192,10 @@ public final class AppCoordinator {
         maxDurationTask = Task { [weak self, max = settings.maxRecordingSeconds] in
             try? await Task.sleep(for: .seconds(max))
             guard !Task.isCancelled else { return }
+            // Cutting someone off is defensible; doing it without a word is
+            // not. The transcript still arrives — it just says why it ends
+            // where it does.
+            self?.stoppedAtLimit = true
             self?.finishRecording()
         }
     }
@@ -259,6 +274,10 @@ public final class AppCoordinator {
         lastTranscript = text
         history.add(text)
 
+        limitNote = stoppedAtLimit
+            ? RecordingProgress.limitDescription(seconds: settings.maxRecordingSeconds)
+            : nil
+
         let result = await TextInjector.inject(text,
                                                action: settings.outputAction,
                                                method: settings.injectionMethod)
@@ -287,6 +306,7 @@ public final class AppCoordinator {
         maxDurationTask = nil
         recorder.cancel()
         inputLevel = 0
+        limitNote = nil
         state = .idle
         overlay?.hide()
         feedback.play(.cancel, enabled: settingsStore.settings.playSoundOnCancel)

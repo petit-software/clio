@@ -12,14 +12,32 @@ struct OverlayView: View {
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(label)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(label)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if model.state == .recording {
+                        Spacer(minLength: 0)
+                        // The recording stops at the cap whether or not you
+                        // have finished talking, so the clock is not a
+                        // decoration — it is the only warning you get.
+                        Text(timeText)
+                            .font(.system(size: 11, weight: .medium,
+                                          design: .monospaced))
+                            .foregroundStyle(model.isNearLimit ? .orange : .secondary)
+                    }
+                }
 
                 if model.state == .recording {
                     LevelMeter(level: model.level)
                         .frame(height: 16)
+                } else if let note = model.note {
+                    Text(note)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
                 }
             }
             Spacer(minLength: 0)
@@ -33,6 +51,12 @@ struct OverlayView: View {
                 .strokeBorder(.white.opacity(0.12), lineWidth: 1))
         .animation(.easeOut(duration: 0.18), value: model.state)
         .animation(.easeOut(duration: 0.12), value: model.isHovering)
+    }
+
+    /// Counts up normally; switches to what is left once that is the number
+    /// that matters.
+    private var timeText: String {
+        model.isNearLimit ? "\(model.progress.display) left" : model.progress.display
     }
 
     /// Says what the click will do, so the X is not the only clue.
