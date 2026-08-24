@@ -9,7 +9,9 @@ the level while you talk, and on release the transcript is pasted into the
 frontmost app. Models are downloaded once and run on the Apple Neural Engine.
 
 Requires macOS 14+. Design notes in
-[`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-spec.md).
+[`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-spec.md);
+[`AGENTS.md`](AGENTS.md) is the orientation for working on it — how the pieces
+fit, what is proven and what is not, and the mistakes already made.
 
 ## Status
 
