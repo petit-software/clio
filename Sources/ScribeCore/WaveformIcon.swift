@@ -7,9 +7,9 @@ import AppKit
 /// proportions keeps them identical in weight.
 ///
 /// The source design is an 18×16 box with 3-wide capsule bars on a 5pt pitch,
-/// heights 6 / 16 / 10 / 6, the last at 40% opacity. Every bar is centred on
-/// the same axis, which is what makes the level-driven pose work: only the
-/// heights change, and the mark keeps its shape.
+/// heights 6 / 16 / 10 / 6, all at full strength. Every bar is centred on the
+/// same axis, which is what makes the level-driven pose work: only the heights
+/// change, and the mark keeps its shape.
 ///
 /// In Core rather than next to the menu bar view because it is plain AppKit
 /// drawing with no SwiftUI in it, which makes its geometry testable.
@@ -28,8 +28,6 @@ public enum WaveformIcon {
     static let barWidth: CGFloat = 3
     static let pitch: CGFloat = 5
     static let restingHeights: [CGFloat] = [6, 16, 10, 6]
-    /// The trailing bar is the design's accent — it stays lighter in every pose.
-    static let barAlphas: [CGFloat] = [1, 1, 1, 0.4]
 
     /// Rendered height in points.
     ///
@@ -57,8 +55,7 @@ public enum WaveformIcon {
     /// and throws away the silhouette that makes it recognisable. Greying out
     /// is the idiom every other menu bar item uses for the same thing.
     public static let muted: NSImage = {
-        let image = render(heights: restingHeights,
-                           alphas: barAlphas.map { $0 * 0.35 })
+        let image = render(heights: restingHeights, opacity: 0.35)
         image.accessibilityDescription = "Scribe — permissions needed"
         return image
     }()
@@ -90,10 +87,10 @@ public enum WaveformIcon {
 
     // MARK: Drawing
 
-    static func render(heights: [CGFloat],
-                       alphas: [CGFloat] = barAlphas) -> NSImage {
+    static func render(heights: [CGFloat], opacity: CGFloat = 1) -> NSImage {
         let size = renderedSize
         let image = NSImage(size: size, flipped: false) { _ in
+            NSColor.black.withAlphaComponent(opacity).setFill()
             for (index, height) in heights.enumerated() {
                 let clamped = max(barWidth, min(designSize.height, height))
                 // Every bar shares one centre line, so a pose only changes
@@ -104,7 +101,6 @@ public enum WaveformIcon {
                     width: barWidth * scale,
                     height: clamped * scale)
 
-                NSColor.black.withAlphaComponent(alphas[index]).setFill()
                 // A capsule at any height: radius is half the width, which is
                 // what rx="1.5" on a 3-wide bar means.
                 NSBezierPath(roundedRect: rect,

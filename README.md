@@ -154,8 +154,8 @@ noisy rooms ever prove the energy gate insufficient.
 
 ## The menu bar mark
 
-Four capsule bars on a 5pt pitch, heights 6 / 16 / 10 / 6 in an 18×16 box, the
-last at 40% opacity. Drawn in code rather than shipped as an asset, because the
+Four capsule bars on a 5pt pitch, heights 6 / 16 / 10 / 6 in an 18×16 box, all
+at full strength. Drawn in code rather than shipped as an asset, because the
 menu bar needs it in three poses and generating them from one set of
 proportions keeps them identical in weight:
 

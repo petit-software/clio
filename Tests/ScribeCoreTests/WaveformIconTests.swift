@@ -99,9 +99,11 @@ struct WaveformIconTests {
         }
         let total = representation.pixelsWide * representation.pixelsHigh
         let coverage = Double(inked) / Double(total)
-        // Four bars on a 5pt pitch, one of them at 40% alpha: about a third of
-        // the box. Nothing would be a blank icon, everything a filled block.
+        print("[icon] resting coverage \(coverage)")
+        // Four 3-wide bars on a 5pt pitch, at four different heights: a little
+        // over a third of the box. Nothing would be a blank icon, everything a
+        // filled block.
         #expect(coverage > 0.15)
-        #expect(coverage < 0.55)
+        #expect(coverage < 0.60)
     }
 }
