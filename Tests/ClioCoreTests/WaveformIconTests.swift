@@ -42,22 +42,44 @@ struct WaveformIconTests {
         }
     }
 
-    @Test("The drawing's bars are centred on one axis")
-    func barsShareACentreLine() {
-        // This is what lets the level pose change only heights. If a bar ever
-        // stops being centred, the mark grows out of one edge instead.
-        for height in WaveformIcon.restingHeights {
-            let top = (WaveformIcon.designSize.height - height) / 2
-            let centre = top + height / 2
-            #expect(abs(centre - WaveformIcon.designSize.height / 2) < 0.001)
+    @Test("Three columns sit on the centre line and one is deliberately split")
+    func splitColumn() {
+        let middle = WaveformIcon.designSize.height / 2
+        let columns = Dictionary(grouping: WaveformIcon.bars, by: \.x)
+        #expect(columns.count == 4)
+
+        // The split column is the whole character of the mark: a dot above and
+        // a bar below, neither on the axis. Centre them and it becomes a bar
+        // chart.
+        let split = columns.values.first { $0.count == 2 }
+        let pair = try! #require(split)
+        #expect(pair.allSatisfy { abs($0.centre - middle) > 1 })
+        #expect(pair.contains { $0.centre > middle })   // the dot, high
+        #expect(pair.contains { $0.centre < middle })   // the bar, low
+
+        // Everything else is centred, which is what lets the level pose change
+        // only heights without the mark drifting.
+        for column in columns.values where column.count == 1 {
+            #expect(abs(column[0].centre - middle) < 0.01)
         }
     }
 
-    @Test("Bars sit on the drawing's pitch without touching")
+    @Test("The dot is a circle, so it cannot shrink further")
+    func dotIsCircular() {
+        let dot = WaveformIcon.bars.min(by: { $0.height < $1.height })!
+        #expect(abs(dot.height - WaveformIcon.barWidth) < 0.01)
+    }
+
+    @Test("Columns sit on the drawing's pitch without touching")
     func barsDoNotCollide() {
-        let span = WaveformIcon.pitch * CGFloat(WaveformIcon.restingHeights.count - 1)
-                 + WaveformIcon.barWidth
-        #expect(span == WaveformIcon.designSize.width)
+        let xs = Set(WaveformIcon.bars.map(\.x)).sorted()
+        #expect(xs.count == 4)
+        for (a, b) in zip(xs, xs.dropFirst()) {
+            #expect(abs((b - a) - WaveformIcon.pitch) < 0.01)
+        }
+        // Within a rounding of the box: the export ends at 210.86 of 211.
+        #expect(abs((xs.last! + WaveformIcon.barWidth)
+                    - WaveformIcon.designSize.width) < 0.2)
         #expect(WaveformIcon.pitch > WaveformIcon.barWidth)   // a real gap
     }
 
@@ -100,9 +122,8 @@ struct WaveformIconTests {
         let total = representation.pixelsWide * representation.pixelsHigh
         let coverage = Double(inked) / Double(total)
         print("[icon] resting coverage \(coverage)")
-        // Four 3-wide bars on a 5pt pitch, at four different heights: a little
-        // over a third of the box. Nothing would be a blank icon, everything a
-        // filled block.
+        // Five capsules across four columns: a third of the box or so. Nothing
+        // would be a blank icon, everything a filled block.
         #expect(coverage > 0.15)
         #expect(coverage < 0.60)
     }

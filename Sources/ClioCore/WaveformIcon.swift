@@ -6,10 +6,10 @@ import AppKit
 /// several poses (idle, live level, muted) and generating them from one set of
 /// proportions keeps them identical in weight.
 ///
-/// The source design is an 18×16 box with 3-wide capsule bars on a 5pt pitch,
-/// heights 6 / 16 / 10 / 6, all at full strength. Every bar is centred on the
-/// same axis, which is what makes the level-driven pose work: only the heights
-/// change, and the mark keeps its shape.
+/// The source design is a 211×164 box of 35.14-wide capsules on a 58.57 pitch.
+/// Four columns, and the third is split: a dot high and a bar low, which is
+/// the thing that makes the mark read as a waveform rather than a bar chart.
+/// Only that column is off the centre line, and it is off it deliberately.
 ///
 /// In Core rather than next to the menu bar view because it is plain AppKit
 /// drawing with no SwiftUI in it, which makes its geometry testable.
@@ -24,29 +24,55 @@ public enum WaveformIcon {
     // MARK: Design
 
     /// The box the proportions are defined in.
-    static let designSize = CGSize(width: 18, height: 16)
-    static let barWidth: CGFloat = 3
-    static let pitch: CGFloat = 5
-    static let restingHeights: [CGFloat] = [6, 16, 10, 6]
+    static let designSize = CGSize(width: 211, height: 164)
+    static let barWidth: CGFloat = 35.1429
+    static let pitch: CGFloat = 58.5714
+
+    /// One capsule of the mark, in the drawing's own coordinates.
+    ///
+    /// `y` is measured from the BOTTOM, unlike the SVG it came from. Every
+    /// element used to sit on one centre line so the flip did not matter; the
+    /// split column means it does now, and getting it wrong puts the dot
+    /// underneath the bar.
+    struct Bar: Equatable {
+        var x: CGFloat
+        var y: CGFloat
+        var height: CGFloat
+
+        var centre: CGFloat { y + height / 2 }
+    }
+
+    /// Converted from the SVG's top-down y once, here, rather than at every
+    /// use: y_bottom = 164 − y_svg − height.
+    static let bars: [Bar] = [
+        Bar(x: 0,        y: 46.8569,  height: 70.2857),   // svg y 46.8574
+        Bar(x: 58.5723,  y: 0,        height: 164),       // svg y 0
+        Bar(x: 117.143,  y: 111.2858, height: 35.1429),   // svg y 17.5713 — the dot
+        Bar(x: 117.143,  y: 17.5717,  height: 70.2857),   // svg y 76.1426
+        Bar(x: 175.715,  y: 46.8569,  height: 70.2857),   // svg y 46.8574
+    ]
 
     /// Rendered height in points.
     ///
-    /// 15, not the design's 16: the menu bar gives an icon about 16pt of room
-    /// once its own padding is taken out, and a mark that fills every one of
-    /// them sits taller than the system items either side of it.
+    /// The menu bar gives an icon about 16pt of room once its own padding is
+    /// taken out, and a mark that fills every one of them sits taller than the
+    /// system items either side of it.
     static let renderedHeight: CGFloat = 15
 
     private static var scale: CGFloat { renderedHeight / designSize.height }
 
     static var renderedSize: CGSize {
-        CGSize(width: (designSize.width * scale).rounded(),
+        // Rounded UP. The outer capsules sit flush against the edges of the
+        // drawing, so rounding down shaves a sliver off the last one and it
+        // renders with a flat outer end instead of a round one.
+        CGSize(width: (designSize.width * scale).rounded(.up),
                height: renderedHeight)
     }
 
     // MARK: Poses
 
     /// The mark as drawn — the idle icon.
-    public static let resting: NSImage = render(heights: restingHeights)
+    public static let resting: NSImage = render(bars: bars)
 
     /// The mark dimmed, for when Clio cannot actually hear its shortcut.
     ///
@@ -55,7 +81,7 @@ public enum WaveformIcon {
     /// and throws away the silhouette that makes it recognisable. Greying out
     /// is the idiom every other menu bar item uses for the same thing.
     public static let muted: NSImage = {
-        let image = render(heights: restingHeights, opacity: 0.35)
+        let image = render(bars: bars, opacity: 0.35)
         image.accessibilityDescription = "Clio — permissions needed"
         return image
     }()
@@ -69,14 +95,15 @@ public enum WaveformIcon {
         if let cached = liveCache[step] { return cached }
 
         let fraction = CGFloat(step) / CGFloat(levelSteps)
-        // Each bar keeps its share of the design's silhouette, so the mark
-        // reads as itself at every level rather than as four equal bars.
-        let heights = restingHeights.map { resting -> CGFloat in
+        // Each capsule shrinks toward a circle about ITS OWN centre, not the
+        // box's. The split column has to stay split at every level, or the
+        // mark collapses into a row of dots on a line and stops being itself.
+        let scaled = bars.map { bar -> Bar in
             let floor = barWidth                     // a capsule at its minimum
-            let ceiling = resting
-            return floor + (ceiling - floor) * fraction
+            let height = floor + (bar.height - floor) * fraction
+            return Bar(x: bar.x, y: bar.centre - height / 2, height: height)
         }
-        let image = render(heights: heights)
+        let image = render(bars: scaled)
         image.accessibilityDescription = "Clio — listening"
         liveCache[step] = image
         return image
@@ -87,22 +114,17 @@ public enum WaveformIcon {
 
     // MARK: Drawing
 
-    static func render(heights: [CGFloat], opacity: CGFloat = 1) -> NSImage {
+    static func render(bars: [Bar], opacity: CGFloat = 1) -> NSImage {
         let size = renderedSize
         let image = NSImage(size: size, flipped: false) { _ in
             NSColor.black.withAlphaComponent(opacity).setFill()
-            for (index, height) in heights.enumerated() {
-                let clamped = max(barWidth, min(designSize.height, height))
-                // Every bar shares one centre line, so a pose only changes
-                // heights — never the baseline.
-                let rect = CGRect(
-                    x: CGFloat(index) * pitch * scale,
-                    y: (designSize.height - clamped) / 2 * scale,
-                    width: barWidth * scale,
-                    height: clamped * scale)
-
+            for bar in bars {
+                let rect = CGRect(x: bar.x * scale,
+                                  y: bar.y * scale,
+                                  width: barWidth * scale,
+                                  height: bar.height * scale)
                 // A capsule at any height: radius is half the width, which is
-                // what rx="1.5" on a 3-wide bar means.
+                // what rx="17.57" on a 35.14-wide bar means.
                 NSBezierPath(roundedRect: rect,
                              xRadius: rect.width / 2,
                              yRadius: rect.width / 2).fill()
@@ -110,9 +132,6 @@ public enum WaveformIcon {
             return true
         }
 
-        // Template, so the menu bar tints it: black on a light bar, white on a
-        // dark one, and inverted while the menu is open. The colour above is
-        // only ever a mask.
         image.isTemplate = true
         image.accessibilityDescription = "Clio"
         return image

@@ -125,6 +125,12 @@ same minute of speech.
 **Microphones are stored by CoreAudio UID, never `AudioDeviceID`.** The numeric
 id is reassigned on replug.
 
+**The app icon must be re-fitted, not shipped as exported.** Icon Composer's iOS
+exports fill the canvas because iOS masks icons itself; macOS does not, and
+expects the body inset on the 824/1024 grid. `make-icon-master.swift` does that
+and `make-iconset.sh` builds the `.icns` — a full-bleed export renders oversized
+beside every other app.
+
 **`grep -q` in a `pipefail` pipeline is a race.** grep exits on first match,
 the producer dies of SIGPIPE, and the pipeline reports failure — but only when
 the producer is slower. This made releasing fail at random. Capture output
@@ -158,8 +164,6 @@ Not verified, and worth knowing:
 
 ## Open
 
-- **No app icon.** Clio ships with the generic one. The only item left on the
-  ship milestone, and the first thing anyone downloading the DMG sees.
 - `scripts/release.sh` falls back to a keychain profile named `scribe-notary`,
   left from before the rename. notarytool credentials cannot be renamed without
   the App Store Connect key.

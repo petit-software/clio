@@ -29,6 +29,7 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Resources -- see the comment in ModelCatalog.swift for why this is not a
 # SwiftPM resource bundle.
 cp Resources/models.json "$APP/Contents/Resources/models.json"
+scripts/make-iconset.sh "$APP/Contents/Resources"
 
 # Stamped before signing, since editing Info.plist afterwards would invalidate
 # the signature. Dev builds stay at whatever the tracked plist says; release.sh

@@ -14,6 +14,10 @@ struct IconDumpTests {
     }
 
     private func write(_ image: NSImage, _ name: String) throws {
+        // Created here rather than relied upon: the caller passes a path, not
+        // a directory that necessarily exists yet.
+        try FileManager.default.createDirectory(at: outputDirectory,
+                                                withIntermediateDirectories: true)
         let representation = try #require(NSBitmapImageRep(data: image.tiffRepresentation!))
         let png = try #require(representation.representation(using: .png, properties: [:]))
         try png.write(to: outputDirectory.appendingPathComponent(name))

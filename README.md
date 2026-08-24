@@ -1,3 +1,5 @@
+<img src="docs/clio-icon.png" width="96" alt="Clio">
+
 # Clio
 
 Native macOS dictation. Hold a key, speak, and the text lands in whatever app
@@ -15,8 +17,7 @@ fit, what is proven and what is not, and the mistakes already made.
 
 ## Status
 
-Working end to end and signed for distribution. The app icon is the one
-outstanding piece — Clio currently ships with the generic blank icon.
+Working end to end, signed, notarized and updating itself through Sparkle.
 
 | | |
 |---|---|
@@ -24,7 +25,6 @@ outstanding piece — Clio currently ships with the generic blank icon.
 | Models | catalog, download, SHA-256 verified, shared-cache discovery |
 | Input | microphone picker, live device list, Bluetooth warning |
 | Distribution | Developer ID signed, notarized, stapled DMG, Sparkle updates |
-| Missing | app icon |
 
 ## Build
 
