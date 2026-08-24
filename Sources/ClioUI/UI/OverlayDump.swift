@@ -54,9 +54,11 @@ public enum OverlayDump {
         FileHandle.standardError.write(Data(
             String(format: "[overlay show] window on screen in %.1f ms\n", ms).utf8))
         if let frame = controller.panelFrame, let screen = NSScreen.main?.frame.height {
-            // Converted to screencapture's top-left origin.
-            print("[overlay show] \(named) rect=\(Int(frame.minX)),"
-                  + "\(Int(screen - frame.maxY)),\(Int(frame.width)),\(Int(frame.height))")
+            // stderr and converted to screencapture's top-left origin, so a
+            // capture can be aimed at the panel rather than guessed at.
+            FileHandle.standardError.write(Data(
+                ("[overlay show] rect=\(Int(frame.minX)),\(Int(screen - frame.maxY)),"
+                 + "\(Int(frame.width)),\(Int(frame.height))\n").utf8))
         }
         return controller
     }

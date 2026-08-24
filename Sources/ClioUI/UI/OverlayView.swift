@@ -26,8 +26,11 @@ struct OverlayView: View {
     /// it follows the system appearance: a light pill on a dark desktop reads
     /// as a foreign object, and glass that ignores the appearance ends up with
     /// black text on a dark blur.
-    private static let lightFill = Color(red: 220/255, green: 220/255, blue: 219/255)
-    private static let darkFill = Color(red: 58/255, green: 56/255, blue: 53/255)
+    // Claro's popup surface, borrowed wholesale so the two read as siblings.
+    // Its own values were 220/220/219 and 58/56/53 — kept below for reference
+    // if this turns out to be too stark for a HUD that appears unbidden.
+    private static let lightFill = Color(red: 0.98, green: 0.98, blue: 0.97)
+    private static let darkFill = Color(red: 0.03, green: 0.03, blue: 0.03)
     /// The record dot stays orange in both appearances — it is the one thing
     /// that has to read as "live" at a glance, and a black dot does not.
     private static let recordDot = Color(red: 241/255, green: 107/255, blue: 51/255)
@@ -38,6 +41,20 @@ struct OverlayView: View {
 
     private var isDark: Bool { scheme == .dark }
     private var pillFill: Color { isDark ? Self.darkFill : Self.lightFill }
+    private var glassTint: Color {
+        isDark ? Color.black.opacity(0.82) : Color.white.opacity(0.84)
+    }
+    /// A hairline, which is what separates the surface from a bright backdrop
+    /// once the fill is translucent.
+    private var outline: Color {
+        isDark ? Color.white.opacity(0.24) : Color.black.opacity(0.42)
+    }
+    private var ambientShadow: Color {
+        isDark ? Color.black.opacity(0.34) : Color.black.opacity(0.08)
+    }
+    private var contactShadow: Color {
+        isDark ? Color.black.opacity(0.24) : Color.black.opacity(0.08)
+    }
     /// Text and level bars: the design's black, inverted for dark.
     private var ink: Color { isDark ? Color(white: 0.96) : .black }
     private var closeGrey: Color {
@@ -51,13 +68,15 @@ struct OverlayView: View {
             trailing
         }
         .frame(height: h)
-        .background { PillBackground(tint: pillFill, isDark: isDark,
-                                     surface: model.surface) }
+        .background {
+            PillBackground(tint: pillFill,
+                           glassTint: glassTint,
+                           outline: outline,
+                           ambient: ambientShadow,
+                           contact: contactShadow,
+                           surface: model.surface)
+        }
         .clipShape(Capsule())
-        // The pill floats over other applications, and the backdrop is
-        // whatever happens to be behind it. The shadow is what separates the
-        // two on a light one.
-        .shadow(color: .black.opacity(0.28), radius: h * 0.14, y: h * 0.05)
         .padding(Self.shadowPadding)
         .animation(.easeOut(duration: 0.18), value: model.state)
         .animation(.easeOut(duration: 0.12), value: model.isHovering)
@@ -161,28 +180,31 @@ struct OverlayView: View {
 /// difficulty of a panel that floats above other applications.
 private struct PillBackground: View {
     let tint: Color
-    let isDark: Bool
+    let glassTint: Color
+    let outline: Color
+    let ambient: Color
+    let contact: Color
     let surface: PillSurface
 
-    /// Dark needs slightly more to hold the same contrast, because the label
-    /// is light and a bright backdrop shows through against it.
-    private var fillOpacity: Double {
-        isDark ? min(1, surface.opacity * 1.07) : surface.opacity
-    }
-    /// Tint carried into the glass itself, so lowering the fill does not leave
-    /// the pill taking all of its colour from the wallpaper.
-    private var glassTint: Double { surface.opacity * 0.53 }
-
     var body: some View {
-        if #available(macOS 26.0, *) {
-            Capsule()
-                .fill(tint.opacity(fillOpacity))
-                .glassEffect(glass.tint(tint.opacity(glassTint)), in: Capsule())
-        } else {
-            Capsule()
-                .fill(tint.opacity(fillOpacity))
-                .background(surface.fallbackMaterial, in: Capsule())
+        let shape = Capsule()
+
+        Group {
+            if #available(macOS 26.0, *) {
+                shape
+                    .fill(tint.opacity(surface.opacity))
+                    .glassEffect(glass.tint(glassTint), in: shape)
+            } else {
+                shape
+                    .fill(tint.opacity(surface.opacity))
+                    .background(surface.fallbackMaterial, in: shape)
+            }
         }
+        // Two shadows, not one: a soft ambient that lifts the pill off the
+        // desktop and a tight contact one that keeps its edge from floating.
+        .shadow(color: ambient, radius: 8, x: 0, y: 3)
+        .shadow(color: contact, radius: 2, x: 0, y: 1)
+        .overlay(shape.strokeBorder(outline, lineWidth: 0.5))
     }
 
     @available(macOS 26.0, *)
