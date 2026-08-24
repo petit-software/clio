@@ -1,4 +1,4 @@
-# Scribe
+# Clio
 
 Native macOS dictation. Hold a key, speak, get text pasted into whatever app
 you're in. Fully offline — local models only.
@@ -7,7 +7,7 @@ Full design in [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-s
 
 ## Status
 
-**Milestones 0–5.** Scribe dictates: hold the shortcut, speak,
+**Milestones 0–5.** Clio dictates: hold the shortcut, speak,
 and the text lands in the app you were typing in. Real transcription, on
 device, no network.
 
@@ -29,8 +29,8 @@ protocol — it makes the UI testable without loading a model.
 ```sh
 swift build            # library + executable
 swift test             # unit tests, no network
-./scripts/build-app.sh # Scribe.app, signed
-open Scribe.app
+./scripts/build-app.sh # Clio.app, signed
+open Clio.app
 ```
 
 The end-to-end test is off by default — it downloads ~81 MB and takes about
@@ -38,7 +38,7 @@ The end-to-end test is off by default — it downloads ~81 MB and takes about
 run it when touching the engine:
 
 ```sh
-SCRIBE_INTEGRATION=1 swift test --filter Integration
+CLIO_INTEGRATION=1 swift test --filter Integration
 ```
 
 It installs the tiny model, speaks a sentence through `say`, transcribes it,
@@ -60,7 +60,7 @@ TCC uses to decide whether this is the same app it granted Accessibility to:
 
 ```
 ad-hoc:        cdhash H"bcd2d71e9b91918520f53fbb98073e09a4ece098"
-Developer ID:  identifier "com.bartbak.scribe" and anchor apple generic
+Developer ID:  identifier "com.bartbak.clio" and anchor apple generic
                and … certificate leaf[subject.OU] = TJ3ALYQV5G
 ```
 
@@ -70,21 +70,21 @@ the team, which do not change when the code does — so permissions survive
 rebuilds.
 
 Hardened runtime is on either way, so the bundle is already in the shape
-notarization needs. `SCRIBE_ADHOC=1` forces an ad-hoc signature;
-`SCRIBE_NO_TIMESTAMP=1` skips the timestamp server for building offline.
+notarization needs. `CLIO_ADHOC=1` forces an ad-hoc signature;
+`CLIO_NO_TIMESTAMP=1` skips the timestamp server for building offline.
 
 ## Releasing
 
 ```sh
-./scripts/release.sh          # dist/Scribe-<version>.dmg, notarized and stapled
+./scripts/release.sh          # dist/Clio-<version>.dmg, notarized and stapled
 ```
 
 Refuses a dirty tree — a release nobody can check out again is not a release.
 Credentials come from the keychain by name (`NOTARY_PROFILE`, default
-`scribe-notary`), so the script holds no secrets. Create the profile once:
+`clio-notary`), so the script holds no secrets. Create the profile once:
 
 ```sh
-xcrun notarytool store-credentials scribe-notary \
+xcrun notarytool store-credentials clio-notary \
     --key AuthKey_XXXX.p8 --key-id KEYID --issuer ISSUER
 ```
 
@@ -106,7 +106,7 @@ reports `accepted — source=Notarized Developer ID`.
 ## Layout
 
 ```
-Sources/ScribeCore/   no SwiftUI — testable on its own
+Sources/ClioCore/   no SwiftUI — testable on its own
   AppPaths                where things live on disk
   Settings                one Codable struct, one JSON file
   SettingsStore           debounced, atomic writes
@@ -129,8 +129,8 @@ Sources/ScribeCore/   no SwiftUI — testable on its own
   TextInjector            clipboard + synthesized ⌘V, with restore
   DictationState          the state machine
 
-Sources/Scribe/       the app
-  ScribeApp           @main, MenuBarExtra + Settings scene
+Sources/Clio/       the app
+  ClioApp           @main, MenuBarExtra + Settings scene
   AppCoordinator          wires it all together
   UI/MenuBarView          system menu
   UI/OverlayController    non-activating NSPanel
@@ -241,7 +241,7 @@ proportions keeps them identical in weight:
 - **resting** — the drawing as-is
 - **live** — the same silhouette scaled by input level, so the mark itself is
   the meter while recording
-- **muted** — the same shape dimmed, when Scribe cannot hear its shortcut
+- **muted** — the same shape dimmed, when Clio cannot hear its shortcut
 
 Every bar shares one centre line, which is what makes the live pose work: only
 heights change, so it breathes instead of jumping.
@@ -261,12 +261,12 @@ redraw the menu bar at the recorder's 30 Hz.
 To look at it after a change:
 
 ```sh
-SCRIBE_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
+CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 ```
 
 ## Updates
 
-Scribe ships outside the App Store, so Sparkle is the only route a fix has to
+Clio ships outside the App Store, so Sparkle is the only route a fix has to
 someone who already downloaded it.
 
 - **Feed:** `https://petit-software.github.io/clio/appcast.xml`, served from
@@ -275,7 +275,7 @@ someone who already downloaded it.
 - **Signing:** EdDSA, private key in the developer's Keychain, public half in
   the signed `Info.plist`
 
-Updates are offered, never applied silently. Scribe is held open by a global
+Updates are offered, never applied silently. Clio is held open by a global
 event tap and may be mid-dictation; relaunching underneath someone in the
 middle of a sentence is worse than waiting for them to say yes.
 

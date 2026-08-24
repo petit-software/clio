@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>Scribe</string>
+	<string>Clio</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.bartbak.scribe</string>
+	<string>com.bartbak.clio</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Scribe</string>
+	<string>Clio</string>
 	<key>CFBundleDisplayName</key>
-	<string>Scribe</string>
+	<string>Clio</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -26,11 +26,11 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Scribe records your voice so it can transcribe it. Audio is processed entirely on this Mac and is never uploaded.</string>
+	<string>Clio records your voice so it can transcribe it. Audio is processed entirely on this Mac and is never uploaded.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 
-	<!-- Sparkle. Scribe ships outside the App Store, so this is the only route
+	<!-- Sparkle. Clio ships outside the App Store, so this is the only route
 	     a fix has to someone who already downloaded it.
 
 	     SUPublicEDKey is the public half of the EdDSA key in the developer's

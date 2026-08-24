@@ -1,18 +1,18 @@
 #!/bin/bash
-# Build, sign, notarize and package Scribe as a DMG anyone can run.
+# Build, sign, notarize and package Clio as a DMG anyone can run.
 #
 # build-app.sh already produces a correctly signed app; this adds the parts that
 # only matter when the app leaves this Mac. A locally built app carries no
 # quarantine flag, so Gatekeeper never checks it. A downloaded one does, and
-# without notarization macOS refuses it outright — "Scribe is damaged" — which
+# without notarization macOS refuses it outright — "Clio is damaged" — which
 # looks like a broken build rather than a missing step.
 #
 # Nothing secret lives here. Credentials come from the keychain by name, so this
 # file is safe to read, safe to commit, and safe to paste into a CI log:
 #
-#   NOTARY_PROFILE  name of a notarytool keychain profile (default: scribe-notary),
+#   NOTARY_PROFILE  name of a notarytool keychain profile (default: clio-notary),
 #                   created once with:
-#                     xcrun notarytool store-credentials scribe-notary \
+#                     xcrun notarytool store-credentials clio-notary \
 #                         --key AuthKey_XXXX.p8 --key-id KEYID --issuer ISSUER
 #
 # ALLOW_DIRTY=1 releases from an uncommitted tree. For trying this script out,
@@ -20,13 +20,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-NOTARY_PROFILE="${NOTARY_PROFILE:-scribe-notary}"
+# The app was called Scribe until the rename, and the notarytool profile in the
+# Keychain is still named for it. notarytool credentials cannot be renamed --
+# storing them needs the App Store Connect key again -- so rather than break
+# releasing over a name, fall back to the old profile and say so.
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+if [ -z "$NOTARY_PROFILE" ]; then
+	if xcrun notarytool history --keychain-profile clio-notary >/dev/null 2>&1; then
+		NOTARY_PROFILE="clio-notary"
+	elif xcrun notarytool history --keychain-profile scribe-notary >/dev/null 2>&1; then
+		NOTARY_PROFILE="scribe-notary"
+		echo "note: using the legacy 'scribe-notary' keychain profile."
+		echo "      To retire it, run once with your App Store Connect key:"
+		echo "        xcrun notarytool store-credentials clio-notary \\"
+		echo "            --key AuthKey_XXXX.p8 --key-id KEYID --issuer ISSUER"
+	else
+		echo "error: no notarytool keychain profile found (tried clio-notary," >&2
+		echo "       scribe-notary). Create one with notarytool store-credentials." >&2
+		exit 1
+	fi
+fi
+echo "==> Notarizing with keychain profile: $NOTARY_PROFILE"
 
-APP="Scribe.app"
+APP="Clio.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
 BUILD_NUMBER="$(git rev-list --count HEAD)"
 OUT="dist"
-DMG="$OUT/Scribe-$VERSION.dmg"
+DMG="$OUT/Clio-$VERSION.dmg"
 
 # Refuse to ship a dirty tree. A release nobody can check out again is not a
 # release: the DMG would contain code that exists on exactly one machine.
@@ -36,8 +56,8 @@ if [ -z "${ALLOW_DIRTY:-}" ] && [ -n "$(git status --porcelain)" ]; then
 	exit 1
 fi
 
-echo "==> Building Scribe $VERSION ($BUILD_NUMBER)"
-SCRIBE_BUILD_NUMBER="$BUILD_NUMBER" scripts/build-app.sh
+echo "==> Building Clio $VERSION ($BUILD_NUMBER)"
+CLIO_BUILD_NUMBER="$BUILD_NUMBER" scripts/build-app.sh
 
 # An ad-hoc signature cannot be notarized, and finding that out from Apple three
 # minutes later is a worse way to learn it.
@@ -59,7 +79,7 @@ IDENTITY="$(security find-identity -v -p codesigning \
 # record online. Copy the app out of the DMG, be offline on first launch, and
 # the same bundle is "damaged". The ticket has to be in the app itself.
 echo "==> Notarizing the app (this waits on Apple, typically a minute or two)"
-ZIP="$OUT/Scribe-$VERSION-app.zip"
+ZIP="$OUT/Clio-$VERSION-app.zip"
 rm -f "$ZIP"
 # ditto, not zip: it preserves the symlinks and extended attributes a signed
 # bundle is made of. A plain zip can invalidate the signature it is carrying.
@@ -75,9 +95,9 @@ rm -f "$DMG"
 STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 # The drag-to-install target. Without it the DMG is a folder with an app in it
-# and people run Scribe from the disk image, where it cannot update itself.
+# and people run Clio from the disk image, where it cannot update itself.
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname "Scribe $VERSION" -srcfolder "$STAGE" \
+hdiutil create -volname "Clio $VERSION" -srcfolder "$STAGE" \
 	-ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
 

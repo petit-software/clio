@@ -1,7 +1,7 @@
 import Carbon.HIToolbox
 import ServiceManagement
 import SwiftUI
-import ScribeCore
+import ClioCore
 
 /// The tabs from §6. Model and Audio-device pickers are intentionally thin
 /// here — ModelManager is Milestone 4 — but every control that Milestone 0 can
@@ -63,12 +63,14 @@ private struct GeneralTab: View {
             }
 
             Section {
+                // Reads the login item itself, not the stored flag. The two
+                // drift: the registration is per bundle identifier, so a rename
+                // strands it, and the user then sees a switch that is on while
+                // nothing launches. A control that lies about the system is
+                // worse than one that is simply off.
                 Toggle("Launch at login", isOn: Binding(
-                    get: { coordinator.settingsStore.settings.launchAtLogin },
-                    set: { newValue in
-                        coordinator.settingsStore.settings.launchAtLogin = newValue
-                        setLaunchAtLogin(newValue)
-                    }))
+                    get: { SMAppService.mainApp.status == .enabled },
+                    set: { setLaunchAtLogin($0) }))
 
                 Toggle("Show icon in menu bar", isOn: Binding(
                     get: { coordinator.settingsStore.settings.showMenuBarIcon },
@@ -92,9 +94,12 @@ private struct GeneralTab: View {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            // Revert rather than show a toggle that does not match reality.
-            coordinator.settingsStore.settings.launchAtLogin = !enabled
+            // The toggle reads the service, so a failure here needs no undo —
+            // it will simply show what actually happened.
         }
+        // Mirrored so the stored settings still describe the install.
+        coordinator.settingsStore.settings.launchAtLogin =
+            SMAppService.mainApp.status == .enabled
     }
 }
 
@@ -177,7 +182,7 @@ private struct ModelTab: View {
                 Text("Models")
             } footer: {
                 Text("Models are downloaded once and run entirely on this Mac. "
-                     + "Scribe also finds models other tools have already "
+                     + "Clio also finds models other tools have already "
                      + "downloaded to the shared Hugging Face cache.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -375,7 +380,7 @@ private struct AudioTab: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     if coordinator.selectedInputIsMissing {
-                        Label("That microphone is not connected. Scribe will "
+                        Label("That microphone is not connected. Clio will "
                               + "use the system default until it is back.",
                               systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
@@ -505,7 +510,7 @@ private struct OutputTab: View {
             } footer: {
                 Text("The transcript always lands on the clipboard. Password "
                      + "fields and some terminals block synthetic keystrokes; "
-                     + "there Scribe copies instead and tells you.")
+                     + "there Clio copies instead and tells you.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -614,7 +619,7 @@ private struct AboutTab: View {
                 } header: {
                     Text("Updates")
                 } footer: {
-                    Text("Scribe is distributed outside the App Store, so this "
+                    Text("Clio is distributed outside the App Store, so this "
                          + "is how fixes reach you. Updates are downloaded only "
                          + "after you agree to them.")
                         .font(.callout)

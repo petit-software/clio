@@ -1,6 +1,6 @@
 #if DEBUG
 import Foundation
-import ScribeCore
+import ClioCore
 
 /// Fixtures for Xcode previews.
 ///
@@ -49,7 +49,7 @@ enum Preview {
         _ configure: (inout Settings) -> Void = { _ in }
     ) -> SettingsStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("scribe-preview-\(UUID().uuidString).json")
+            .appendingPathComponent("clio-preview-\(UUID().uuidString).json")
         let store = SettingsStore(fileURL: url)
         configure(&store.settings)
         return store
@@ -67,7 +67,7 @@ enum Preview {
         let store = scratchSettings(settings)
         let history = HistoryStore(
             fileURL: FileManager.default.temporaryDirectory
-                .appendingPathComponent("scribe-preview-history-\(UUID().uuidString).json"))
+                .appendingPathComponent("clio-preview-history-\(UUID().uuidString).json"))
         for text in transcripts { history.add(text) }
 
         return AppCoordinator(

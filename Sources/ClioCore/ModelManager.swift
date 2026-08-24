@@ -316,7 +316,7 @@ public final class ModelManager {
         case notOurs
 
         public var errorDescription: String? {
-            "That model lives in the shared Hugging Face cache. Scribe "
+            "That model lives in the shared Hugging Face cache. Clio "
             + "will not delete it, because other tools may be using it."
         }
     }

@@ -1,5 +1,5 @@
 import SwiftUI
-import ScribeCore
+import ClioCore
 
 /// The system menu: what state we're in, the shortcut, and the few actions
 /// worth having without opening Settings.
@@ -59,7 +59,7 @@ struct MenuBarView: View {
                     .disabled(!updates.canCheck)
             }
 
-            Button("Quit Scribe") {
+            Button("Quit Clio") {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q", modifiers: .command)
@@ -179,7 +179,7 @@ struct MenuBarLabel: View {
             // The one state that earns a different glyph: something is wrong
             // and the mark alone cannot say so.
             return NSImage(systemSymbolName: "exclamationmark.triangle",
-                           accessibilityDescription: "Scribe — something went wrong")
+                           accessibilityDescription: "Clio — something went wrong")
                 ?? WaveformIcon.resting
 
         case .idle, .finished, .transcribing, .injecting:

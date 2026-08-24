@@ -1,6 +1,6 @@
 //
 //  HotkeyManager.swift
-//  Scribe
+//  Clio
 //
 //  Global hotkey handling for push-to-talk and toggle dictation.
 //
@@ -110,7 +110,7 @@ public final class HotkeyManager {
                 CFRunLoopRunInMode(.defaultMode, 0.25, false)
             }
         }
-        thread.name = "com.scribe.hotkey-tap"
+        thread.name = "com.clio.hotkey-tap"
         thread.qualityOfService = .userInteractive
         thread.start()
         tapThread = thread
@@ -342,7 +342,7 @@ public enum HotkeyError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .accessibilityNotTrusted:
-            return "Scribe needs Accessibility access to listen for its shortcut."
+            return "Clio needs Accessibility access to listen for its shortcut."
         case .tapCreationFailed:
             return "Could not create the keyboard event tap."
         }

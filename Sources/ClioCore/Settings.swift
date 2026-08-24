@@ -1,0 +1,168 @@
+import Foundation
+
+/// One typed struct, one JSON file.
+///
+/// The spec (§6) is explicit about this: Handy lists "settings have become
+/// bloated and messy" as tech debt, so there are no scattered UserDefaults
+/// keys here. `schemaVersion` is what lets us migrate later without guessing.
+public struct Settings: Codable, Equatable, Sendable {
+    public var schemaVersion: Int = 1
+
+    // General
+    public var hotkey: Hotkey = .defaultHotkey
+    public var hotkeyMode: HotkeyMode = .pushToTalk
+    public var launchAtLogin: Bool = false
+    public var showMenuBarIcon: Bool = true
+
+    // Model
+    public var activeModelID: String? = nil
+    public var keepModelInMemory: Bool = true
+
+    // Audio
+    /// `nil` means "system default input".
+    public var inputDeviceUID: String? = nil
+    public var voiceActivityDetection: Bool = true
+    public var vadSensitivity: Double = 0.5
+    public var maxRecordingSeconds: Double = 120
+
+    // Transcription
+    /// `nil` means auto-detect.
+    public var language: String? = nil
+    public var translateToEnglish: Bool = false
+    public var customVocabulary: [String] = []
+    public var wordReplacements: [WordReplacement] = []
+
+    // Output
+    public var outputAction: OutputAction = .pasteAutomatically
+    public var injectionMethod: InjectionMethod = .paste
+    public var trimTrailingPunctuation: Bool = false
+    public var capitalizeFirstLetter: Bool = true
+
+    // Feedback
+    public var overlayPosition: OverlayPosition = .bottomCenter
+    public var playSoundOnStart: Bool = true
+    public var playSoundOnStop: Bool = true
+    public var playSoundOnCancel: Bool = true
+
+    // History
+    /// Off by default: dictated text is whatever the user happened to say, so
+    /// keeping a log of it on disk is opt-in.
+    public var keepHistoryOnDisk: Bool = false
+
+    public init() {}
+
+    /// Decoded field by field, falling back to the default for anything absent
+    /// or unreadable.
+    ///
+    /// Swift's synthesized decoder throws `keyNotFound` for a missing key even
+    /// when the property has a default value — the defaults above are used by
+    /// `init()` and ignored by decoding. So every field added to this struct
+    /// made every existing settings file undecodable, and `SettingsStore` did
+    /// the sane thing with a file it could not read: set it aside and start
+    /// from defaults. The user lost their shortcut, their model and their
+    /// microphone, and the only trace was a `settings.json.corrupt` nobody
+    /// looks at. This is not hypothetical; it happened twice during
+    /// development, and `schemaVersion` exists precisely so it should not have.
+    ///
+    /// `try?` rather than `decodeIfPresent` alone, so a value of the wrong
+    /// shape — an enum case written by a newer version, say — costs that one
+    /// setting rather than all of them.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = Settings()
+
+        func read<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            ((try? container.decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+        }
+        func readOptional<T: Decodable>(_ key: CodingKeys, _ type: T.Type) -> T? {
+            (try? container.decodeIfPresent(T.self, forKey: key)) ?? nil
+        }
+
+        schemaVersion = read(.schemaVersion, defaults.schemaVersion)
+
+        hotkey = read(.hotkey, defaults.hotkey)
+        hotkeyMode = read(.hotkeyMode, defaults.hotkeyMode)
+        launchAtLogin = read(.launchAtLogin, defaults.launchAtLogin)
+        showMenuBarIcon = read(.showMenuBarIcon, defaults.showMenuBarIcon)
+
+        activeModelID = readOptional(.activeModelID, String.self)
+        keepModelInMemory = read(.keepModelInMemory, defaults.keepModelInMemory)
+
+        inputDeviceUID = readOptional(.inputDeviceUID, String.self)
+        voiceActivityDetection = read(.voiceActivityDetection,
+                                      defaults.voiceActivityDetection)
+        vadSensitivity = read(.vadSensitivity, defaults.vadSensitivity)
+        maxRecordingSeconds = read(.maxRecordingSeconds, defaults.maxRecordingSeconds)
+
+        language = readOptional(.language, String.self)
+        translateToEnglish = read(.translateToEnglish, defaults.translateToEnglish)
+        customVocabulary = read(.customVocabulary, defaults.customVocabulary)
+        wordReplacements = read(.wordReplacements, defaults.wordReplacements)
+
+        outputAction = read(.outputAction, defaults.outputAction)
+        injectionMethod = read(.injectionMethod, defaults.injectionMethod)
+        trimTrailingPunctuation = read(.trimTrailingPunctuation,
+                                       defaults.trimTrailingPunctuation)
+        capitalizeFirstLetter = read(.capitalizeFirstLetter,
+                                     defaults.capitalizeFirstLetter)
+
+        overlayPosition = read(.overlayPosition, defaults.overlayPosition)
+        playSoundOnStart = read(.playSoundOnStart, defaults.playSoundOnStart)
+        playSoundOnStop = read(.playSoundOnStop, defaults.playSoundOnStop)
+        playSoundOnCancel = read(.playSoundOnCancel, defaults.playSoundOnCancel)
+
+        keepHistoryOnDisk = read(.keepHistoryOnDisk, defaults.keepHistoryOnDisk)
+    }
+}
+
+public struct WordReplacement: Codable, Equatable, Sendable, Identifiable {
+    public var id: UUID
+    public var find: String
+    public var replace: String
+
+    public init(id: UUID = UUID(), find: String = "", replace: String = "") {
+        self.id = id
+        self.find = find
+        self.replace = replace
+    }
+}
+
+public enum OutputAction: String, Codable, Sendable, CaseIterable {
+    case pasteAutomatically
+    case copyOnly
+
+    public var label: String {
+        switch self {
+        case .pasteAutomatically: return "Paste automatically"
+        case .copyOnly: return "Copy to clipboard only"
+        }
+    }
+}
+
+public enum InjectionMethod: String, Codable, Sendable, CaseIterable {
+    case paste
+    case typeCharacters
+
+    public var label: String {
+        switch self {
+        case .paste: return "Paste (⌘V)"
+        case .typeCharacters: return "Type characters"
+        }
+    }
+}
+
+public enum OverlayPosition: String, Codable, Sendable, CaseIterable {
+    case none
+    case topCenter
+    case bottomCenter
+    case nearCursor
+
+    public var label: String {
+        switch self {
+        case .none: return "Hidden"
+        case .topCenter: return "Top center"
+        case .bottomCenter: return "Bottom center"
+        case .nearCursor: return "Near cursor"
+        }
+    }
+}

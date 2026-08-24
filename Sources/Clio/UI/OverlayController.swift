@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
-import ScribeCore
+import ClioCore
 
 /// What the overlay draws. Deliberately smaller than the coordinator: the
 /// panel gets state and a level, nothing else. That also keeps the ownership

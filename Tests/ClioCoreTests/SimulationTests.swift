@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import ScribeCore
+@testable import ClioCore
 
 /// The seams the previews stand on.
 ///

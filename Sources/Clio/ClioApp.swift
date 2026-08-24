@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
-import ScribeCore
+import ClioCore
 
 @main
-struct ScribeApp: App {
+struct ClioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {

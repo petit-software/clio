@@ -1,8 +1,8 @@
 import Testing
 import AppKit
-@testable import ScribeCore
+@testable import ClioCore
 
-private let dumpEnabled = ProcessInfo.processInfo.environment["SCRIBE_ICON_DUMP"] != nil
+private let dumpEnabled = ProcessInfo.processInfo.environment["CLIO_ICON_DUMP"] != nil
 
 @MainActor
 @Suite("Icon dump", .enabled(if: dumpEnabled))
@@ -10,7 +10,7 @@ struct IconDumpTests {
 
     private var outputDirectory: URL {
         URL(fileURLWithPath: ProcessInfo.processInfo
-            .environment["SCRIBE_ICON_DUMP"] ?? NSTemporaryDirectory())
+            .environment["CLIO_ICON_DUMP"] ?? NSTemporaryDirectory())
     }
 
     private func write(_ image: NSImage, _ name: String) throws {

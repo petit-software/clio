@@ -24,7 +24,7 @@ final class OnboardingWindowController {
             backing: .buffered,
             defer: false)
 
-        window.title = "Welcome to Scribe"
+        window.title = "Welcome to Clio"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.center()

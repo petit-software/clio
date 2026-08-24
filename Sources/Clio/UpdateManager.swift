@@ -9,7 +9,7 @@ import Sparkle
 /// every other Mac app that updates this way, and it is the path Sparkle
 /// actually tests.
 ///
-/// Updates are offered, never applied silently. Scribe is held open by a global
+/// Updates are offered, never applied silently. Clio is held open by a global
 /// event tap and may be mid-dictation; relaunching underneath someone in the
 /// middle of a sentence is worse than waiting for them to say yes.
 @MainActor
@@ -30,10 +30,14 @@ public final class UpdateManager {
                                                   updaterDelegate: nil,
                                                   userDriverDelegate: nil)
 
+        // The new value comes from the change dictionary rather than off the
+        // updater: the observation block is @Sendable, and reaching back into a
+        // main-actor property from it is exactly the isolation mistake that
+        // crashed the event tap.
         observation = controller.updater.observe(\.canCheckForUpdates,
                                                  options: [.initial, .new]) {
-            [weak self] updater, _ in
-            let value = updater.canCheckForUpdates
+            [weak self] _, change in
+            let value = change.newValue ?? true
             Task { @MainActor in self?.canCheck = value }
         }
     }

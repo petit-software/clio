@@ -1,6 +1,6 @@
 import AppKit
 
-/// Scribe's mark: four rounded bars, a waveform.
+/// Clio's mark: four rounded bars, a waveform.
 ///
 /// Drawn rather than shipped as an asset, because the menu bar needs it in
 /// several poses (idle, live level, muted) and generating them from one set of
@@ -48,7 +48,7 @@ public enum WaveformIcon {
     /// The mark as drawn — the idle icon.
     public static let resting: NSImage = render(heights: restingHeights)
 
-    /// The mark dimmed, for when Scribe cannot actually hear its shortcut.
+    /// The mark dimmed, for when Clio cannot actually hear its shortcut.
     ///
     /// Dimmed rather than collapsed: flattening the bars turns the mark into
     /// four dots that read as "…" — a progress indicator, not a disabled one —
@@ -56,7 +56,7 @@ public enum WaveformIcon {
     /// is the idiom every other menu bar item uses for the same thing.
     public static let muted: NSImage = {
         let image = render(heights: restingHeights, opacity: 0.35)
-        image.accessibilityDescription = "Scribe — permissions needed"
+        image.accessibilityDescription = "Clio — permissions needed"
         return image
     }()
 
@@ -77,7 +77,7 @@ public enum WaveformIcon {
             return floor + (ceiling - floor) * fraction
         }
         let image = render(heights: heights)
-        image.accessibilityDescription = "Scribe — listening"
+        image.accessibilityDescription = "Clio — listening"
         liveCache[step] = image
         return image
     }
@@ -114,7 +114,7 @@ public enum WaveformIcon {
         // dark one, and inverted while the menu is open. The colour above is
         // only ever a mask.
         image.isTemplate = true
-        image.accessibilityDescription = "Scribe"
+        image.accessibilityDescription = "Clio"
         return image
     }
 }

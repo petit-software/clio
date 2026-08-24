@@ -1,5 +1,5 @@
 import SwiftUI
-import ScribeCore
+import ClioCore
 
 /// The pill: a live level meter while recording, a spinner while transcribing,
 /// a checkmark when the text has landed.

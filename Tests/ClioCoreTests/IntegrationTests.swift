@@ -1,18 +1,18 @@
 import Testing
 import Foundation
 import WhisperKit
-@testable import ScribeCore
+@testable import ClioCore
 
 /// End-to-end against the real Hugging Face repo and a real CoreML model.
 ///
 /// Off by default: it downloads ~81 MB and takes a while. Run it deliberately:
 ///
-///     SCRIBE_INTEGRATION=1 swift test --filter Integration
+///     CLIO_INTEGRATION=1 swift test --filter Integration
 ///
 /// It is the only thing that actually proves the ASR path works, so it exists
 /// rather than being replaced by a mock that always agrees with us.
 private let integrationEnabled =
-    ProcessInfo.processInfo.environment["SCRIBE_INTEGRATION"] != nil
+    ProcessInfo.processInfo.environment["CLIO_INTEGRATION"] != nil
 
 // Serialized: the tests share one installed model directory, and two of them
 // installing it at once raced on the .partial files. Serial also keeps the
@@ -24,7 +24,7 @@ struct IntegrationTests {
     /// carries no audio fixture.
     private func makeSpokenAudio(_ phrase: String) throws -> [Float] {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("scribe-say-\(UUID().uuidString)")
+            .appendingPathComponent("clio-say-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory,
                                                 withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -44,7 +44,7 @@ struct IntegrationTests {
     /// re-download 81 MB. Cleared by a reboot like anything else in /tmp.
     private var sharedModelRoot: URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("scribe-integration-models", isDirectory: true)
+            .appendingPathComponent("clio-integration-models", isDirectory: true)
     }
 
     private func installTinyModel() async throws -> InstalledModel {
@@ -180,7 +180,7 @@ struct IntegrationTests {
 /// Separate from the model tests because it needs the microphone permission,
 /// which a test binary only has if the user granted it. Run with:
 ///
-///     SCRIBE_INTEGRATION=1 swift test --filter MicrophoneIntegration
+///     CLIO_INTEGRATION=1 swift test --filter MicrophoneIntegration
 @Suite("MicrophoneIntegration", .enabled(if: integrationEnabled), .serialized)
 struct MicrophoneIntegrationTests {
 

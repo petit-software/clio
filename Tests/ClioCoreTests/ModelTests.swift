@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import ScribeCore
+@testable import ClioCore
 
 // MARK: - Helpers
 
@@ -10,7 +10,7 @@ private let noCache = URL(fileURLWithPath: "/nonexistent/huggingface-cache")
 
 private func makeTempDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("scribe-models-\(UUID().uuidString)")
+        .appendingPathComponent("clio-models-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
@@ -61,7 +61,7 @@ private func remoteFiles(id: String) -> [RemoteFile] {
 /// is run from.
 private var repositoryCatalogURL: URL {
     URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()   // ScribeCoreTests
+        .deletingLastPathComponent()   // ClioCoreTests
         .deletingLastPathComponent()   // Tests
         .deletingLastPathComponent()   // repo root
         .appendingPathComponent("Resources/models.json")

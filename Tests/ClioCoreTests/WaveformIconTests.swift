@@ -1,6 +1,6 @@
 import Testing
 import AppKit
-@testable import ScribeCore
+@testable import ClioCore
 
 /// The mark's geometry.
 ///

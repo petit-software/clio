@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Scribe.app from the current checkout.
+# Build Clio.app from the current checkout.
 #
 # SwiftPM produces a bare executable, and a bare executable has no Info.plist —
 # so it cannot own a bundle identifier, request the microphone, or hide its Dock
@@ -13,11 +13,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP="Scribe.app"
+APP="Clio.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
 
-echo "Building Scribe $VERSION — release…"
-swift build -c release --product Scribe
+echo "Building Clio $VERSION — release…"
+swift build -c release --product Clio
 
 mkdir -p "$APP/Contents/MacOS"
 # Rebuilt from scratch so a renamed or dropped resource cannot linger.
@@ -33,15 +33,15 @@ cp Resources/models.json "$APP/Contents/Resources/models.json"
 # Stamped before signing, since editing Info.plist afterwards would invalidate
 # the signature. Dev builds stay at whatever the tracked plist says; release.sh
 # passes the commit count so every shipped build has a distinct number.
-if [ -n "${SCRIBE_BUILD_NUMBER:-}" ]; then
-	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $SCRIBE_BUILD_NUMBER" \
+if [ -n "${CLIO_BUILD_NUMBER:-}" ]; then
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $CLIO_BUILD_NUMBER" \
 		"$APP/Contents/Info.plist"
 fi
 
 # Copied to a temp name and moved into place: replacing the binary of a RUNNING
 # app in place fails, and a half-written executable is worse than an old one.
-cp ".build/release/Scribe" "$APP/Contents/MacOS/Scribe.new"
-mv "$APP/Contents/MacOS/Scribe.new" "$APP/Contents/MacOS/Scribe"
+cp ".build/release/Clio" "$APP/Contents/MacOS/Clio.new"
+mv "$APP/Contents/MacOS/Clio.new" "$APP/Contents/MacOS/Clio"
 
 # --- Sparkle ----------------------------------------------------------------
 # SwiftPM links Sparkle but does not embed it: a bare executable has nowhere to
@@ -62,15 +62,15 @@ cp -R "$SPARKLE" "$APP/Contents/Frameworks/"
 
 # add_rpath errors rather than no-ops on a duplicate, and the binary is fresh
 # each build, so this is unconditional but checked.
-if ! otool -l "$APP/Contents/MacOS/Scribe" | grep -q "@executable_path/../Frameworks"; then
+if ! otool -l "$APP/Contents/MacOS/Clio" | grep -q "@executable_path/../Frameworks"; then
 	install_name_tool -add_rpath "@executable_path/../Frameworks" \
-		"$APP/Contents/MacOS/Scribe"
+		"$APP/Contents/MacOS/Clio"
 fi
 
 # The first Developer ID Application identity in the keychain. Matching on the
 # prefix rather than a hardcoded hash so this survives a certificate renewal.
 IDENTITY=""
-if [ -z "${SCRIBE_ADHOC:-}" ]; then
+if [ -z "${CLIO_ADHOC:-}" ]; then
 	IDENTITY="$(security find-identity -v -p codesigning \
 		| grep "Developer ID Application" \
 		| head -1 \
@@ -80,9 +80,9 @@ fi
 if [ -n "$IDENTITY" ]; then
 	echo "Signing as: $IDENTITY"
 	# --timestamp is what notarization requires later; it needs the network.
-	# SCRIBE_NO_TIMESTAMP=1 skips it for building on a plane.
+	# CLIO_NO_TIMESTAMP=1 skips it for building on a plane.
 	TIMESTAMP="--timestamp"
-	[ -n "${SCRIBE_NO_TIMESTAMP:-}" ] && TIMESTAMP="--timestamp=none"
+	[ -n "${CLIO_NO_TIMESTAMP:-}" ] && TIMESTAMP="--timestamp=none"
 	SIGN=("$IDENTITY")
 else
 	echo "No Developer ID identity found — signing ad-hoc."
@@ -108,7 +108,7 @@ codesign --force --sign "${SIGN[@]}" --options runtime $TIMESTAMP \
 	"$APP/Contents/Frameworks/Sparkle.framework"
 
 codesign --force --sign "${SIGN[@]}" \
-	--entitlements Resources/Scribe.entitlements \
+	--entitlements Resources/Clio.entitlements \
 	--options runtime \
 	$TIMESTAMP \
 	"$APP"

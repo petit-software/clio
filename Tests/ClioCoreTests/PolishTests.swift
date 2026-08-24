@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import ScribeCore
+@testable import ClioCore
 
 // MARK: - Voice activity trimming
 
@@ -80,7 +80,7 @@ func sensitivityChangesDetection() {
 @Test("History keeps newest first and caps at the limit")
 func historyCapsAndOrders() throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("scribe-history-\(UUID().uuidString)")
+        .appendingPathComponent("clio-history-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory,
                                             withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -96,7 +96,7 @@ func historyCapsAndOrders() throws {
 @Test("Blank transcripts are not recorded")
 func historyIgnoresBlanks() throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("scribe-history-\(UUID().uuidString)")
+        .appendingPathComponent("clio-history-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory,
                                             withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -112,7 +112,7 @@ func historyIgnoresBlanks() throws {
 @Test("History reaches disk only when asked, and turning it off deletes it")
 func historyPersistenceIsOptIn() throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("scribe-history-\(UUID().uuidString)")
+        .appendingPathComponent("clio-history-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory,
                                             withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }

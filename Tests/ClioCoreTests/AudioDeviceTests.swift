@@ -1,7 +1,7 @@
 import Testing
 import AVFoundation
 import CoreAudio
-@testable import ScribeCore
+@testable import ClioCore
 
 @Suite("Audio devices")
 struct AudioDeviceTests {

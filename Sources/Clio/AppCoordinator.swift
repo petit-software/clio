@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
-import ScribeCore
+import ClioCore
 
 /// Wires the hotkey, the recorder, the engine and the injector into the state
 /// machine from §4, and owns the one piece of state every UI surface reads.
@@ -140,7 +140,7 @@ public final class AppCoordinator {
         resetTask?.cancel()
 
         guard permissions.microphone.isGranted else {
-            fail("Scribe needs microphone access.")
+            fail("Clio needs microphone access.")
             return
         }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Produce the appcast that tells installed copies of Scribe an update exists.
+# Produce the appcast that tells installed copies of Clio an update exists.
 #
 # Sparkle's generate_appcast reads a directory of built updates, signs each one
 # with the EdDSA private key in the Keychain, and writes the XML. The private
@@ -7,7 +7,7 @@
 #
 # The flow, once per release:
 #
-#   1. scripts/release.sh                  -> dist/Scribe-<version>.dmg
+#   1. scripts/release.sh                  -> dist/Clio-<version>.dmg
 #   2. scripts/generate-appcast.sh         -> dist/appcast.xml
 #   3. Create a GitHub release tagged v<version> on petit-software/clio and
 #      attach the DMG to it. The download URL below has to match.
@@ -50,7 +50,7 @@ if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$EXPECTED" ]; then
 	echo "       Info.plist expects: $EXPECTED" >&2
 	echo "       Keychain holds:     $ACTUAL" >&2
 	echo "       Updates signed with this key would be rejected by every" >&2
-	echo "       installed copy of Scribe." >&2
+	echo "       installed copy of Clio." >&2
 	exit 1
 fi
 
@@ -66,7 +66,7 @@ echo "Wrote $UPDATES_DIR/appcast.xml"
 echo
 echo "Next, in that order:"
 echo "  1. Create release $TAG on https://github.com/$REPO/releases/new"
-echo "     and attach $UPDATES_DIR/Scribe-$VERSION.dmg"
+echo "     and attach $UPDATES_DIR/Clio-$VERSION.dmg"
 echo "  2. cp $UPDATES_DIR/appcast.xml docs/appcast.xml && git add docs/appcast.xml && git push"
 echo
 echo "Publishing the appcast before the download exists makes every running"
