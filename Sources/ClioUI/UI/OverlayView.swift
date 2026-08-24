@@ -72,11 +72,14 @@ struct OverlayView: View {
             PillBackground(tint: pillFill,
                            glassTint: glassTint,
                            outline: outline,
-                           ambient: ambientShadow,
-                           contact: contactShadow,
                            surface: model.surface)
         }
         .clipShape(Capsule())
+        // Shadows go OUTSIDE the clip. Inside the background they were drawn
+        // and then clipped to the capsule, which removes them completely —
+        // a shadow lives entirely beyond the shape casting it.
+        .shadow(color: ambientShadow, radius: 8, x: 0, y: 3)
+        .shadow(color: contactShadow, radius: 2, x: 0, y: 1)
         .padding(Self.shadowPadding)
         .animation(.easeOut(duration: 0.18), value: model.state)
         .animation(.easeOut(duration: 0.12), value: model.isHovering)
@@ -178,12 +181,13 @@ struct OverlayView: View {
 /// window the pill would go dark and the label would disappear. Keeping it
 /// biased light means the design holds over any backdrop, which is the whole
 /// difficulty of a panel that floats above other applications.
+/// The pill's surface and its hairline. The shadows are NOT here — they are
+/// applied outside the capsule clip, because anything drawn in a background
+/// gets clipped with it and a shadow lives entirely outside its own shape.
 private struct PillBackground: View {
     let tint: Color
     let glassTint: Color
     let outline: Color
-    let ambient: Color
-    let contact: Color
     let surface: PillSurface
 
     var body: some View {
@@ -200,10 +204,6 @@ private struct PillBackground: View {
                     .background(surface.fallbackMaterial, in: shape)
             }
         }
-        // Two shadows, not one: a soft ambient that lifts the pill off the
-        // desktop and a tight contact one that keeps its edge from floating.
-        .shadow(color: ambient, radius: 8, x: 0, y: 3)
-        .shadow(color: contact, radius: 2, x: 0, y: 1)
         .overlay(shape.strokeBorder(outline, lineWidth: 0.5))
     }
 
