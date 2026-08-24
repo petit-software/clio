@@ -338,12 +338,19 @@ public final class AppCoordinator {
 
         guard sessionToken == token else { return }
 
+        // What the pill claims afterwards has to match where the words
+        // actually are: copy-only always leaves them there, pasting only when
+        // the user asked it to keep them.
+        overlay?.model.transcriptIsOnClipboard =
+            settings.outputAction == .copyOnly || settings.keepTranscriptOnClipboard
+
         switch result {
         case .pasted, .typed:
             state = .finished(text)
         case .copiedOnly(let reason):
             // Not a failure — the text is on the clipboard either way, so say
             // what happened instead of pretending it pasted.
+            overlay?.model.transcriptIsOnClipboard = true
             state = reason.map { .failed($0) } ?? .finished(text)
         }
 

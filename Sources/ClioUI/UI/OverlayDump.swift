@@ -34,6 +34,9 @@ public enum OverlayDump {
         case "transcribing": state = .transcribing
         case "error": state = .failed("Nothing returned")
         case "finished": state = .finished("Hello")
+        case "copied":
+            state = .finished("Hello")
+            controller.model.transcriptIsOnClipboard = true
         default: state = .recording
         }
         controller.model.level = 0.75
@@ -82,7 +85,10 @@ public enum OverlayDump {
         rows.append(("error-long", model {
             $0.state = .failed("No model installed — open Settings ▸ Model to download one.")
         }))
-        rows.append(("finished", model { $0.state = .finished("Hello") }))
+        rows.append(("finished-copied", model {
+            $0.state = .finished("Hello"); $0.transcriptIsOnClipboard = true
+        }))
+        rows.append(("finished-pasted", model { $0.state = .finished("Hello") }))
 
         for (name, model) in rows {
             let renderer = ImageRenderer(content:

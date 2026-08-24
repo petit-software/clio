@@ -75,7 +75,8 @@ struct OverlayView: View {
                 .padding(.leading, h * 0.31)
                 .padding(.trailing, h * 0.26)
         case .finished:
-            Image(systemName: "checkmark")
+            Image(systemName: model.transcriptIsOnClipboard
+                  ? "square.fill.on.square.fill" : "checkmark")
                 .font(.system(size: h * 0.22, weight: .bold))
                 .foregroundStyle(ink)
                 .padding(.leading, h * 0.31)
@@ -134,7 +135,8 @@ struct OverlayView: View {
         switch model.state {
         case .transcribing: return "Transcribing"
         case .injecting: return "Pasting"
-        case .finished: return "Done"
+        case .finished:
+            return model.transcriptIsOnClipboard ? "Copied to clipboard" : "Pasted"
         case .failed(let message): return message
         case .idle, .recording: return ""
         }
@@ -320,6 +322,18 @@ private func overlayModel(_ configure: (OverlayModel) -> Void) -> OverlayModel {
         OverlayView(model: overlayModel {
             $0.state = .finished("x"); $0.note = "Stopped at the 10:00 limit"
         })
+    }
+    .padding(20)
+    .background(Color(red: 54/255, green: 52/255, blue: 49/255))
+}
+
+/// What the pill says when it is over, which depends on where the words went.
+#Preview("Finished") {
+    VStack(spacing: 4) {
+        OverlayView(model: overlayModel {
+            $0.state = .finished("x"); $0.transcriptIsOnClipboard = true
+        })
+        OverlayView(model: overlayModel { $0.state = .finished("x") })
     }
     .padding(20)
     .background(Color(red: 54/255, green: 52/255, blue: 49/255))

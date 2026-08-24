@@ -33,6 +33,13 @@ public final class OverlayModel {
     /// so it says it is waking instead.
     public var captureIsLive = false
 
+    /// Whether the finished transcript actually ended up on the clipboard.
+    ///
+    /// Pasting borrows the clipboard and puts back what was there, so most of
+    /// the time it does not. Saying "Copied to clipboard" regardless would send
+    /// the user to a clipboard that no longer holds their words.
+    public var transcriptIsOnClipboard = false
+
     /// Only while recording — a finished pill must not glow orange.
     public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 
