@@ -75,10 +75,21 @@ public actor WhisperKitEngine: TranscriptionEngine {
         decoding.task = options.translateToEnglish ? .translate : .transcribe
         decoding.language = options.language
         decoding.detectLanguage = options.language == nil
-        // Dictation goes straight into a text field, so the special tokens and
-        // timestamps Whisper emits are noise.
+        // Dictation goes straight into a text field, so the special tokens
+        // Whisper emits are noise. skipSpecialTokens strips them from the text.
         decoding.skipSpecialTokens = true
-        decoding.withoutTimestamps = true
+
+        // withoutTimestamps stays FALSE, deliberately. Whisper transcribes in
+        // 30-second windows and uses the timestamp tokens it emits to work out
+        // where the next window resumes; suppressing them leaves it unable to
+        // advance, so anything past the first window is silently dropped.
+        //
+        // This shipped as true, on the reasoning that timestamps were noise in
+        // a text field. They are — but skipSpecialTokens already removes them
+        // from the output, so it bought nothing and cost everything after 30
+        // seconds. Measured on one 60s recording: 154 characters with it on,
+        // 993 with it off. See the LongAudio test.
+        decoding.withoutTimestamps = false
 
         if let prompt = options.initialPrompt,
            let tokenizer = pipe.tokenizer {

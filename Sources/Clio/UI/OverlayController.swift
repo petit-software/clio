@@ -11,6 +11,67 @@ import ClioCore
 final class OverlayModel {
     var state: DictationState = .idle
     var level: Float = 0
+    /// Set by the panel's tracking area, not by SwiftUI's `.onHover`.
+    var isHovering = false
+
+    /// Transcribing can take seconds on a large model, and it is the one wait
+    /// worth offering a way out of. Recording already ends by releasing the
+    /// key, and injecting is over before a cursor could reach it.
+    var isCancellableByClick: Bool { state == .transcribing }
+}
+
+/// Hosts the pill and handles the pointer itself.
+///
+/// SwiftUI's `.onHover` installs a tracking area that only fires for the key
+/// window of an active application. Clio is an accessory app that is
+/// deliberately never active while this panel is up, so hover has to be
+/// tracked explicitly with `.activeAlways`. The click is taken here too, for
+/// the same reason — and because the whole pill is a bigger, calmer target
+/// than a 16pt button.
+@MainActor
+final class OverlayHostingView: NSHostingView<OverlayView> {
+    var onCancel: (() -> Void)?
+    private var trackingArea: NSTrackingArea?
+    private let model: OverlayModel
+
+    init(model: OverlayModel) {
+        self.model = model
+        super.init(rootView: OverlayView(model: model))
+    }
+
+    @MainActor required init(rootView: OverlayView) {
+        self.model = rootView.model
+        super.init(rootView: rootView)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        model.isHovering = true
+        if model.isCancellableByClick { NSCursor.pointingHand.set() }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        model.isHovering = false
+        NSCursor.arrow.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard model.isCancellableByClick else { return }
+        NSCursor.arrow.set()
+        onCancel?()
+    }
 }
 
 /// The non-activating panel that shows listening / transcribing / done.
@@ -23,15 +84,33 @@ final class OverlayController {
     let model = OverlayModel()
 
     private var panel: NSPanel?
+    private var hostingView: OverlayHostingView?
     private static let size = NSSize(width: 260, height: 76)
 
+    /// Called when the user clicks the pill to abandon a transcription.
+    var onCancel: (() -> Void)?
+
     init() {}
+
+    /// Mirrors the machine's state into the pill, and decides whether the panel
+    /// takes the pointer at all.
+    func update(state: DictationState) {
+        model.state = state
+        if !model.isCancellableByClick {
+            model.isHovering = false
+        }
+        // Click-through except while there is something to cancel. The panel
+        // sits over other apps, and swallowing clicks it has no use for would
+        // make it an obstacle.
+        panel?.ignoresMouseEvents = !model.isCancellableByClick
+    }
 
     func show(position: OverlayPosition) {
         guard position != .none else { return hide() }
 
         let panel = panel ?? makePanel()
         self.panel = panel
+        panel.ignoresMouseEvents = !model.isCancellableByClick
         panel.setFrameOrigin(origin(for: position, size: panel.frame.size))
         // orderFrontRegardless, never makeKeyAndOrderFront: taking key status
         // is exactly what we must not do.
@@ -52,6 +131,7 @@ final class OverlayController {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isFloatingPanel = true
+        // Set per state by update(state:) — see there.
         panel.ignoresMouseEvents = true
         panel.hasShadow = true
         panel.isOpaque = false
@@ -60,8 +140,10 @@ final class OverlayController {
         // Without this the panel can still steal first-responder on show.
         panel.becomesKeyOnlyIfNeeded = true
 
-        let host = NSHostingView(rootView: OverlayView(model: model))
+        let host = OverlayHostingView(model: model)
         host.frame = NSRect(origin: .zero, size: Self.size)
+        host.onCancel = { [weak self] in self?.onCancel?() }
+        hostingView = host
         panel.contentView = host
         return panel
     }

@@ -12,7 +12,7 @@ struct OverlayView: View {
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(model.state.overlayLabel)
+                Text(label)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
@@ -32,6 +32,14 @@ struct OverlayView: View {
             RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(.white.opacity(0.12), lineWidth: 1))
         .animation(.easeOut(duration: 0.18), value: model.state)
+        .animation(.easeOut(duration: 0.12), value: model.isHovering)
+    }
+
+    /// Says what the click will do, so the X is not the only clue.
+    private var label: String {
+        model.isHovering && model.isCancellableByClick
+            ? "Cancel transcription"
+            : model.state.overlayLabel
     }
 
     @ViewBuilder
@@ -40,6 +48,13 @@ struct OverlayView: View {
         case .recording:
             Image(systemName: "mic.fill")
                 .foregroundStyle(.red)
+                .font(.system(size: 16))
+        case .transcribing where model.isHovering:
+            // The spinner becomes the way out. Swapping it in place, rather
+            // than adding a button beside it, keeps the pill from changing
+            // shape under the pointer.
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.secondary)
                 .font(.system(size: 16))
         case .transcribing, .injecting:
             ProgressView()

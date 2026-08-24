@@ -10,7 +10,7 @@ import ClioCore
 public final class AppCoordinator {
 
     public private(set) var state: DictationState = .idle {
-        didSet { overlay?.model.state = state }
+        didSet { overlay?.update(state: state) }
     }
     /// 0…1, driven by the recorder at ~30 Hz. The overlay's waveform.
     public private(set) var inputLevel: Float = 0 {
@@ -35,6 +35,17 @@ public final class AppCoordinator {
 
     private var resetTask: Task<Void, Never>?
     private var maxDurationTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
+
+    /// Bumped whenever a session ends, so work started by an earlier one can
+    /// tell that it is stale.
+    ///
+    /// Task cancellation alone is not enough: `transcribe` runs a CoreML
+    /// inference that does not check for cancellation partway through, so a
+    /// cancelled task still returns a transcript. Without this token that
+    /// transcript would be pasted into the user's document after they had
+    /// already pressed Esc.
+    private var sessionToken = 0
 
     public init(settingsStore: SettingsStore = SettingsStore(),
                 permissions: PermissionsCoordinator = PermissionsCoordinator(),
@@ -84,6 +95,8 @@ public final class AppCoordinator {
         try? AppPaths.ensureDirectories()
 
         overlay = OverlayController()
+        // Clicking the pill while it is transcribing abandons the run.
+        overlay?.onCancel = { [weak self] in self?.cancel() }
 
         recorder.onLevel = { [weak self] level in
             self?.inputLevel = level
@@ -206,8 +219,9 @@ public final class AppCoordinator {
         }
 
         state = .transcribing
+        let token = sessionToken
 
-        Task { [weak self, engine] in
+        transcriptionTask = Task { [weak self, engine] in
             do {
                 let options = TranscribeOptions(
                     language: settings.language,
@@ -217,14 +231,22 @@ public final class AppCoordinator {
                 try await engine.load(model: model)
                 let transcript = try await engine.transcribe(samples: samples,
                                                              options: options)
-                await self?.deliver(transcript)
+                guard !Task.isCancelled else { return }
+                await self?.deliver(transcript, token: token)
+            } catch is CancellationError {
+                return
             } catch {
-                self?.fail(error.localizedDescription)
+                guard let self, self.sessionToken == token else { return }
+                self.fail(error.localizedDescription)
             }
         }
     }
 
-    private func deliver(_ transcript: Transcript) async {
+    private func deliver(_ transcript: Transcript, token: Int) async {
+        // The user cancelled while this was running. Delivering now would
+        // paste text into whatever they moved on to.
+        guard sessionToken == token else { return }
+
         let settings = settingsStore.settings
         let text = TranscriptFormatter.format(transcript.text, settings: settings)
 
@@ -241,6 +263,8 @@ public final class AppCoordinator {
                                                action: settings.outputAction,
                                                method: settings.injectionMethod)
 
+        guard sessionToken == token else { return }
+
         switch result {
         case .pasted, .typed:
             state = .finished(text)
@@ -255,6 +279,10 @@ public final class AppCoordinator {
 
     public func cancel() {
         guard state.isCancellable else { return }
+        // Invalidate first: anything in flight checks this before it lands.
+        sessionToken &+= 1
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
         maxDurationTask?.cancel()
         maxDurationTask = nil
         recorder.cancel()
@@ -265,6 +293,9 @@ public final class AppCoordinator {
     }
 
     private func fail(_ message: String) {
+        sessionToken &+= 1
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
         maxDurationTask?.cancel()
         maxDurationTask = nil
         recorder.cancel()

@@ -77,10 +77,16 @@ private struct GeneralTab: View {
                     set: { coordinator.settingsStore.settings.showMenuBarIcon = $0 }))
             }
 
-            if !coordinator.permissions.allGranted {
-                Section {
-                    PermissionBanner(coordinator: coordinator)
-                }
+            Section {
+                PermissionBanner(coordinator: coordinator)
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("Clio needs the microphone to hear you, and Accessibility "
+                     + "to see its shortcut and paste into the app you are "
+                     + "typing in.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -213,6 +219,23 @@ private struct ModelTab: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            Section {
+                LabeledContent("Folder") {
+                    Text(AppPaths.modelsDirectory.path)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                Button("Reveal in Finder") {
+                    try? AppPaths.ensureDirectories()
+                    NSWorkspace.shared.selectFile(
+                        nil, inFileViewerRootedAtPath: AppPaths.modelsDirectory.path)
+                }
+            } header: {
+                Text("On disk")
             }
         }
         .formStyle(.grouped)
@@ -624,27 +647,6 @@ private struct AboutTab: View {
                          + "after you agree to them.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                }
-            }
-
-            Section {
-                PermissionBanner(coordinator: coordinator)
-            } header: {
-                Text("Permissions")
-            }
-
-            Section {
-                LabeledContent("Models") {
-                    Text(AppPaths.modelsDirectory.path)
-                        .font(.caption)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                }
-                Button("Reveal in Finder") {
-                    try? AppPaths.ensureDirectories()
-                    NSWorkspace.shared.selectFile(
-                        nil, inFileViewerRootedAtPath: AppPaths.modelsDirectory.path)
                 }
             }
 
