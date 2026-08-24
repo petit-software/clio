@@ -48,7 +48,7 @@ struct OverlayView: View {
         }
         .frame(height: h)
         .background { PillBackground(tint: pillFill, isDark: isDark,
-                                     opacity: model.pillOpacity) }
+                                     surface: model.surface) }
         .clipShape(Capsule())
         // The pill floats over other applications, and the backdrop is
         // whatever happens to be behind it. The shadow is what separates the
@@ -148,27 +148,31 @@ struct OverlayView: View {
 private struct PillBackground: View {
     let tint: Color
     let isDark: Bool
-    /// 0 is bare glass, 1 the flat surface the design was drawn as.
-    let opacity: Double
+    let surface: PillSurface
 
     /// Dark needs slightly more to hold the same contrast, because the label
     /// is light and a bright backdrop shows through against it.
-    private var fillOpacity: Double { isDark ? min(1, opacity * 1.07) : opacity }
+    private var fillOpacity: Double {
+        isDark ? min(1, surface.opacity * 1.07) : surface.opacity
+    }
     /// Tint carried into the glass itself, so lowering the fill does not leave
     /// the pill taking all of its colour from the wallpaper.
-    private var glassTint: Double { opacity * 0.53 }
+    private var glassTint: Double { surface.opacity * 0.53 }
 
     var body: some View {
         if #available(macOS 26.0, *) {
             Capsule()
                 .fill(tint.opacity(fillOpacity))
-                .glassEffect(.regular.tint(tint.opacity(glassTint)), in: Capsule())
+                .glassEffect(glass.tint(tint.opacity(glassTint)), in: Capsule())
         } else {
             Capsule()
                 .fill(tint.opacity(fillOpacity))
-                .background(.regularMaterial, in: Capsule())
+                .background(surface.fallbackMaterial, in: Capsule())
         }
     }
+
+    @available(macOS 26.0, *)
+    private var glass: Glass { surface.isClear ? .clear : .regular }
 }
 
 /// The spinner, drawn rather than an `NSProgressIndicator`.

@@ -59,6 +59,9 @@ public struct Settings: Codable, Equatable, Sendable {
     /// tint that the label stays legible over any backdrop, which is the thing
     /// that breaks first as this comes down.
     public var pillOpacity: Double = 0.30
+    /// Swap the frosted glass for the far more transparent clear variant.
+    /// A different effect, not merely less of the same one.
+    public var pillClearGlass: Bool = false
     public var playSoundOnStart: Bool = true
     public var playSoundOnStop: Bool = true
     public var playSoundOnCancel: Bool = true
@@ -129,6 +132,7 @@ public struct Settings: Codable, Equatable, Sendable {
         // Clamped on the way in: a value outside 0…1 from a hand-edited file
         // would render an invisible or fully opaque pill with no way back.
         pillOpacity = min(1, max(0, read(.pillOpacity, defaults.pillOpacity)))
+        pillClearGlass = read(.pillClearGlass, defaults.pillClearGlass)
         playSoundOnStart = read(.playSoundOnStart, defaults.playSoundOnStart)
         playSoundOnStop = read(.playSoundOnStop, defaults.playSoundOnStop)
         playSoundOnCancel = read(.playSoundOnCancel, defaults.playSoundOnCancel)

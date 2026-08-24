@@ -26,7 +26,7 @@ public final class OverlayModel {
 
     /// Mirrored from settings so the pill can be redrawn without the view
     /// reaching for a settings store it should not know about.
-    public var pillOpacity: Double = 0.30
+    public var surface = PillSurface()
 
     /// Only while recording — a finished pill must not glow orange.
     public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
