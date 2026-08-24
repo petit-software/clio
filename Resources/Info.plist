@@ -8,18 +8,18 @@
 	<string>Clio</string>
 	<key>CFBundleExecutable</key>
 	<string>Clio</string>
+	<key>CFBundleIconFile</key>
+	<string>Clio</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.bartbak.clio</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<key>CFBundleIconFile</key>
-	<string>Clio</string>
 	<key>CFBundleName</key>
 	<string>Clio</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4</string>
+	<string>0.5</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
