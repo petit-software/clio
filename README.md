@@ -64,6 +64,8 @@ Sources/ScribeCore/   no SwiftUI — testable on its own
   HotkeyManager           CGEventTap, push-to-talk and toggle
   PermissionsCoordinator  mic + Accessibility, polled
   AudioRecorder           AVAudioEngine → 16 kHz mono Float32
+  AudioDevices            CoreAudio input enumeration
+  AudioDeviceMonitor      keeps the list live as devices come and go
   ModelCatalog            what we offer; bundled JSON + built-in fallback
   ModelTransport          Hugging Face listing and download, SHA-256 verified
   ModelManager            install, discover, delete, progress
@@ -118,6 +120,33 @@ install also pulls the matching `openai/whisper-*` tokenizer into a `tokenizer/`
 subfolder (a subfolder because that repo has its own `config.json`, which next
 to the model would overwrite WhisperKit's), and the engine is configured with
 `download: false` so it cannot go looking.
+
+## Choosing a microphone
+
+From the menu bar (Microphone ▸) or Settings ▸ Audio. Both list every device
+with an input channel, with the built-in first and a checkmark on the current
+choice, and both offer "System Default" naming what it currently resolves to.
+
+Devices are stored by **CoreAudio UID, never `AudioDeviceID`** — the numeric id
+is reassigned when something is unplugged and plugged back in, so persisting it
+would silently point at a different microphone later.
+
+Enumeration is CoreAudio rather than `AVCaptureDevice`: it needs no microphone
+permission, so the picker works during onboarding before anything is granted,
+and driving the engine needs an `AudioDeviceID`, which is the layer that has
+one. `AVAudioEngine` has no API for input device selection on macOS; it is
+`kAudioOutputUnitProperty_CurrentDevice` on the AUHAL unit underneath, and it
+must be set **before** reading the input format — the format belongs to
+whichever device the unit points at.
+
+A chosen microphone that is no longer attached falls back to the system default
+rather than failing the recording, and says so in both the menu and Settings.
+Losing the words because a headset was unplugged is the worse outcome, but so
+is silently recording from something else.
+
+Bluetooth microphones carry the warning §9 asks for: recording from one
+switches the headset into its bidirectional call mode, so anything playing
+drops in quality for as long as the mic is open.
 
 ## What trimming silence is actually for
 

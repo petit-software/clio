@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import CoreAudio
 import Foundation
 
 /// Mic capture at 16 kHz mono Float32 — the format Whisper wants.
@@ -14,6 +15,7 @@ public final class AudioRecorder: @unchecked Sendable {
         case formatUnavailable
         case converterUnavailable
         case engineFailed(String)
+        case deviceUnavailable(String)
 
         public var errorDescription: String? {
             switch self {
@@ -23,6 +25,8 @@ public final class AudioRecorder: @unchecked Sendable {
                 return "Could not convert the input audio to 16 kHz mono."
             case .engineFailed(let message):
                 return "Audio engine failed to start: \(message)"
+            case .deviceUnavailable(let name):
+                return "\(name) is not available."
             }
         }
     }
@@ -62,7 +66,11 @@ public final class AudioRecorder: @unchecked Sendable {
 
     // MARK: Control
 
-    public func start(maxSeconds: Double) throws {
+    /// - Parameter deviceUID: the microphone to record from, or nil to follow
+    ///   the system default. A device that is no longer attached falls back to
+    ///   the default rather than failing the recording — losing the words
+    ///   because a headset was unplugged would be the worse outcome.
+    public func start(maxSeconds: Double, deviceUID: String? = nil) throws {
         guard !isRecording else { return }
 
         let capacity = Int(maxSeconds * Self.sampleRate)
@@ -74,6 +82,14 @@ public final class AudioRecorder: @unchecked Sendable {
         lock.unlock()
 
         let input = engine.inputNode
+
+        // Before the format is read, not after: the format belongs to whatever
+        // device the unit is pointed at, so asking first would describe the
+        // old one.
+        if let deviceUID, let device = AudioDevices.device(forUID: deviceUID) {
+            try selectDevice(device.deviceID, on: input)
+        }
+
         let hwFormat = input.outputFormat(forBus: 0)
         guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
             throw RecorderError.formatUnavailable
@@ -138,6 +154,31 @@ public final class AudioRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return didOverflow
+    }
+
+    /// Point the engine's input at a specific device.
+    ///
+    /// AVAudioEngine has no API for this on macOS; it is a property on the
+    /// AUHAL unit underneath, and it only takes while the engine is stopped.
+    private func selectDevice(_ deviceID: AudioDeviceID,
+                              on input: AVAudioInputNode) throws {
+        guard let unit = input.audioUnit else {
+            throw RecorderError.engineFailed("The input node has no audio unit.")
+        }
+
+        var id = deviceID
+        let status = AudioUnitSetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &id,
+            UInt32(MemoryLayout<AudioDeviceID>.size))
+
+        guard status == noErr else {
+            throw RecorderError.engineFailed(
+                "Could not select that microphone (error \(status)).")
+        }
     }
 
     // MARK: Capture

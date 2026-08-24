@@ -174,3 +174,50 @@ struct IntegrationTests {
         #expect(trimmedResult.text.count <= paddedResult.text.count)
     }
 }
+
+/// Recording from a chosen microphone, for real.
+///
+/// Separate from the model tests because it needs the microphone permission,
+/// which a test binary only has if the user granted it. Run with:
+///
+///     SCRIBE_INTEGRATION=1 swift test --filter MicrophoneIntegration
+@Suite("MicrophoneIntegration", .enabled(if: integrationEnabled), .serialized)
+struct MicrophoneIntegrationTests {
+
+    @Test("Every listed microphone can actually be recorded from")
+    func everyDeviceRecords() async throws {
+        let devices = AudioDevices.availableInputs()
+        try #require(!devices.isEmpty)
+
+        for device in devices {
+            let recorder = AudioRecorder()
+            do {
+                try recorder.start(maxSeconds: 5, deviceUID: device.id)
+            } catch {
+                Issue.record("\(device.name) failed to start: \(error)")
+                continue
+            }
+
+            try await Task.sleep(for: .milliseconds(600))
+            let samples = recorder.stop()
+
+            // Samples arriving at all is the thing being checked. Whether they
+            // are loud is a property of the room, not of the routing.
+            let peak = samples.map(abs).max() ?? 0
+            print("[mic] \(device.name): \(samples.count) samples, peak \(peak)")
+            #expect(samples.count > Int(0.3 * AudioRecorder.sampleRate),
+                    "\(device.name) produced almost no audio")
+        }
+    }
+
+    @Test("An unplugged microphone falls back instead of failing")
+    func missingDeviceFallsBack() async throws {
+        let recorder = AudioRecorder()
+        // Losing the words because a headset was unplugged is worse than
+        // quietly recording from the default.
+        try recorder.start(maxSeconds: 5, deviceUID: "a-device-that-is-not-here")
+        try await Task.sleep(for: .milliseconds(400))
+        let samples = recorder.stop()
+        #expect(samples.count > Int(0.2 * AudioRecorder.sampleRate))
+    }
+}

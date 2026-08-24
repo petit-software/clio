@@ -22,6 +22,7 @@ public final class AppCoordinator {
     public let permissions: PermissionsCoordinator
     public let models: ModelManager
     public let history: HistoryStore
+    public let audioDevices = AudioDeviceMonitor()
 
     private let hotkeys = HotkeyManager()
     private let recorder = AudioRecorder()
@@ -117,7 +118,8 @@ public final class AppCoordinator {
 
         let settings = settingsStore.settings
         do {
-            try recorder.start(maxSeconds: settings.maxRecordingSeconds)
+            try recorder.start(maxSeconds: settings.maxRecordingSeconds,
+                               deviceUID: settings.inputDeviceUID)
         } catch {
             fail(error.localizedDescription)
             return
@@ -264,6 +266,29 @@ public final class AppCoordinator {
 
     public func copy(_ entry: TranscriptEntry) {
         TextInjector.copy(entry.text)
+    }
+
+    // MARK: Microphone
+
+    /// Nil means "follow the system default".
+    public func selectInputDevice(uid: String?) {
+        settingsStore.settings.inputDeviceUID = uid
+    }
+
+    public var selectedInputUID: String? {
+        settingsStore.settings.inputDeviceUID
+    }
+
+    /// The microphone the next recording will actually use.
+    public var effectiveInputDevice: AudioInputDevice? {
+        audioDevices.resolved(uid: selectedInputUID)
+    }
+
+    /// The user picked a microphone that is not plugged in. We will fall back
+    /// to the default, but the menu should say so rather than let them think
+    /// they are recording from something they are not.
+    public var selectedInputIsMissing: Bool {
+        audioDevices.isMissing(uid: selectedInputUID)
     }
 
 }

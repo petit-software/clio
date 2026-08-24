@@ -333,17 +333,67 @@ private struct ModelRow: View {
 private struct AudioTab: View {
     @Bindable var coordinator: AppCoordinator
 
+    /// Picker tags cannot be nil, so "follow the system default" needs a
+    /// sentinel. A CoreAudio UID never looks like this.
+    private static let systemDefaultTag = "\u{0}system-default"
+
+    private var defaultLabel: String {
+        guard let systemDefault = coordinator.audioDevices.systemDefault else {
+            return "System Default"
+        }
+        return "System Default (\(systemDefault.name))"
+    }
+
     var body: some View {
         Form {
             Section {
-                LabeledContent("Input") {
-                    Text("System default")
-                        .foregroundStyle(.secondary)
+                Picker("Microphone", selection: Binding(
+                    get: { coordinator.selectedInputUID ?? Self.systemDefaultTag },
+                    set: {
+                        coordinator.selectInputDevice(
+                            uid: $0 == Self.systemDefaultTag ? nil : $0)
+                    })) {
+                    Text(defaultLabel).tag(Self.systemDefaultTag)
+                    Divider()
+                    ForEach(coordinator.audioDevices.inputs) { device in
+                        Label(device.name, systemImage: device.transport.symbolName)
+                            .tag(device.id)
+                    }
+                    // A chosen-then-unplugged device keeps its row, or the
+                    // picker would silently jump to something else.
+                    if coordinator.selectedInputIsMissing,
+                       let missing = coordinator.selectedInputUID {
+                        Divider()
+                        Text("Not connected").tag(missing)
+                    }
                 }
+
                 LabeledContent("Level") {
                     ProgressView(value: Double(coordinator.inputLevel))
                         .frame(width: 160)
                 }
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if coordinator.selectedInputIsMissing {
+                        Label("That microphone is not connected. Scribe will "
+                              + "use the system default until it is back.",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                    // The spec asks the picker to carry this (§9).
+                    if coordinator.effectiveInputDevice?.transport.degradesPlayback == true {
+                        Label("Recording from a Bluetooth microphone switches "
+                              + "the headset into call mode, so anything you "
+                              + "are listening to drops in quality while you "
+                              + "dictate. Keeping the headset as output and "
+                              + "dictating into the built-in microphone avoids "
+                              + "it.",
+                              systemImage: "wave.3.right")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {

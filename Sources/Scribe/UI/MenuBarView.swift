@@ -47,6 +47,10 @@ struct MenuBarView: View {
 
             Divider()
 
+            MicrophoneMenu(coordinator: coordinator)
+
+            Divider()
+
             SettingsLink { Text("Settings…") }
                 .keyboardShortcut(",", modifiers: .command)
 
@@ -69,6 +73,81 @@ struct MenuBarView: View {
         case .finished: return "Done"
         case .failed(let message): return message
         }
+    }
+}
+
+/// The microphone picker.
+///
+/// The shape every other macOS app uses for this: a submenu, a checkmark
+/// against the current choice, "System Default" first and named so the user
+/// can see what it currently means.
+struct MicrophoneMenu: View {
+    @Bindable var coordinator: AppCoordinator
+
+    var body: some View {
+        Menu(title) {
+            Button {
+                coordinator.selectInputDevice(uid: nil)
+            } label: {
+                Label(defaultTitle, systemImage: check(for: nil))
+            }
+
+            if !coordinator.audioDevices.inputs.isEmpty {
+                Divider()
+            }
+
+            ForEach(coordinator.audioDevices.inputs) { device in
+                Button {
+                    coordinator.selectInputDevice(uid: device.id)
+                } label: {
+                    Label(name(for: device), systemImage: check(for: device.id))
+                }
+            }
+
+            // A microphone that was chosen and then unplugged stays visible,
+            // ticked, and obviously unavailable. Dropping it silently would
+            // leave the user believing they are recording from it.
+            if coordinator.selectedInputIsMissing, let missing = coordinator.selectedInputUID {
+                Divider()
+                Button {} label: {
+                    Label("\(shortName(missing)) (not connected)",
+                          systemImage: "exclamationmark.triangle")
+                }
+                .disabled(true)
+            }
+        }
+    }
+
+    private var title: String {
+        coordinator.selectedInputIsMissing ? "Microphone ⚠" : "Microphone"
+    }
+
+    private var defaultTitle: String {
+        guard let systemDefault = coordinator.audioDevices.systemDefault else {
+            return "System Default"
+        }
+        return "System Default (\(systemDefault.name))"
+    }
+
+    private func name(for device: AudioInputDevice) -> String {
+        // The one warning the spec asks the picker to carry (§9): recording
+        // from a Bluetooth mic drops everything you are listening to to call
+        // quality, for as long as the mic is open.
+        device.transport.degradesPlayback
+            ? "\(device.name) — lowers audio quality"
+            : device.name
+    }
+
+    /// SwiftUI menus have no checkmark of their own, so the row's icon is it.
+    /// An empty-looking symbol keeps the labels aligned in a proportional menu.
+    private func check(for uid: String?) -> String {
+        coordinator.selectedInputUID == uid ? "checkmark" : "circle.dotted"
+    }
+
+    /// A UID we can no longer look up — show the tail, which is usually the
+    /// readable part, rather than the whole CoreAudio string.
+    private func shortName(_ uid: String) -> String {
+        uid.split(separator: ":").last.map(String.init) ?? uid
     }
 }
 
