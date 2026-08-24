@@ -673,3 +673,55 @@ struct PermissionBanner: View {
         }
     }
 }
+
+// MARK: - Previews
+
+#if DEBUG
+/// A configured install: permissions granted, a model on disk, two mics.
+#Preview("Settings — configured") {
+    SettingsView(coordinator: Preview.coordinator(
+        transcripts: Preview.sampleTranscripts,
+        settings: { $0.activeModelID = Preview.installedModel.id }))
+}
+
+/// A fresh install: nothing granted, nothing downloaded, one model mid-flight.
+/// This is the state a new user actually sees, and the one easiest to forget.
+#Preview("Settings — fresh install") {
+    SettingsView(coordinator: Preview.freshCoordinator)
+}
+
+#Preview("Audio — Bluetooth warning") {
+    SettingsView(coordinator: Preview.coordinator(
+        devices: [Preview.builtInMic, Preview.headset],
+        settings: { $0.inputDeviceUID = Preview.headset.id }))
+}
+
+/// The microphone the user chose is not plugged in.
+#Preview("Audio — device unplugged") {
+    SettingsView(coordinator: Preview.coordinator(
+        devices: [Preview.builtInMic],
+        settings: { $0.inputDeviceUID = "a-headset-that-is-not-here" }))
+}
+
+#Preview("Permission banner") {
+    Form {
+        Section("Nothing granted") {
+            PermissionBanner(coordinator: Preview.coordinator(
+                microphone: .notDetermined, accessibility: .notDetermined))
+        }
+        Section("Microphone only") {
+            PermissionBanner(coordinator: Preview.coordinator(
+                microphone: .granted, accessibility: .notDetermined))
+        }
+        Section("Denied — must go to System Settings") {
+            PermissionBanner(coordinator: Preview.coordinator(
+                microphone: .denied, accessibility: .denied))
+        }
+        Section("All granted") {
+            PermissionBanner(coordinator: Preview.coordinator())
+        }
+    }
+    .formStyle(.grouped)
+    .frame(width: 460)
+}
+#endif

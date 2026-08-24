@@ -22,7 +22,7 @@ public final class AppCoordinator {
     public let permissions: PermissionsCoordinator
     public let models: ModelManager
     public let history: HistoryStore
-    public let audioDevices = AudioDeviceMonitor()
+    public let audioDevices: AudioDeviceMonitor
 
     private let hotkeys = HotkeyManager()
     private let recorder = AudioRecorder()
@@ -36,11 +36,13 @@ public final class AppCoordinator {
     public init(settingsStore: SettingsStore = SettingsStore(),
                 permissions: PermissionsCoordinator = PermissionsCoordinator(),
                 models: ModelManager = ModelManager(),
+                audioDevices: AudioDeviceMonitor = AudioDeviceMonitor(),
                 history: HistoryStore? = nil,
                 engine: any TranscriptionEngine = WhisperKitEngine()) {
         self.settingsStore = settingsStore
         self.permissions = permissions
         self.models = models
+        self.audioDevices = audioDevices
         self.history = history
             ?? HistoryStore(persistsToDisk: settingsStore.settings.keepHistoryOnDisk)
         self.engine = engine

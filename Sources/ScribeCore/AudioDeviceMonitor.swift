@@ -23,12 +23,26 @@ public final class AudioDeviceMonitor {
     /// object, so unregistering is not optional.
     private let registry = ListenerRegistry()
 
+    /// A simulated monitor reports a fixed list and registers no CoreAudio
+    /// listeners — a preview must not depend on what is plugged into the
+    /// machine rendering it, nor leave callbacks behind in the preview host.
+    private let isSimulated: Bool
+
     public init() {
+        isSimulated = false
         refresh()
         startListening()
     }
 
+    /// For previews and tests. Touches no audio hardware.
+    public init(simulating inputs: [AudioInputDevice]) {
+        isSimulated = true
+        self.inputs = inputs
+        self.systemDefault = inputs.first { $0.isSystemDefault }
+    }
+
     public func refresh() {
+        guard !isSimulated else { return }
         inputs = AudioDevices.availableInputs()
         systemDefault = inputs.first { $0.isSystemDefault }
     }

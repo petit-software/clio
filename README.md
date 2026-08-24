@@ -239,6 +239,31 @@ To look at it after a change:
 SCRIBE_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 ```
 
+## Previews
+
+Settings, the recording overlay and the onboarding window have `#Preview`
+blocks — 12 of them, covering the states that are awkward to reach in the
+running app: a fresh install with nothing granted, a microphone that has been
+unplugged, the Bluetooth warning, every overlay state, and permissions denied
+rather than merely not-yet-asked.
+
+They stand on simulated dependencies (`Preview` in `UI/PreviewSupport.swift`,
+DEBUG-only). That is not decoration: a preview of "microphone denied" has to
+keep saying denied on a Mac where it is granted, so `PermissionsCoordinator`,
+`AudioDeviceMonitor` and `ModelManager` each take a `simulating` initialiser
+that reads no TCC state, touches no audio hardware, and scans no disk. Tests in
+`SimulationTests` pin that fall-through shut — a simulated dependency that
+quietly consults the real system is worse than none, because it looks right on
+the machine that wrote it and wrong everywhere else.
+
+Nothing preview-related ships: the release bundle contains zero preview
+symbols.
+
+The menu bar views have no previews on purpose. `MenuBarView` and
+`MicrophoneMenu` are menu content, which Xcode renders as a plain list rather
+than a menu, and `MenuBarLabel` is a 15pt icon better seen through the icon
+dump above.
+
 ## Two things that will bite you
 
 **The overlay must never take focus.** It's a `.nonactivatingPanel` shown with

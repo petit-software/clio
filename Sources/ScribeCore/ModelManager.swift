@@ -8,6 +8,14 @@ public struct DownloadProgress: Sendable, Equatable {
     public var completedFiles: Int
     public var totalFiles: Int
 
+    public init(receivedBytes: Int64, totalBytes: Int64,
+                completedFiles: Int, totalFiles: Int) {
+        self.receivedBytes = receivedBytes
+        self.totalBytes = totalBytes
+        self.completedFiles = completedFiles
+        self.totalFiles = totalFiles
+    }
+
     public var fraction: Double {
         guard totalBytes > 0 else { return 0 }
         return min(1, Double(receivedBytes) / Double(totalBytes))
@@ -41,6 +49,27 @@ public final class ModelManager {
         self.huggingFaceCache = huggingFaceCache
         self.catalog = ModelCatalog.load()
         refreshInstalled()
+    }
+
+    /// For previews and tests: a manager with fixed state that does no disk
+    /// scan. The real initialiser discovers what is installed by reading the
+    /// models directory, which in a preview would show whatever this machine
+    /// happens to have downloaded.
+    public static func simulating(
+        catalog: [CatalogModel] = ModelCatalog.builtIn,
+        installed: [InstalledModel] = [],
+        downloads: [String: DownloadProgress] = [:],
+        failures: [String: String] = [:]
+    ) -> ModelManager {
+        let manager = ModelManager(
+            transport: HuggingFaceTransport(),
+            modelsDirectory: URL(fileURLWithPath: "/nonexistent-preview"),
+            huggingFaceCache: URL(fileURLWithPath: "/nonexistent-preview"))
+        manager.catalog = catalog
+        manager.installed = installed
+        manager.downloads = downloads
+        manager.failures = failures
+        return manager
     }
 
     // MARK: Discovery

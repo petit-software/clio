@@ -104,3 +104,31 @@ struct OnboardingView: View {
         }
     }
 }
+
+// MARK: - Previews
+
+#if DEBUG
+/// The onboarding window is the one view that must be previewable in states
+/// this Mac is not in — it only ever appears when something is missing, and by
+/// the time you are developing, everything is granted.
+#Preview("Nothing granted") {
+    OnboardingView(coordinator: Preview.coordinator(
+        microphone: .notDetermined, accessibility: .notDetermined)) {}
+}
+
+#Preview("Microphone granted") {
+    OnboardingView(coordinator: Preview.coordinator(
+        microphone: .granted, accessibility: .notDetermined)) {}
+}
+
+/// Denied is not the same as not-yet-asked: macOS ignores the API request once
+/// it has recorded a denial, so these steps must offer System Settings instead.
+#Preview("Denied") {
+    OnboardingView(coordinator: Preview.coordinator(
+        microphone: .denied, accessibility: .denied)) {}
+}
+
+#Preview("All set") {
+    OnboardingView(coordinator: Preview.coordinator()) {}
+}
+#endif

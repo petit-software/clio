@@ -91,3 +91,58 @@ private struct LevelMeter: View {
         }
     }
 }
+
+// MARK: - Previews
+
+#if DEBUG
+/// The overlay takes a model rather than the coordinator, so its states can be
+/// previewed directly — this is the view whose whole job is looking right in
+/// each one, and the only way to see them in the running app is to talk into it.
+@MainActor
+private func overlayModel(_ state: DictationState, level: Float = 0) -> OverlayModel {
+    let model = OverlayModel()
+    model.state = state
+    model.level = level
+    return model
+}
+
+#Preview("Every state") {
+    VStack(spacing: 12) {
+        OverlayView(model: overlayModel(.recording, level: 0.2))
+        OverlayView(model: overlayModel(.recording, level: 0.85))
+        OverlayView(model: overlayModel(.transcribing))
+        OverlayView(model: overlayModel(.injecting))
+        OverlayView(model: overlayModel(.finished("Hello there.")))
+        OverlayView(model: overlayModel(.failed("No speech detected.")))
+    }
+    .padding(24)
+    // The panel is transparent and floats over other apps, so a preview on a
+    // plain background would flatter it. This is closer to what it sits on.
+    .background(LinearGradient(colors: [.indigo, .teal],
+                               startPoint: .topLeading,
+                               endPoint: .bottomTrailing))
+}
+
+/// The failure text comes from real errors, some of which are long. Worth
+/// seeing where the pill's fixed width truncates them.
+#Preview("Long failure text") {
+    VStack(spacing: 12) {
+        OverlayView(model: overlayModel(
+            .failed("No model installed — open Settings ▸ Model to download one.")))
+        OverlayView(model: overlayModel(
+            .failed("Another app has secure input enabled, so the text was copied instead.")))
+    }
+    .padding(24)
+    .background(.black)
+}
+
+#Preview("Level sweep") {
+    VStack(spacing: 8) {
+        ForEach([0.0, 0.15, 0.35, 0.6, 0.8, 1.0], id: \.self) { level in
+            OverlayView(model: overlayModel(.recording, level: Float(level)))
+        }
+    }
+    .padding(24)
+    .background(.black)
+}
+#endif

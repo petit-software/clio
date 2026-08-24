@@ -30,11 +30,27 @@ public final class PermissionsCoordinator {
 
     private var pollTimer: Timer?
 
+    /// A simulated coordinator reports whatever it was given and never asks
+    /// the system. Without this a preview of the onboarding window would show
+    /// whatever this Mac happens to have granted, which is the one thing a
+    /// preview of a permission flow must not do.
+    private let isSimulated: Bool
+
     public init() {
+        isSimulated = false
         refresh()
     }
 
+    /// For previews and tests. Does no TCC lookup and starts no timer.
+    public init(simulating microphone: PermissionState,
+                accessibility: PermissionState) {
+        isSimulated = true
+        self.microphone = microphone
+        self.accessibility = accessibility
+    }
+
     public func refresh() {
+        guard !isSimulated else { return }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: microphone = .granted
         case .notDetermined: microphone = .notDetermined
@@ -50,7 +66,7 @@ public final class PermissionsCoordinator {
     }
 
     public func beginPolling(interval: TimeInterval = 2.0) {
-        guard pollTimer == nil else { return }
+        guard !isSimulated, pollTimer == nil else { return }
         pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
             Task { @MainActor [weak self] in self?.refresh() }
         }
@@ -67,11 +83,13 @@ public final class PermissionsCoordinator {
     /// has to go to System Settings, which is why `openMicrophoneSettings`
     /// exists alongside.
     public func requestMicrophone() async {
+        guard !isSimulated else { return }
         let granted = await AVCaptureDevice.requestAccess(for: .audio)
         microphone = granted ? .granted : .denied
     }
 
     public func requestAccessibility() {
+        guard !isSimulated else { return }
         HotkeyManager.requestAccessibilityTrust()
         beginPolling()
     }
