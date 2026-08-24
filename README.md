@@ -73,10 +73,35 @@ Hardened runtime is on either way, so the bundle is already in the shape
 notarization needs. `SCRIBE_ADHOC=1` forces an ad-hoc signature;
 `SCRIBE_NO_TIMESTAMP=1` skips the timestamp server for building offline.
 
-Gatekeeper still reports `rejected — source=Unnotarized Developer ID`. That is
-expected and does not affect a locally built app, which carries no quarantine
-flag. It matters the moment the app is downloaded from anywhere, which is what
-notarization in Milestone 6 is for.
+## Releasing
+
+```sh
+./scripts/release.sh          # dist/Scribe-<version>.dmg, notarized and stapled
+```
+
+Refuses a dirty tree — a release nobody can check out again is not a release.
+Credentials come from the keychain by name (`NOTARY_PROFILE`, default
+`scribe-notary`), so the script holds no secrets. Create the profile once:
+
+```sh
+xcrun notarytool store-credentials scribe-notary \
+    --key AuthKey_XXXX.p8 --key-id KEYID --issuer ISSUER
+```
+
+**Both the app and the disk image are notarized, in that order.** Stapling only
+the DMG looks like it works — Gatekeeper accepts the app inside it — but
+`stapler validate` on that app reports *"does not have a ticket stapled to it"*.
+It passes only because the machine can reach Apple and check the record online.
+Copy the app out of the DMG, be offline on first launch, and the same bundle is
+"damaged". The ticket has to be in the app itself, which means notarizing it
+before it goes into the image.
+
+The app is zipped with `ditto`, not `zip`: it preserves the symlinks and
+extended attributes a signed bundle is made of, and a plain `zip` can invalidate
+the signature it is carrying.
+
+Verified the way a download is: with a quarantine flag set on the DMG, `spctl`
+reports `accepted — source=Notarized Developer ID`.
 
 ## Layout
 

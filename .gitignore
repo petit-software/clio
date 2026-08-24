@@ -3,3 +3,4 @@
 *.xcodeproj
 Scribe.app/
 .DS_Store
+dist/

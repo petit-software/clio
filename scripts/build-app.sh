@@ -30,6 +30,14 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # SwiftPM resource bundle.
 cp Resources/models.json "$APP/Contents/Resources/models.json"
 
+# Stamped before signing, since editing Info.plist afterwards would invalidate
+# the signature. Dev builds stay at whatever the tracked plist says; release.sh
+# passes the commit count so every shipped build has a distinct number.
+if [ -n "${SCRIBE_BUILD_NUMBER:-}" ]; then
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $SCRIBE_BUILD_NUMBER" \
+		"$APP/Contents/Info.plist"
+fi
+
 # Copied to a temp name and moved into place: replacing the binary of a RUNNING
 # app in place fails, and a half-written executable is worse than an old one.
 cp ".build/release/Scribe" "$APP/Contents/MacOS/Scribe.new"
