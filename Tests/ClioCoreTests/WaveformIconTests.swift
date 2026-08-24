@@ -155,3 +155,30 @@ func dotIsHiddenWhileLive() throws {
         #expect(try ink(WaveformIcon.live(level: level)) < resting)
     }
 }
+
+@MainActor
+@Test("Recording levels every bar onto one axis")
+func liveBarsAreCentred() throws {
+    // Resting hangs the split column's bar low to balance the dot above it.
+    // With the dot hidden there is nothing to balance, so the live pose puts
+    // it back on the axis with the rest.
+    let resting = WaveformIcon.bars.first { !$0.isDot && $0.x > 100 }
+    let low = try #require(resting)
+    #expect(low.centre < WaveformIcon.designSize.height / 2)   // low at rest
+
+    // Rendered symmetry stands in for the geometry, which live() does not
+    // expose: a levelled mark is the same above and below its middle.
+    let image = WaveformIcon.live(level: 1)
+    let rep = try #require(NSBitmapImageRep(data: image.tiffRepresentation ?? Data()))
+    var above = 0, below = 0
+    let middle = rep.pixelsHigh / 2
+    for x in 0..<rep.pixelsWide {
+        for y in 0..<rep.pixelsHigh {
+            guard let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.5 else { continue }
+            if y < middle { below += 1 } else if y > middle { above += 1 }
+        }
+    }
+    #expect(above > 0 && below > 0)
+    let skew = abs(above - below) * 100 / max(above, below)
+    #expect(skew < 8, "live mark is lopsided by \(skew)%")
+}

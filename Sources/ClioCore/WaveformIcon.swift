@@ -102,14 +102,19 @@ public enum WaveformIcon {
         if let cached = liveCache[step] { return cached }
 
         let fraction = CGFloat(step) / CGFloat(levelSteps)
-        // The dot sits the animation out — see Bar.isDot. Everything else
-        // shrinks toward a circle about ITS OWN centre, not the box's, so the
-        // split column stays split at every level rather than collapsing onto
-        // a line.
+        // The dot sits the animation out (see Bar.isDot) and what remains is
+        // levelled onto one axis. The drawing hangs the split column's bar low
+        // to balance the dot above it; with the dot gone that bar is just one
+        // of four sitting lower than the rest for no reason a viewer can see.
+        //
+        // Derived from the same artwork, not a second one: heights and columns
+        // are the drawing's, only the baseline is ours, and it applies to the
+        // live pose alone. Resting still matches the SVG exactly.
+        let middle = designSize.height / 2
         let scaled = bars.filter { !$0.isDot }.map { bar -> Bar in
             let floor = barWidth                     // a capsule at its minimum
             let height = floor + (bar.height - floor) * fraction
-            return Bar(x: bar.x, y: bar.centre - height / 2, height: height)
+            return Bar(x: bar.x, y: middle - height / 2, height: height)
         }
         let image = render(bars: scaled)
         image.accessibilityDescription = "Clio — listening"
