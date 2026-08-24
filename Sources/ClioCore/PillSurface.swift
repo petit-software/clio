@@ -11,7 +11,7 @@ public struct PillSurface: Codable, Sendable, Equatable {
     public var opacity: Double
     public var isClear: Bool
 
-    public init(opacity: Double = 0.30, isClear: Bool = false) {
+    public init(opacity: Double = 0.45, isClear: Bool = false) {
         // Clamped here rather than at every call site: a value outside 0…1 from
         // a hand-edited settings file renders an invisible or fully opaque
         // pill, and the control that fixes it is inside a window you can no
@@ -45,10 +45,10 @@ public struct PillSurface: Codable, Sendable, Equatable {
                detail: "Frosted, minimal tint",
                surface: PillSurface(opacity: 0.18)),
         Preset(name: "Balanced",
-               detail: "Current default — an object of its own, still see-through",
+               detail: "An object of its own, still clearly see-through",
                surface: PillSurface(opacity: 0.30)),
         Preset(name: "Frosted",
-               detail: "Backdrop muted to a suggestion",
+               detail: "Current default — backdrop muted to a suggestion",
                surface: PillSurface(opacity: 0.45)),
         Preset(name: "Solid",
                detail: "Close to the flat surface the design was drawn as",
