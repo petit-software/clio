@@ -62,7 +62,10 @@ cp -R "$SPARKLE" "$APP/Contents/Frameworks/"
 
 # add_rpath errors rather than no-ops on a duplicate, and the binary is fresh
 # each build, so this is unconditional but checked.
-if ! otool -l "$APP/Contents/MacOS/Clio" | grep -q "@executable_path/../Frameworks"; then
+# Captured before matching, not piped into `grep -q` — see the note in
+# release.sh about pipefail and SIGPIPE.
+LOAD_COMMANDS="$(otool -l "$APP/Contents/MacOS/Clio" || true)"
+if ! printf '%s\n' "$LOAD_COMMANDS" | grep -q "@executable_path/../Frameworks"; then
 	install_name_tool -add_rpath "@executable_path/../Frameworks" \
 		"$APP/Contents/MacOS/Clio"
 fi

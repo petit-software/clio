@@ -61,7 +61,14 @@ CLIO_BUILD_NUMBER="$BUILD_NUMBER" scripts/build-app.sh
 
 # An ad-hoc signature cannot be notarized, and finding that out from Apple three
 # minutes later is a worse way to learn it.
-if ! codesign -dvv "$APP" 2>&1 | grep -q "^TeamIdentifier=[A-Z0-9]"; then
+#
+# Output captured before matching rather than piped into `grep -q`. Under
+# `set -o pipefail` that pipeline is a race: grep exits on its first match and
+# closes the pipe, codesign dies of SIGPIPE, and the pipeline reports failure —
+# but only when codesign is the slower of the two, which is exactly what
+# happens on a bundle large enough to be worth notarizing.
+SIGNATURE="$(codesign -dvv "$APP" 2>&1 || true)"
+if ! printf '%s\n' "$SIGNATURE" | grep -q "^TeamIdentifier=[A-Z0-9]"; then
 	echo "error: $APP is not signed with a Developer ID — nothing to notarize" >&2
 	exit 1
 fi
