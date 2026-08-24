@@ -27,10 +27,11 @@ final class OverlayModel {
     /// Only while recording — a finished pill must not glow orange.
     var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 
-    /// Transcribing can take seconds on a large model, and it is the one wait
-    /// worth offering a way out of. Recording already ends by releasing the
-    /// key, and injecting is over before a cursor could reach it.
-    var isCancellableByClick: Bool { state == .transcribing }
+    /// The design shows the ✕ while recording as well as transcribing, so
+    /// both are clickable. Injecting is over before a cursor could reach it.
+    var isCancellableByClick: Bool {
+        state == .recording || state == .transcribing
+    }
 }
 
 /// Hosts the pill and handles the pointer itself.
@@ -98,7 +99,18 @@ final class OverlayController {
 
     private var panel: NSPanel?
     private var hostingView: OverlayHostingView?
-    private static let size = NSSize(width: 260, height: 76)
+
+    /// The pill is as wide as its content — "Transcribing" needs more room
+    /// than a level meter, and an error message more again — so the panel is
+    /// measured from the view rather than fixed.
+    private var contentSize: NSSize {
+        guard let hostingView else {
+            return NSSize(width: 200, height: OverlayView.height + OverlayView.shadowPadding * 2)
+        }
+        hostingView.layoutSubtreeIfNeeded()
+        let fitting = hostingView.fittingSize
+        return NSSize(width: max(fitting.width, 120), height: fitting.height)
+    }
 
     /// Called when the user clicks the pill to abandon a transcription.
     var onCancel: (() -> Void)?
@@ -119,6 +131,9 @@ final class OverlayController {
         if !model.isCancellableByClick {
             model.isHovering = false
         }
+        // The pill changes width with its content, so the window has to follow
+        // — and stay put where it was anchored while doing it.
+        resize()
         // Click-through except while there is something to cancel. The panel
         // sits over other apps, and swallowing clicks it has no use for would
         // make it an obstacle.
@@ -127,10 +142,12 @@ final class OverlayController {
 
     func show(position: OverlayPosition) {
         guard position != .none else { return hide() }
+        currentPosition = position
 
         let panel = panel ?? makePanel()
         self.panel = panel
         panel.ignoresMouseEvents = !model.isCancellableByClick
+        panel.setContentSize(contentSize)
         panel.setFrameOrigin(origin(for: position, size: panel.frame.size))
         // orderFrontRegardless, never makeKeyAndOrderFront: taking key status
         // is exactly what we must not do.
@@ -143,7 +160,7 @@ final class OverlayController {
 
     private func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: Self.size),
+            contentRect: NSRect(origin: .zero, size: contentSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false)
@@ -161,12 +178,24 @@ final class OverlayController {
         panel.becomesKeyOnlyIfNeeded = true
 
         let host = OverlayHostingView(model: model)
-        host.frame = NSRect(origin: .zero, size: Self.size)
+        host.frame = NSRect(origin: .zero, size: contentSize)
         host.onCancel = { [weak self] in self?.onCancel?() }
         hostingView = host
         panel.contentView = host
         return panel
     }
+
+    /// Re-measure and keep the pill anchored where the user put it.
+    private func resize() {
+        guard let panel, panel.isVisible else { return }
+        let size = contentSize
+        guard size != panel.frame.size else { return }
+        panel.setFrame(NSRect(origin: origin(for: currentPosition, size: size),
+                              size: size),
+                       display: true)
+    }
+
+    private var currentPosition: OverlayPosition = .bottomCenter
 
     private func origin(for position: OverlayPosition, size: NSSize) -> NSPoint {
         let screen = NSScreen.main ?? NSScreen.screens.first

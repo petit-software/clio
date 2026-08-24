@@ -33,6 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let onboarding = OnboardingWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // Render the overlay states and quit, without starting the app proper.
+        if let directory = ProcessInfo.processInfo.environment["CLIO_OVERLAY_DUMP"] {
+            OverlayDump.write(to: URL(fileURLWithPath: directory))
+            NSApp.terminate(nil)
+            return
+        }
+        #endif
+
         // Belt and braces: Info.plist carries LSUIElement, but a `swift run`
         // build has no bundle and would otherwise show a Dock icon.
         NSApp.setActivationPolicy(.accessory)
