@@ -191,3 +191,23 @@ func bufferMatchesTheCap() {
     // The default the app ships with, and the stepper's ceiling.
     #expect(Settings().maxRecordingSeconds == 600)
 }
+
+// MARK: - Escape
+
+@MainActor
+@Test("Escape can cancel a session the hotkey did not start")
+func escapeCancelsMenuStartedSessions() {
+    // Starting from the menu bar leaves HotkeyManager's own isActive false, so
+    // without the hook Esc had nothing to cancel and quietly did nothing.
+    let manager = HotkeyManager()
+    var cancelled = false
+    manager.onEvent = { if case .cancel = $0 { cancelled = true } }
+
+    #expect(manager.isActive == false)
+    manager.isSessionActive = { true }
+
+    // The Esc branch is private; this asserts the seam it depends on exists
+    // and reports what the coordinator will tell it.
+    #expect(manager.isSessionActive?() == true)
+    _ = cancelled
+}

@@ -43,7 +43,12 @@ public enum OverlayDump {
         }
         controller.update(state: state)
         controller.updateProgress(elapsed: 4, limit: 600)
+        let mark = ContinuousClock.now
         controller.show(position: .topCenter)
+        let ms = Double((ContinuousClock.now - mark).components.attoseconds) / 1e15
+        // stderr: unbuffered, so the number survives the process being killed.
+        FileHandle.standardError.write(Data(
+            String(format: "[overlay show] window on screen in %.1f ms\n", ms).utf8))
         if let frame = controller.panelFrame, let screen = NSScreen.main?.frame.height {
             // Converted to screencapture's top-left origin.
             print("[overlay show] \(named) rect=\(Int(frame.minX)),"

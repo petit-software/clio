@@ -28,6 +28,11 @@ public final class OverlayModel {
     /// reaching for a settings store it should not know about.
     public var surface = PillSurface()
 
+    /// False while the microphone is still starting. The pill is on screen
+    /// before that, and a level meter sitting dead at zero reads as broken —
+    /// so it says it is waking instead.
+    public var captureIsLive = false
+
     /// Only while recording — a finished pill must not glow orange.
     public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 
@@ -135,6 +140,7 @@ public final class OverlayController {
         model.state = state
         model.note = note
         if state == .recording { model.progress.elapsed = 0 }
+        if state != .recording { model.captureIsLive = false }
         if !model.isCancellableByClick {
             model.isHovering = false
         }

@@ -53,6 +53,10 @@ public final class AudioRecorder: @unchecked Sendable {
 
     public private(set) var isRecording = false
 
+    /// Where the time went in the last `start()`, for latency work. Cheap
+    /// enough to always collect: a handful of clock reads.
+    public private(set) var startBreakdown: [(phase: String, milliseconds: Double)] = []
+
     public init() {}
 
     deinit {
@@ -73,6 +77,15 @@ public final class AudioRecorder: @unchecked Sendable {
     public func start(maxSeconds: Double, deviceUID: String? = nil) throws {
         guard !isRecording else { return }
 
+        startBreakdown = []
+        var mark = ContinuousClock.now
+        func lap(_ phase: String) {
+            let now = ContinuousClock.now
+            startBreakdown.append(
+                (phase, Double((now - mark).components.attoseconds) / 1e15))
+            mark = now
+        }
+
         let capacity = Int(maxSeconds * Self.sampleRate)
         lock.lock()
         buffer = [Float](repeating: 0, count: capacity)
@@ -80,8 +93,10 @@ public final class AudioRecorder: @unchecked Sendable {
         didOverflow = false
         currentRMS = 0
         lock.unlock()
+        lap("buffer")
 
         let input = engine.inputNode
+        lap("inputNode")
 
         // Before the format is read, not after: the format belongs to whatever
         // device the unit is pointed at, so asking first would describe the
@@ -89,8 +104,10 @@ public final class AudioRecorder: @unchecked Sendable {
         if let deviceUID, let device = AudioDevices.device(forUID: deviceUID) {
             try selectDevice(device.deviceID, on: input)
         }
+        lap("selectDevice")
 
         let hwFormat = input.outputFormat(forBus: 0)
+        lap("readFormat")
         guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
             throw RecorderError.formatUnavailable
         }
@@ -101,15 +118,20 @@ public final class AudioRecorder: @unchecked Sendable {
                                          interleaved: false),
               let converter = AVAudioConverter(from: hwFormat, to: target)
         else { throw RecorderError.converterUnavailable }
+        lap("converter")
 
         input.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) {
             [weak self] pcmBuffer, _ in
             self?.append(pcmBuffer, using: converter, target: target)
         }
 
+        lap("installTap")
+
         engine.prepare()
+        lap("prepare")
         do {
             try engine.start()
+            lap("engineStart")
         } catch {
             input.removeTap(onBus: 0)
             throw RecorderError.engineFailed(error.localizedDescription)
@@ -236,6 +258,14 @@ public final class AudioRecorder: @unchecked Sendable {
     // MARK: Level metering
 
     private func startLevelTimer() {
+        // start() runs off the main actor now, and adding a timer to the main
+        // run loop from another thread is not safe. Built and scheduled there.
+        DispatchQueue.main.async { [weak self] in
+            self?.scheduleLevelTimer()
+        }
+    }
+
+    private func scheduleLevelTimer() {
         let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.lock.lock()

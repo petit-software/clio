@@ -90,7 +90,11 @@ struct OverlayView: View {
     @ViewBuilder
     private var content: some View {
         if model.state == .recording {
-            LevelMeter(level: model.level, height: h, colour: ink)
+            // Dimmed and still until audio is actually flowing. Bars frozen at
+            // zero would read as a microphone that is not working.
+            LevelMeter(level: model.captureIsLive ? model.level : 0,
+                       height: h, colour: ink)
+                .opacity(model.captureIsLive ? 1 : 0.45)
             // Only in the last stretch, and only because being cut off
             // mid-sentence without warning is worse than a tidy pill.
             if model.isNearLimit {

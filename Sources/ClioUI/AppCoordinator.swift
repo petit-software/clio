@@ -18,6 +18,12 @@ public final class AppCoordinator {
     }
     public private(set) var lastTranscript: String?
 
+    /// True once the microphone is actually running. The pill is up before
+    /// this, so it can say it is waking rather than pretend to hear.
+    public private(set) var captureIsLive = false {
+        didSet { overlay?.model.captureIsLive = captureIsLive }
+    }
+
     public let settingsStore: SettingsStore
     public let permissions: PermissionsCoordinator
     public let models: ModelManager
@@ -50,6 +56,11 @@ public final class AppCoordinator {
     /// Set when the maximum-duration cap ended the recording rather than the
     /// user releasing the key.
     private var stoppedAtLimit = false
+
+    /// Starting the audio hardware takes about half a second and used to run
+    /// on the main actor, so the pill could not paint until it finished. It
+    /// runs off it now, and this is how the rest of the flow waits for it.
+    private var captureStart: Task<Bool, Never>?
     private var limitNote: String?
 
     public init(settingsStore: SettingsStore = SettingsStore(),
@@ -114,6 +125,12 @@ public final class AppCoordinator {
             self?.fail(error.localizedDescription)
         }
 
+        // So Esc abandons a dictation started from the menu too, not only one
+        // the shortcut began.
+        hotkeys.isSessionActive = { [weak self] in
+            self?.state.isCancellable ?? false
+        }
+
         hotkeys.onEvent = { [weak self] event in
             switch event {
             case .begin: self?.beginRecording()
@@ -171,19 +188,39 @@ public final class AppCoordinator {
         }
 
         let settings = settingsStore.settings
-        do {
-            try recorder.start(maxSeconds: settings.maxRecordingSeconds,
-                               deviceUID: settings.inputDeviceUID)
-        } catch {
-            fail(error.localizedDescription)
-            return
-        }
 
+        // The pill goes up FIRST, before anything slow happens. Starting the
+        // input device costs ~425ms and used to run right here on the main
+        // actor, which meant the window could not even paint until it was
+        // done — the feedback arrived two thirds of a second after the key.
         state = .recording
         overlay?.model.surface = PillSurface(opacity: settings.pillOpacity,
                                              isClear: settings.pillClearGlass)
         overlay?.show(position: settings.overlayPosition)
         feedback.play(.start, enabled: settings.playSoundOnStart)
+
+        // Capture starts off the main actor. The pill shows that it is still
+        // waking up until this lands, so it never claims to be listening
+        // before it is.
+        captureIsLive = false
+        let recorder = self.recorder
+        captureStart = Task.detached(priority: .userInitiated) {
+            do {
+                try recorder.start(maxSeconds: settings.maxRecordingSeconds,
+                                   deviceUID: settings.inputDeviceUID)
+                return true
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.fail(error.localizedDescription)
+                }
+                return false
+            }
+        }
+        Task { [weak self] in
+            guard await self?.captureStart?.value == true else { return }
+            guard let self, self.state == .recording else { return }
+            self.captureIsLive = true
+        }
 
         // Warm the model while the user is still talking — cold load is what
         // dominates perceived latency (§5.4). Failures are swallowed here on
@@ -208,6 +245,17 @@ public final class AppCoordinator {
         guard state == .recording else { return }
         maxDurationTask?.cancel()
         maxDurationTask = nil
+
+        // Released before the hardware finished waking. Stopping now would
+        // find an engine that is still starting and throw the words away.
+        guard captureStart == nil || captureIsLive else {
+            Task { [weak self] in
+                _ = await self?.captureStart?.value
+                self?.finishRecording()
+            }
+            return
+        }
+        captureStart = nil
 
         let captured = recorder.stop()
         inputLevel = 0
@@ -310,6 +358,9 @@ public final class AppCoordinator {
         transcriptionTask = nil
         maxDurationTask?.cancel()
         maxDurationTask = nil
+        captureStart?.cancel()
+        captureStart = nil
+        captureIsLive = false
         recorder.cancel()
         inputLevel = 0
         limitNote = nil

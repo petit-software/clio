@@ -34,6 +34,13 @@ public final class HotkeyManager {
 
     public private(set) var isActive = false
 
+    /// Whether a session is running that Esc should abandon.
+    ///
+    /// Not the same as `isActive`, which only knows about sessions this
+    /// manager started. A dictation begun from the menu bar left Esc dead,
+    /// because from here it looked like nothing was happening.
+    public var isSessionActive: (() -> Bool)?
+
     public var hotkey: Hotkey = .defaultHotkey {
         didSet { if hotkey != oldValue { reset() } }
     }
@@ -183,8 +190,10 @@ public final class HotkeyManager {
         flags: NSEvent.ModifierFlags,
         isRepeat: Bool
     ) {
-        // Esc always cancels an in-flight session, whatever the hotkey is.
-        if type == .keyDown, keyCode == UInt16(kVK_Escape), isActive {
+        // Esc always cancels an in-flight session, whatever the hotkey is and
+        // whatever started it.
+        if type == .keyDown, keyCode == UInt16(kVK_Escape),
+           isActive || isSessionActive?() == true {
             cancelSession()
             return
         }
