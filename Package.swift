@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "ClioCore", targets: ["ClioCore"]),
+        .library(name: "ClioUI", targets: ["ClioUI"]),
         .executable(name: "Clio", targets: ["Clio"]),
     ],
     dependencies: [
@@ -26,11 +27,16 @@ let package = Package(
         .target(name: "ClioCore",
                 dependencies: [.product(name: "WhisperKit", package: "WhisperKit")]),
         // The app itself: menu bar, overlay panel, settings, onboarding.
-        .executableTarget(name: "Clio",
-                          dependencies: [
-                              "ClioCore",
-                              .product(name: "Sparkle", package: "Sparkle"),
-                          ]),
+        // Every SwiftUI view lives here rather than in the executable, so that
+        // Xcode can render its #Preview blocks: previews are dependable in a
+        // library target and flaky in an executable one.
+        .target(name: "ClioUI",
+                dependencies: [
+                    "ClioCore",
+                    .product(name: "Sparkle", package: "Sparkle"),
+                ]),
+        // Nothing but @main and the app delegate.
+        .executableTarget(name: "Clio", dependencies: ["ClioUI"]),
         .testTarget(name: "ClioCoreTests", dependencies: ["ClioCore"]),
     ]
 )

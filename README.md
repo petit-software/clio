@@ -69,6 +69,9 @@ testable without standing up an app. `Clio` is the app: menu bar, overlay,
 settings, onboarding.
 
 ```
+Clio/          @main and the app delegate, nothing else
+ClioUI/        every SwiftUI view, plus AppCoordinator — a library so Xcode
+               can render its previews
 ClioCore/
   Settings, SettingsStore     one Codable struct, one JSON file
   Hotkey, HotkeyManager       CGEventTap, push-to-talk and toggle

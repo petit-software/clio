@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import ClioCore
+import ClioUI
 
 @main
 struct ClioApp: App {

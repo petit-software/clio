@@ -3,11 +3,16 @@ import ClioCore
 
 /// The system menu: what state we're in, the shortcut, and the few actions
 /// worth having without opening Settings.
-struct MenuBarView: View {
+public struct MenuBarView: View {
     @Bindable var coordinator: AppCoordinator
     let openOnboarding: () -> Void
 
-    var body: some View {
+    public init(coordinator: AppCoordinator, openOnboarding: @escaping () -> Void) {
+        self.coordinator = coordinator
+        self.openOnboarding = openOnboarding
+    }
+
+    public var body: some View {
         Group {
             Text(statusLine)
 
@@ -157,10 +162,12 @@ struct MicrophoneMenu: View {
 }
 
 /// The menu bar icon. It has to read at a glance whether we're recording.
-struct MenuBarLabel: View {
+public struct MenuBarLabel: View {
     @Bindable var coordinator: AppCoordinator
 
-    var body: some View {
+    public init(coordinator: AppCoordinator) { self.coordinator = coordinator }
+
+    public var body: some View {
         Image(nsImage: icon)
             // The NSImage is already a template; saying so again costs nothing
             // and keeps the tinting right if the image is ever swapped.

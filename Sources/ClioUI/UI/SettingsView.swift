@@ -6,10 +6,12 @@ import ClioCore
 /// The tabs from §6. Model and Audio-device pickers are intentionally thin
 /// here — ModelManager is Milestone 4 — but every control that Milestone 0 can
 /// honestly back is wired to the store.
-struct SettingsView: View {
+public struct SettingsView: View {
     @Bindable var coordinator: AppCoordinator
 
-    var body: some View {
+    public init(coordinator: AppCoordinator) { self.coordinator = coordinator }
+
+    public var body: some View {
         TabView {
             GeneralTab(coordinator: coordinator)
                 .tabItem { Label("General", systemImage: "gearshape") }

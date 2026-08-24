@@ -9,9 +9,9 @@ import ClioCore
 ///
 ///     CLIO_OVERLAY_DUMP=/tmp/overlay swift run Clio
 @MainActor
-enum OverlayDump {
+public enum OverlayDump {
 
-    static func write(to directory: URL) {
+    public static func write(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory,
                                                  withIntermediateDirectories: true)
         var rows: [(String, OverlayModel)] = []

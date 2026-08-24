@@ -8,10 +8,12 @@ import SwiftUI
 /// exactly when this window has to appear. An NSWindowController can be opened
 /// from anywhere, which is the whole reason it exists here.
 @MainActor
-final class OnboardingWindowController {
+public final class OnboardingWindowController {
+    public init() {}
+
     private var window: NSWindow?
 
-    func show(coordinator: AppCoordinator) {
+    public func show(coordinator: AppCoordinator) {
         if let window {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
@@ -38,7 +40,7 @@ final class OnboardingWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
-    func close() {
+    public func close() {
         window?.close()
     }
 }
