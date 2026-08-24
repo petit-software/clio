@@ -32,6 +32,10 @@ struct OverlayView: View {
     /// that has to read as "live" at a glance, and a black dot does not.
     private static let recordDot = Color(red: 241/255, green: 107/255, blue: 51/255)
 
+    /// Every word in the pill. Named rather than repeated, so a label added
+    /// later cannot quietly arrive at a different weight from the rest.
+    private static let textWeight: Font.Weight = .semibold
+
     private var isDark: Bool { scheme == .dark }
     private var pillFill: Color { isDark ? Self.darkFill : Self.lightFill }
     /// Text and level bars: the design's black, inverted for dark.
@@ -106,14 +110,14 @@ struct OverlayView: View {
                 // The number alone. "left" is a word the user reads once and
                 // then never again, and it doubles the width of the readout.
                 Text(model.progress.display)
-                    .font(.system(size: h * 0.21 + 2, weight: .semibold,
+                    .font(.system(size: h * 0.21 + 2, weight: Self.textWeight,
                                   design: .monospaced))
                     .foregroundStyle(Self.recordDot)
                     .padding(.leading, h * 0.2)
             }
         } else {
             Text(label)
-                .font(.system(size: h * 0.25, weight: .bold))
+                .font(.system(size: h * 0.25, weight: Self.textWeight))
                 .foregroundStyle(ink)
                 .lineLimit(1)
                 .fixedSize()
