@@ -98,17 +98,32 @@ fi
 # contained at the time, so sealing the app before its framework leaves the
 # app's seal describing something that is no longer there.
 #
-# Sparkle ships helper apps and an XPC service inside its framework, each of
-# which is its own signed bundle. --deep is deprecated for signing, so they are
-# named explicitly: a missed one fails notarization rather than the build, which
-# is a slow way to find out.
+# Sparkle's nested code is not all bundles. Alongside Updater.app and two XPC
+# services it ships a bare Autoupdate executable, and a sweep that matches only
+# *.app and *.xpc walks straight past it. It then keeps Sparkle's own signature
+# — not this Developer ID, and with no secure timestamp — and Apple rejects the
+# entire archive for that one file. So: every Mach-O, then every bundle, then
+# the framework.
+SPARKLE_BUNDLE="$APP/Contents/Frameworks/Sparkle.framework"
+
+# Bare executables, skipping anything that belongs to a nested bundle — those
+# get signed as part of the bundle, and signing them first would be undone.
+while IFS= read -r binary; do
+	# Matched on the path RELATIVE to the framework. Against the full path,
+	# "*.app/*" matches everything — because the outer Clio.app is itself a
+	# .app — and the sweep silently signs nothing at all.
+	relative="${binary#"$SPARKLE_BUNDLE"/}"
+	case "$relative" in *.app/*|*.xpc/*) continue ;; esac
+	file "$binary" | grep -q "Mach-O" || continue
+	codesign --force --sign "${SIGN[@]}" --options runtime $TIMESTAMP "$binary"
+done < <(find "$SPARKLE_BUNDLE" -type f -perm +111)
+
+# Then the bundles, deepest first.
 while IFS= read -r nested; do
 	codesign --force --sign "${SIGN[@]}" --options runtime $TIMESTAMP "$nested"
-done < <(find "$APP/Contents/Frameworks/Sparkle.framework" \
-	\( -name "*.app" -o -name "*.xpc" \) -maxdepth 4 | sort -r)
+done < <(find "$SPARKLE_BUNDLE" \( -name "*.app" -o -name "*.xpc" \) | sort -r)
 
-codesign --force --sign "${SIGN[@]}" --options runtime $TIMESTAMP \
-	"$APP/Contents/Frameworks/Sparkle.framework"
+codesign --force --sign "${SIGN[@]}" --options runtime $TIMESTAMP "$SPARKLE_BUNDLE"
 
 codesign --force --sign "${SIGN[@]}" \
 	--entitlements Resources/Clio.entitlements \
