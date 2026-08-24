@@ -278,9 +278,11 @@ public final class AppCoordinator {
             ? RecordingProgress.limitDescription(seconds: settings.maxRecordingSeconds)
             : nil
 
-        let result = await TextInjector.inject(text,
-                                               action: settings.outputAction,
-                                               method: settings.injectionMethod)
+        let result = await TextInjector.inject(
+            text,
+            action: settings.outputAction,
+            method: settings.injectionMethod,
+            keepOnClipboard: settings.keepTranscriptOnClipboard)
 
         guard sessionToken == token else { return }
 

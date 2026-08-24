@@ -541,6 +541,20 @@ private struct OutputTab: View {
             }
 
             Section {
+                Toggle("Keep the transcript on the clipboard", isOn: Binding(
+                    get: { coordinator.settingsStore.settings.keepTranscriptOnClipboard },
+                    set: { coordinator.settingsStore.settings.keepTranscriptOnClipboard = $0 }))
+            } footer: {
+                Text(coordinator.settingsStore.settings.outputAction == .copyOnly
+                     ? "Copying always leaves it there."
+                     : "Pasting borrows the clipboard and puts back what was "
+                       + "there. Turn this on to keep the transcript instead — "
+                       + "at the cost of replacing whatever you had copied.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Trim trailing punctuation", isOn: Binding(
                     get: { coordinator.settingsStore.settings.trimTrailingPunctuation },
                     set: { coordinator.settingsStore.settings.trimTrailingPunctuation = $0 }))

@@ -43,6 +43,12 @@ public struct Settings: Codable, Equatable, Sendable {
     public var injectionMethod: InjectionMethod = .paste
     public var trimTrailingPunctuation: Bool = false
     public var capitalizeFirstLetter: Bool = true
+    /// Leave the transcript on the clipboard after pasting it.
+    ///
+    /// Off by default because pasting borrows the clipboard and puts back what
+    /// was there — silently replacing whatever the user had copied is not a
+    /// side effect a dictation app should have without being asked.
+    public var keepTranscriptOnClipboard: Bool = false
 
     // Feedback
     public var overlayPosition: OverlayPosition = .bottomCenter
@@ -117,6 +123,8 @@ public struct Settings: Codable, Equatable, Sendable {
         playSoundOnStop = read(.playSoundOnStop, defaults.playSoundOnStop)
         playSoundOnCancel = read(.playSoundOnCancel, defaults.playSoundOnCancel)
 
+        keepTranscriptOnClipboard = read(.keepTranscriptOnClipboard,
+                                         defaults.keepTranscriptOnClipboard)
         keepHistoryOnDisk = read(.keepHistoryOnDisk, defaults.keepHistoryOnDisk)
     }
 }
@@ -158,16 +166,26 @@ public enum InjectionMethod: String, Codable, Sendable, CaseIterable {
 }
 
 public enum OverlayPosition: String, Codable, Sendable, CaseIterable {
+    // Declaration order is what the Settings picker shows, so it reads across
+    // the screen rather than in the order the cases happened to be added.
     case none
+    case topLeft
     case topCenter
+    case topRight
+    case bottomLeft
     case bottomCenter
+    case bottomRight
     case nearCursor
 
     public var label: String {
         switch self {
         case .none: return "Hidden"
+        case .topLeft: return "Top left"
         case .topCenter: return "Top center"
+        case .topRight: return "Top right"
+        case .bottomLeft: return "Bottom left"
         case .bottomCenter: return "Bottom center"
+        case .bottomRight: return "Bottom right"
         case .nearCursor: return "Near cursor"
         }
     }

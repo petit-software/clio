@@ -50,54 +50,60 @@ public enum TextInjector {
 
     /// Put `text` in front of the user by whichever route the settings and the
     /// system allow.
+    /// - Parameter keepOnClipboard: leave the transcript on the clipboard
+    ///   afterwards. Pasting borrows the clipboard and puts back what was
+    ///   there, so without this the transcript is gone the moment it lands.
     @discardableResult
     public static func inject(_ text: String,
                               action: OutputAction,
-                              method: InjectionMethod) async -> Result {
+                              method: InjectionMethod,
+                              keepOnClipboard: Bool = false,
+                              pasteboard: NSPasteboard = .general) async -> Result {
         guard !text.isEmpty else { return .copiedOnly(reason: "Nothing was transcribed.") }
 
         // Secure input (password fields, some terminals) swallows synthetic
         // events entirely. Copying is the honest fallback — §5.6.
         if action == .pasteAutomatically, IsSecureEventInputEnabled() {
-            copy(text)
+            copy(text, to: pasteboard)
             return .copiedOnly(reason: "Another app has secure input enabled, so the text was copied instead.")
         }
 
         guard action == .pasteAutomatically else {
-            copy(text)
+            copy(text, to: pasteboard)
             return .copiedOnly(reason: nil)
         }
 
         guard AXIsProcessTrusted() else {
-            copy(text)
+            copy(text, to: pasteboard)
             return .copiedOnly(reason: "Accessibility access is off, so the text was copied instead.")
         }
 
         switch method {
         case .typeCharacters:
-            copy(text)
+            // Typing needs no clipboard at all; it is only touched when the
+            // user asked to keep the transcript there.
+            if keepOnClipboard { copy(text, to: pasteboard) }
             typeCharacters(text)
             return .typed
 
         case .paste:
-            let snapshot = Snapshot.capture()
-            copy(text)
-            let ours = NSPasteboard.general.changeCount
+            let snapshot = Snapshot.capture(from: pasteboard)
+            copy(text, to: pasteboard)
+            let ours = pasteboard.changeCount
             postCommandV()
 
             // Give the frontmost app time to read the pasteboard before we put
             // the old contents back.
             try? await Task.sleep(for: .milliseconds(150))
-            if NSPasteboard.general.changeCount == ours {
-                snapshot.restore()
+            if !keepOnClipboard, pasteboard.changeCount == ours {
+                snapshot.restore(to: pasteboard)
             }
             return .pasted
         }
     }
 
     /// Clipboard only — also the path the menu bar's "Copy last transcript" uses.
-    public static func copy(_ text: String) {
-        let pasteboard = NSPasteboard.general
+    public static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
     }

@@ -144,7 +144,9 @@ public final class OverlayController {
     }
 
     public func show(position: OverlayPosition) {
-        guard position != .none else { return hide() }
+        // Spelled out. `position` is not an Optional today, but if it ever
+        // becomes one a bare `.none` silently starts meaning nil instead.
+        guard position != OverlayPosition.none else { return hide() }
         currentPosition = position
 
         let panel = panel ?? makePanel()
@@ -209,15 +211,30 @@ public final class OverlayController {
         let screen = NSScreen.main ?? NSScreen.screens.first
         guard let frame = screen?.visibleFrame else { return .zero }
 
+        // Inset from the visible frame, which already excludes the menu bar
+        // and the Dock — a corner measured from the screen would sit under
+        // them.
+        let margin: CGFloat = 24
+
         switch position {
         case .none:
             return .zero
+        case .topLeft:
+            return NSPoint(x: frame.minX + margin, y: frame.maxY - size.height - margin)
         case .topCenter:
             return NSPoint(x: frame.midX - size.width / 2,
-                           y: frame.maxY - size.height - 24)
+                           y: frame.maxY - size.height - margin)
+        case .topRight:
+            return NSPoint(x: frame.maxX - size.width - margin,
+                           y: frame.maxY - size.height - margin)
+        case .bottomLeft:
+            return NSPoint(x: frame.minX + margin, y: frame.minY + margin)
         case .bottomCenter:
-            return NSPoint(x: frame.midX - size.width / 2,
-                           y: frame.minY + 96)
+            // Higher than the other two: the Dock's reveal area is here, and a
+            // pill sitting in it flickers as the Dock comes and goes.
+            return NSPoint(x: frame.midX - size.width / 2, y: frame.minY + 96)
+        case .bottomRight:
+            return NSPoint(x: frame.maxX - size.width - margin, y: frame.minY + margin)
         case .nearCursor:
             let mouse = NSEvent.mouseLocation
             // Clamped, or the pill hangs off the edge when typing near a corner.
