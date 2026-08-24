@@ -28,7 +28,7 @@ outstanding piece — Clio currently ships with the generic blank icon.
 
 ```sh
 swift build              # library + executable
-swift test               # 68 tests, no network
+swift test               # 74 tests, no network
 ./scripts/build-app.sh   # Clio.app, signed with your Developer ID
 open Clio.app
 ```
@@ -64,14 +64,23 @@ event tap and may be mid-dictation.
 
 ## Layout
 
-`ClioCore` is everything that is not SwiftUI, so the parts with real logic are
-testable without standing up an app. `Clio` is the app: menu bar, overlay,
-settings, onboarding.
+Three targets. `ClioCore` is everything that is not SwiftUI, so the parts with
+real logic are testable without standing up an app. `ClioUI` is every view —
+a library rather than part of the executable, because Xcode renders `#Preview`
+dependably in a library and flakily in an executable. `Clio` is a shim owning
+`@main` and nothing else.
 
 ```
-Clio/          @main and the app delegate, nothing else
-ClioUI/        every SwiftUI view, plus AppCoordinator — a library so Xcode
-               can render its previews
+Clio/
+  ClioApp                     @main, app delegate
+
+ClioUI/
+  AppCoordinator              wiring
+  UpdateManager               Sparkle
+  UI/                         menu bar, overlay, settings, onboarding
+  UI/PreviewSupport           simulated dependencies for #Preview (DEBUG only)
+  UI/OverlayDump              renders every overlay state to PNG (DEBUG only)
+
 ClioCore/
   Settings, SettingsStore     one Codable struct, one JSON file
   Hotkey, HotkeyManager       CGEventTap, push-to-talk and toggle
@@ -85,12 +94,20 @@ ClioCore/
   TranscriptFormatter         replacements, capitalization, prompt
   TextInjector                clipboard + synthesized ⌘V, with restore
   WaveformIcon                the menu bar mark, in three poses
+  RecordingProgress           elapsed, remaining, and the cap
   DictationState              the state machine
+```
 
-Clio/
-  ClioApp, AppCoordinator     wiring
-  UI/                         menu bar, overlay, settings, onboarding
-  UI/PreviewSupport           simulated dependencies for #Preview (DEBUG only)
+Previews cover Settings, the overlay and onboarding, in states that are
+awkward to reach in a running app — nothing granted, a microphone unplugged,
+every overlay state. They run on simulated dependencies that read no TCC state,
+touch no audio hardware and scan no disk, so a preview shows what it claims
+regardless of the machine rendering it. Open `Package.swift` in Xcode.
+
+To check the overlay without Xcode:
+
+```sh
+CLIO_OVERLAY_DUMP=/tmp/overlay swift run Clio
 ```
 
 ## Things that will bite you
