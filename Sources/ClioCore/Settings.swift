@@ -23,7 +23,13 @@ public struct Settings: Codable, Equatable, Sendable {
     public var inputDeviceUID: String? = nil
     public var voiceActivityDetection: Bool = true
     public var vadSensitivity: Double = 0.5
-    public var maxRecordingSeconds: Double = 120
+    /// Ten minutes, matching the maximum the Settings stepper offers.
+    ///
+    /// The recorder preallocates a buffer for this whole duration, so it is
+    /// also 36 MB held while recording and a 3.3 ms allocation at hotkey-down
+    /// — measured, and invisible beside the 180 ms push-to-talk hold. Being
+    /// cut off mid-thought costs more than the memory does.
+    public var maxRecordingSeconds: Double = 600
 
     // Transcription
     /// `nil` means auto-detect.

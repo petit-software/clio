@@ -188,6 +188,6 @@ func bufferMatchesTheCap() {
     var settings = Settings()
     settings.maxRecordingSeconds = 30
     #expect(Int(settings.maxRecordingSeconds * AudioRecorder.sampleRate) == 480_000)
-    // The default the app ships with.
-    #expect(Settings().maxRecordingSeconds == 120)
+    // The default the app ships with, and the stepper's ceiling.
+    #expect(Settings().maxRecordingSeconds == 600)
 }
