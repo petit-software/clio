@@ -52,6 +52,13 @@ public struct Settings: Codable, Equatable, Sendable {
 
     // Feedback
     public var overlayPosition: OverlayPosition = .bottomCenter
+    /// How solid the pill's surface is, 0…1.
+    ///
+    /// 0 is bare glass, taking all of its colour from whatever is behind it;
+    /// 1 is the flat surface the design was drawn as. The default keeps enough
+    /// tint that the label stays legible over any backdrop, which is the thing
+    /// that breaks first as this comes down.
+    public var pillOpacity: Double = 0.30
     public var playSoundOnStart: Bool = true
     public var playSoundOnStop: Bool = true
     public var playSoundOnCancel: Bool = true
@@ -119,6 +126,9 @@ public struct Settings: Codable, Equatable, Sendable {
                                      defaults.capitalizeFirstLetter)
 
         overlayPosition = read(.overlayPosition, defaults.overlayPosition)
+        // Clamped on the way in: a value outside 0…1 from a hand-edited file
+        // would render an invisible or fully opaque pill with no way back.
+        pillOpacity = min(1, max(0, read(.pillOpacity, defaults.pillOpacity)))
         playSoundOnStart = read(.playSoundOnStart, defaults.playSoundOnStart)
         playSoundOnStop = read(.playSoundOnStop, defaults.playSoundOnStop)
         playSoundOnCancel = read(.playSoundOnCancel, defaults.playSoundOnCancel)

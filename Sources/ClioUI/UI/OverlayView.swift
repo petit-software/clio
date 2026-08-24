@@ -47,7 +47,8 @@ struct OverlayView: View {
             trailing
         }
         .frame(height: h)
-        .background { PillBackground(tint: pillFill, isDark: isDark) }
+        .background { PillBackground(tint: pillFill, isDark: isDark,
+                                     opacity: model.pillOpacity) }
         .clipShape(Capsule())
         // The pill floats over other applications, and the backdrop is
         // whatever happens to be behind it. The shadow is what separates the
@@ -147,17 +148,21 @@ struct OverlayView: View {
 private struct PillBackground: View {
     let tint: Color
     let isDark: Bool
+    /// 0 is bare glass, 1 the flat surface the design was drawn as.
+    let opacity: Double
 
-    /// Enough tint to keep the label legible over any backdrop, and no more.
-    /// Below roughly a third the pill stops being a surface and the text
-    /// starts competing with whatever is behind it.
-    private var fillOpacity: Double { isDark ? 0.32 : 0.30 }
+    /// Dark needs slightly more to hold the same contrast, because the label
+    /// is light and a bright backdrop shows through against it.
+    private var fillOpacity: Double { isDark ? min(1, opacity * 1.07) : opacity }
+    /// Tint carried into the glass itself, so lowering the fill does not leave
+    /// the pill taking all of its colour from the wallpaper.
+    private var glassTint: Double { opacity * 0.53 }
 
     var body: some View {
         if #available(macOS 26.0, *) {
             Capsule()
                 .fill(tint.opacity(fillOpacity))
-                .glassEffect(.regular.tint(tint.opacity(0.16)), in: Capsule())
+                .glassEffect(.regular.tint(tint.opacity(glassTint)), in: Capsule())
         } else {
             Capsule()
                 .fill(tint.opacity(fillOpacity))

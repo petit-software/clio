@@ -583,6 +583,30 @@ private struct FeedbackTab: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+
+                LabeledContent("Translucency") {
+                    HStack(spacing: 8) {
+                        // Reversed: the slider runs from see-through to solid,
+                        // which is the direction the label describes.
+                        Slider(value: Binding(
+                            get: { coordinator.settingsStore.settings.pillOpacity },
+                            set: {
+                                coordinator.settingsStore.settings.pillOpacity = $0
+                                coordinator.applySettings()
+                            }), in: 0...1)
+                        .frame(width: 140)
+                        Text("\(Int(coordinator.settingsStore.settings.pillOpacity * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 34, alignment: .trailing)
+                    }
+                }
+            } footer: {
+                Text("How solid the pill is. At the low end it is nearly bare "
+                     + "glass and takes its colour from whatever is behind it — "
+                     + "readable over a plain desktop, less so over a busy one.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Section {

@@ -24,6 +24,10 @@ public final class OverlayModel {
     /// limit, say — shown under the main label.
     public var note: String?
 
+    /// Mirrored from settings so the pill can be redrawn without the view
+    /// reaching for a settings store it should not know about.
+    public var pillOpacity: Double = 0.30
+
     /// Only while recording — a finished pill must not glow orange.
     public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 

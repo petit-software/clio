@@ -151,6 +151,7 @@ public final class AppCoordinator {
         hotkeys.hotkey = settings.hotkey
         hotkeys.mode = settings.hotkeyMode
         history.persistsToDisk = settings.keepHistoryOnDisk
+        overlay?.model.pillOpacity = settings.pillOpacity
     }
 
     public var isHotkeyRunning: Bool { hotkeys.isRunning }
@@ -178,6 +179,7 @@ public final class AppCoordinator {
         }
 
         state = .recording
+        overlay?.model.pillOpacity = settings.pillOpacity
         overlay?.show(position: settings.overlayPosition)
         feedback.play(.start, enabled: settings.playSoundOnStart)
 

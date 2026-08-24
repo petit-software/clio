@@ -37,6 +37,10 @@ public enum OverlayDump {
         default: state = .recording
         }
         controller.model.level = 0.75
+        if let raw = ProcessInfo.processInfo.environment["CLIO_OVERLAY_OPACITY"],
+           let value = Double(raw) {
+            controller.model.pillOpacity = value
+        }
         controller.update(state: state)
         controller.updateProgress(elapsed: 4, limit: 600)
         controller.show(position: .topCenter)
