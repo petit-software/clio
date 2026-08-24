@@ -128,3 +128,30 @@ struct WaveformIconTests {
         #expect(coverage < 0.60)
     }
 }
+
+@MainActor
+@Test("The dot sits out the recording animation")
+func dotIsHiddenWhileLive() throws {
+    // Resting keeps all five capsules; the live poses drop the dot, so the
+    // mark has less ink while it moves.
+    func ink(_ image: NSImage) throws -> Int {
+        let rep = try #require(NSBitmapImageRep(data: image.tiffRepresentation ?? Data()))
+        var count = 0
+        for x in 0..<rep.pixelsWide {
+            for y in 0..<rep.pixelsHigh {
+                if let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.5 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    let resting = try ink(WaveformIcon.resting)
+    let full = try ink(WaveformIcon.live(level: 1))
+    #expect(full < resting, "the dot should be absent while recording")
+
+    // And it is gone at every level, not just the loud end.
+    for step in 0...WaveformIcon.levelSteps {
+        let level = Float(step) / Float(WaveformIcon.levelSteps)
+        #expect(try ink(WaveformIcon.live(level: level)) < resting)
+    }
+}

@@ -24,9 +24,9 @@ public enum WaveformIcon {
     // MARK: Design
 
     /// The box the proportions are defined in.
-    static let designSize = CGSize(width: 211, height: 164)
-    static let barWidth: CGFloat = 35.1429
-    static let pitch: CGFloat = 58.5714
+    nonisolated static let designSize = CGSize(width: 211, height: 164)
+    nonisolated static let barWidth: CGFloat = 35.1429
+    nonisolated static let pitch: CGFloat = 58.5714
 
     /// One capsule of the mark, in the drawing's own coordinates.
     ///
@@ -40,6 +40,13 @@ public enum WaveformIcon {
         var height: CGFloat
 
         var centre: CGFloat { y + height / 2 }
+
+        /// The one element that is already a circle, in the split column.
+        ///
+        /// It is a full stop rather than a bar: there is nothing for it to do
+        /// while the level moves, and left in it just sits there while
+        /// everything around it breathes.
+        var isDot: Bool { abs(height - WaveformIcon.barWidth) < 0.01 }
     }
 
     /// Converted from the SVG's top-down y once, here, rather than at every
@@ -95,10 +102,11 @@ public enum WaveformIcon {
         if let cached = liveCache[step] { return cached }
 
         let fraction = CGFloat(step) / CGFloat(levelSteps)
-        // Each capsule shrinks toward a circle about ITS OWN centre, not the
-        // box's. The split column has to stay split at every level, or the
-        // mark collapses into a row of dots on a line and stops being itself.
-        let scaled = bars.map { bar -> Bar in
+        // The dot sits the animation out — see Bar.isDot. Everything else
+        // shrinks toward a circle about ITS OWN centre, not the box's, so the
+        // split column stays split at every level rather than collapsing onto
+        // a line.
+        let scaled = bars.filter { !$0.isDot }.map { bar -> Bar in
             let floor = barWidth                     // a capsule at its minimum
             let height = floor + (bar.height - floor) * fraction
             return Bar(x: bar.x, y: bar.centre - height / 2, height: height)
