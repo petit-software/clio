@@ -29,7 +29,7 @@ protocol — it makes the UI testable without loading a model.
 ```sh
 swift build            # library + executable
 swift test             # unit tests, no network
-./scripts/build-app.sh # Scribe.app, ad-hoc signed
+./scripts/build-app.sh # Scribe.app, signed
 open Scribe.app
 ```
 
@@ -49,9 +49,34 @@ Requires macOS 14+ and Swift 6.
 `swift run` works for quick iteration but has no bundle, so it cannot request
 the microphone — use `build-app.sh` for anything touching permissions.
 
-**Ad-hoc signatures change every rebuild**, so macOS treats each build as a new
-app and Accessibility must be re-granted each time. That stops once the app is
-signed with a stable Developer ID identity (Milestone 6).
+## Signing
+
+`build-app.sh` signs with the first **Developer ID Application** identity in the
+keychain, and falls back to ad-hoc if there is none. Which one it used is the
+last line it prints.
+
+The difference is not cosmetic. A signature's *designated requirement* is what
+TCC uses to decide whether this is the same app it granted Accessibility to:
+
+```
+ad-hoc:        cdhash H"bcd2d71e9b91918520f53fbb98073e09a4ece098"
+Developer ID:  identifier "com.bartbak.scribe" and anchor apple generic
+               and … certificate leaf[subject.OU] = TJ3ALYQV5G
+```
+
+The ad-hoc one is a hash of the binary, so every rebuild is a different app and
+Accessibility has to be granted again. The Developer ID one names the bundle and
+the team, which do not change when the code does — so permissions survive
+rebuilds.
+
+Hardened runtime is on either way, so the bundle is already in the shape
+notarization needs. `SCRIBE_ADHOC=1` forces an ad-hoc signature;
+`SCRIBE_NO_TIMESTAMP=1` skips the timestamp server for building offline.
+
+Gatekeeper still reports `rejected — source=Unnotarized Developer ID`. That is
+expected and does not affect a locally built app, which carries no quarantine
+flag. It matters the moment the app is downloaded from anywhere, which is what
+notarization in Milestone 6 is for.
 
 ## Layout
 

@@ -7,9 +7,17 @@
 	  synthetic ⌘V are both incompatible with the App Sandbox, which is why
 	  this app ships by direct download and not through the App Store (§9).
 	-->
+	<!--
+	  The microphone. Required under the hardened runtime, which is on so the
+	  app can be notarized later.
+	-->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
-	<key>com.apple.security.automation.apple-events</key>
-	<true/>
+	<!--
+	  Deliberately NOT here: com.apple.security.automation.apple-events. Scribe
+	  sends no Apple Events. It pastes with a synthesized CGEvent and opens
+	  System Settings through LaunchServices, neither of which is scripting.
+	  Asking for it would be requesting a capability we never use.
+	-->
 </dict>
 </plist>
