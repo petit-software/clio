@@ -447,12 +447,22 @@ private struct AudioTab: View {
                 }
 
                 LabeledContent("Maximum length") {
+                    // Minutes, not seconds. The cap runs to ten minutes, and
+                    // in five-second steps that was 120 clicks from end to end
+                    // for a number nobody sets to the second.
                     Stepper(
-                        "\(Int(coordinator.settingsStore.settings.maxRecordingSeconds))s",
+                        RecordingLimit.label(seconds:
+                            coordinator.settingsStore.settings.maxRecordingSeconds),
                         value: Binding(
-                            get: { coordinator.settingsStore.settings.maxRecordingSeconds },
-                            set: { coordinator.settingsStore.settings.maxRecordingSeconds = $0 }),
-                        in: 5...600, step: 5)
+                            get: {
+                                RecordingLimit.minutes(
+                                    seconds: coordinator.settingsStore.settings.maxRecordingSeconds)
+                            },
+                            set: {
+                                coordinator.settingsStore.settings.maxRecordingSeconds =
+                                    RecordingLimit.seconds(minutes: $0)
+                            }),
+                        in: RecordingLimit.range, step: 1)
                 }
             }
         }

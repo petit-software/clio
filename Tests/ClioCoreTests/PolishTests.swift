@@ -258,3 +258,43 @@ func emptyResultIsNotAFailure() {
     #expect(empty != broken)
     if case .failed = empty { Issue.record("empty result must not be a failure") }
 }
+
+// MARK: - The limit, in minutes
+
+@Test("Minutes round-trip through the seconds that are stored")
+func limitRoundTrips() {
+    for minutes in 1...10 {
+        let seconds = RecordingLimit.seconds(minutes: Double(minutes))
+        #expect(seconds == Double(minutes) * 60)
+        #expect(RecordingLimit.minutes(seconds: seconds) == Double(minutes))
+    }
+}
+
+@Test("A value stored before this was in minutes lands on a step")
+func oddSecondsAreRounded() {
+    // 90s came from the old five-second stepper. Left as 1.5 it would sit
+    // between two steps and the control could not represent it.
+    #expect(RecordingLimit.minutes(seconds: 90) == 2)
+    #expect(RecordingLimit.minutes(seconds: 100) == 2)
+    #expect(RecordingLimit.minutes(seconds: 120) == 2)
+    // The old floor was five seconds, which is no minutes at all.
+    #expect(RecordingLimit.minutes(seconds: 5) == 1)
+    // And the old ceiling is still the new one.
+    #expect(RecordingLimit.minutes(seconds: 600) == 10)
+    #expect(RecordingLimit.minutes(seconds: 9999) == 10)
+}
+
+@Test("The label reads as English, not as a number and a unit")
+func limitLabel() {
+    #expect(RecordingLimit.label(seconds: 60) == "1 minute")
+    #expect(RecordingLimit.label(seconds: 120) == "2 minutes")
+    #expect(RecordingLimit.label(seconds: 600) == "10 minutes")
+}
+
+@Test("The shipped default is a whole number of minutes")
+func defaultIsWholeMinutes() {
+    // Otherwise the stepper would silently move it the first time Settings
+    // opened, which looks like the app changing a setting on its own.
+    let stored = Settings().maxRecordingSeconds
+    #expect(RecordingLimit.seconds(minutes: RecordingLimit.minutes(seconds: stored)) == stored)
+}
