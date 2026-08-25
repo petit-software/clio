@@ -22,7 +22,7 @@ public struct SettingsView: View {
             TranscriptionTab(coordinator: coordinator)
                 .tabItem { Label("Transcription", systemImage: "text.bubble") }
             OutputTab(coordinator: coordinator)
-                .tabItem { Label("Output", systemImage: "arrow.right.doc.on.clipboard") }
+                .tabItem { Label("Output", systemImage: "character.text.justify") }
             FeedbackTab(coordinator: coordinator)
                 .tabItem { Label("Feedback", systemImage: "bell") }
             AboutTab(coordinator: coordinator)
