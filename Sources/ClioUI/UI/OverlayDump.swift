@@ -107,6 +107,9 @@ public enum OverlayDump {
         }))
         rows.append(("finished-pasted", model { $0.state = .finished("Hello") }))
         rows.append(("preview", model { $0.isPreview = true }))
+        rows.append(("nothing-heard", model {
+            $0.state = .emptyResult("No speech detected.")
+        }))
 
         for (name, model) in rows {
             let renderer = ImageRenderer(content:

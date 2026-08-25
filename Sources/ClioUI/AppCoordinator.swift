@@ -261,7 +261,7 @@ public final class AppCoordinator {
         inputLevel = 0
 
         guard captured.count > Int(0.2 * AudioRecorder.sampleRate) else {
-            fail("That was too short to transcribe.")
+            nothingHeard("That was too short to transcribe.")
             return
         }
 
@@ -279,7 +279,7 @@ public final class AppCoordinator {
         if settings.voiceActivityDetection {
             guard let trimmed = VoiceActivityTrimmer.trim(
                 captured, sensitivity: settings.vadSensitivity) else {
-                fail("No speech detected.")
+                nothingHeard("No speech detected.")
                 return
             }
             samples = trimmed.samples
@@ -318,7 +318,7 @@ public final class AppCoordinator {
         let text = TranscriptFormatter.format(transcript.text, settings: settings)
 
         guard !text.isEmpty else {
-            fail("Nothing was transcribed.")
+            nothingHeard("Nothing was transcribed.")
             return
         }
 
@@ -376,7 +376,18 @@ public final class AppCoordinator {
         feedback.play(.cancel, enabled: settingsStore.settings.playSoundOnCancel)
     }
 
+    /// The dictation produced no words. Said the same way as a failure in the
+    /// overlay, because the user still needs to know why nothing appeared —
+    /// but without the menu bar warning, since nothing is broken.
+    private func nothingHeard(_ message: String) {
+        endSession(with: .emptyResult(message))
+    }
+
     private func fail(_ message: String) {
+        endSession(with: .failed(message))
+    }
+
+    private func endSession(with outcome: DictationState) {
         sessionToken &+= 1
         transcriptionTask?.cancel()
         transcriptionTask = nil
@@ -384,7 +395,7 @@ public final class AppCoordinator {
         maxDurationTask = nil
         recorder.cancel()
         inputLevel = 0
-        state = .failed(message)
+        state = outcome
         overlay?.show(position: settingsStore.settings.overlayPosition)
         feedback.play(.cancel, enabled: settingsStore.settings.playSoundOnCancel)
         scheduleReturnToIdle(after: .seconds(2.5))

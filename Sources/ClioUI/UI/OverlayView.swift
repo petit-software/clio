@@ -111,9 +111,9 @@ struct OverlayView: View {
                 .foregroundStyle(ink)
                 .padding(.leading, h * 0.31)
                 .padding(.trailing, h * 0.26)
-        case .idle, .failed:
-            // Errors, and the position preview, are the message alone; the
-            // capsule's own padding is the only inset they need.
+        case .idle, .failed, .emptyResult:
+            // Errors, "nothing heard", and the position preview are the message
+            // alone; the capsule's own padding is the only inset they need.
             Color.clear.frame(width: h * 0.31, height: 0)
         }
     }
@@ -169,6 +169,7 @@ struct OverlayView: View {
         case .finished:
             return model.transcriptIsOnClipboard ? "Copied to clipboard" : "Pasted"
         case .failed(let message): return message
+        case .emptyResult(let message): return message
         case .idle, .recording: return ""
         }
     }

@@ -237,3 +237,24 @@ func edgeGapIsWhatItSays() {
     // 96 out to clear the Dock's reveal strip, which 64 clears anyway.
     #expect(visibleGap > 50)
 }
+
+// MARK: - Empty result versus failure
+
+@Test("Producing no words is not a failure")
+func emptyResultIsNotAFailure() {
+    let empty = DictationState.emptyResult("No speech detected.")
+    let broken = DictationState.failed("No model installed.")
+
+    // Both are over, and neither can be cancelled.
+    #expect(empty.isBusy == false)
+    #expect(empty.isCancellable == false)
+
+    // Both still say why nothing appeared — the overlay tells the user either
+    // way; only the menu bar treats them differently.
+    #expect(empty.overlayLabel == "No speech detected.")
+    #expect(broken.overlayLabel == "No model installed.")
+
+    // And they are genuinely distinct, so the menu bar can tell them apart.
+    #expect(empty != broken)
+    if case .failed = empty { Issue.record("empty result must not be a failure") }
+}

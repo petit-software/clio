@@ -14,12 +14,20 @@ public enum DictationState: Sendable, Equatable {
     case injecting
     /// Terminal, shown briefly in the overlay before returning to idle.
     case finished(String)
+    /// Something went wrong and the user may need to act.
     case failed(String)
+    /// The dictation simply produced no words — nothing was said, or too
+    /// little of it.
+    ///
+    /// A separate case from `failed` because nothing is wrong: pressing the key
+    /// and not speaking is a thing people do, and answering it with a warning
+    /// in the menu bar tells them to go looking for a fault that is not there.
+    case emptyResult(String)
 
     public var isBusy: Bool {
         switch self {
         case .recording, .transcribing, .injecting: return true
-        case .idle, .finished, .failed: return false
+        case .idle, .finished, .failed, .emptyResult: return false
         }
     }
 
@@ -34,6 +42,7 @@ public enum DictationState: Sendable, Equatable {
         case .injecting: return "Pasting…"
         case .finished: return "Copied"
         case .failed(let message): return message
+        case .emptyResult(let message): return message
         }
     }
 }

@@ -82,6 +82,7 @@ public struct MenuBarView: View {
         case .injecting: return "Pasting…"
         case .finished: return "Done"
         case .failed(let message): return message
+        case .emptyResult(let message): return message
         }
     }
 }
@@ -189,7 +190,10 @@ public struct MenuBarLabel: View {
                            accessibilityDescription: "Clio — something went wrong")
                 ?? WaveformIcon.resting
 
-        case .idle, .finished, .transcribing, .injecting:
+        case .idle, .finished, .transcribing, .injecting, .emptyResult:
+            // emptyResult belongs here, not with .failed. Nothing is wrong —
+            // the user pressed the key and said nothing — and a warning in the
+            // menu bar would send them hunting for a fault.
             // Transcribing keeps the resting mark rather than a third pose:
             // it is usually sub-second, and a flicker in the menu bar reads as
             // a glitch. The overlay is what reports progress.
