@@ -29,6 +29,11 @@ public enum OverlayDump {
             NSApp.appearance = NSAppearance(named: .darkAqua)
         }
         let controller = OverlayController()
+        // Exercises the real preview path, auto-hide included.
+        if named == "preview" {
+            controller.showPreview(at: .bottomRight, surface: PillSurface())
+            return controller
+        }
         let state: DictationState
         switch named {
         case "transcribing": state = .transcribing
@@ -101,6 +106,7 @@ public enum OverlayDump {
             $0.state = .finished("Hello"); $0.transcriptIsOnClipboard = true
         }))
         rows.append(("finished-pasted", model { $0.state = .finished("Hello") }))
+        rows.append(("preview", model { $0.isPreview = true }))
 
         for (name, model) in rows {
             let renderer = ImageRenderer(content:

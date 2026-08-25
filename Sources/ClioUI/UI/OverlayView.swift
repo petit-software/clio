@@ -112,15 +112,15 @@ struct OverlayView: View {
                 .padding(.leading, h * 0.31)
                 .padding(.trailing, h * 0.26)
         case .idle, .failed:
-            // Errors are the message alone; the capsule's own padding is the
-            // only inset they need.
+            // Errors, and the position preview, are the message alone; the
+            // capsule's own padding is the only inset they need.
             Color.clear.frame(width: h * 0.31, height: 0)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        if model.state == .recording {
+        if model.state == .recording && !model.isPreview {
             // Dimmed and still until audio is actually flowing. Bars frozen at
             // zero would read as a microphone that is not working.
             LevelMeter(level: model.captureIsLive ? model.level : 0,
@@ -148,7 +148,7 @@ struct OverlayView: View {
 
     @ViewBuilder
     private var trailing: some View {
-        if model.isCancellableByClick {
+        if model.isCancellableByClick && !model.isPreview {
             CloseButton(diameter: h * 0.27,
                         fill: closeGrey,
                         glyph: pillFill,
@@ -161,6 +161,7 @@ struct OverlayView: View {
     }
 
     private var label: String {
+        if model.isPreview { return "Preview" }
         if let note = model.note { return note }
         switch model.state {
         case .transcribing: return "Transcribing"
@@ -367,6 +368,13 @@ private func overlayModel(_ configure: (OverlayModel) -> Void) -> OverlayModel {
     }
     .padding(20)
     .background(Color(red: 54/255, green: 52/255, blue: 49/255))
+}
+
+/// What Settings flashes when the overlay position changes.
+#Preview("Position preview") {
+    OverlayView(model: overlayModel { $0.isPreview = true })
+        .padding(20)
+        .background(Color(red: 54/255, green: 52/255, blue: 49/255))
 }
 
 #Preview("Long error") {

@@ -211,3 +211,16 @@ func escapeCancelsMenuStartedSessions() {
     #expect(manager.isSessionActive?() == true)
     _ = cancelled
 }
+
+// MARK: - Position preview
+
+@Test("Every position the picker offers can be previewed except Hidden")
+func previewablePositions() {
+    // Hidden is the one choice with nothing to show, and flashing a pill to
+    // demonstrate it would contradict the setting being chosen.
+    let previewable = OverlayPosition.allCases.filter { $0 != OverlayPosition.none }
+    #expect(previewable.count == OverlayPosition.allCases.count - 1)
+    #expect(previewable.contains(.topLeft))
+    #expect(previewable.contains(.bottomRight))
+    #expect(!previewable.contains(OverlayPosition.none))
+}

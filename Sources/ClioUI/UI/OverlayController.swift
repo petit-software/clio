@@ -40,6 +40,13 @@ public final class OverlayModel {
     /// the user to a clipboard that no longer holds their words.
     public var transcriptIsOnClipboard = false
 
+    /// Showing where the pill will sit, rather than a real dictation.
+    ///
+    /// Not a `DictationState` case: previewing must not touch the state
+    /// machine, or choosing a position while a recording is running would
+    /// interrupt it.
+    public var isPreview = false
+
     /// Only while recording — a finished pill must not glow orange.
     public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 
@@ -134,6 +141,48 @@ public final class OverlayController {
     /// Where the panel currently sits, for tooling that needs to capture it.
     public var panelFrame: NSRect? { panel?.frame }
 
+    private var previewTask: Task<Void, Never>?
+
+    /// Put the pill on screen at `position` for a moment, labelled, so the
+    /// choice in Settings can be seen rather than imagined.
+    public func showPreview(at position: OverlayPosition,
+                            surface: PillSurface,
+                            seconds: Double = 2) {
+        // Hidden has nothing to show, and a preview appearing anyway would
+        // contradict the setting being chosen.
+        guard position != OverlayPosition.none else {
+            previewTask?.cancel()
+            hide()
+            return
+        }
+
+        previewTask?.cancel()
+        model.surface = surface
+        model.isPreview = true
+        model.state = .idle
+        show(position: position)
+
+        previewTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.endPreview()
+        }
+    }
+
+    private func endPreview() {
+        guard model.isPreview else { return }
+        model.isPreview = false
+        hide()
+    }
+
+    /// A real session takes the pill back at once, however long the preview
+    /// had left to run.
+    private func cancelPreview() {
+        previewTask?.cancel()
+        previewTask = nil
+        model.isPreview = false
+    }
+
     public init() {}
 
     /// Mirrors the machine's state into the pill, and decides whether the panel
@@ -144,6 +193,7 @@ public final class OverlayController {
     }
 
     public func update(state: DictationState, note: String? = nil) {
+        if state != .idle { cancelPreview() }
         model.state = state
         model.note = note
         if state == .recording { model.progress.elapsed = 0 }

@@ -577,7 +577,13 @@ private struct FeedbackTab: View {
             Section {
                 Picker("Overlay", selection: Binding(
                     get: { coordinator.settingsStore.settings.overlayPosition },
-                    set: { coordinator.settingsStore.settings.overlayPosition = $0 })) {
+                    set: {
+                        coordinator.settingsStore.settings.overlayPosition = $0
+                        // Show it where it will actually sit. A corner is hard
+                        // to picture from a radio button, and the pill is only
+                        // ever on screen while dictating.
+                        coordinator.previewOverlayPosition($0)
+                    })) {
                     ForEach(OverlayPosition.allCases, id: \.self) { position in
                         Text(position.label).tag(position)
                     }

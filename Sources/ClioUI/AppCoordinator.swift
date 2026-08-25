@@ -411,6 +411,20 @@ public final class AppCoordinator {
         TextInjector.copy(entry.text)
     }
 
+    /// Flash the pill where the chosen position puts it.
+    ///
+    /// Refused outright while a dictation is running: the pill is showing
+    /// something real, and moving it mid-sentence to demonstrate a setting
+    /// would be worse than not demonstrating it.
+    public func previewOverlayPosition(_ position: OverlayPosition) {
+        guard !state.isBusy else { return }
+        let settings = settingsStore.settings
+        overlay?.showPreview(
+            at: position,
+            surface: PillSurface(opacity: settings.pillOpacity,
+                                 isClear: settings.pillClearGlass))
+    }
+
     // MARK: Microphone
 
     /// Nil means "follow the system default".
