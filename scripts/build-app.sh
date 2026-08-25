@@ -30,6 +30,9 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # SwiftPM resource bundle.
 cp Resources/models.json "$APP/Contents/Resources/models.json"
 scripts/make-iconset.sh "$APP/Contents/Resources"
+# The About pane shows the icon as artwork rather than as a bundle icon, so it
+# needs a plain PNG it can load — the .icns is for Finder.
+cp Resources/Icon/clearlight.png "$APP/Contents/Resources/AboutIcon.png"
 
 # Stamped before signing, since editing Info.plist afterwards would invalidate
 # the signature. Dev builds stay at whatever the tracked plist says; release.sh

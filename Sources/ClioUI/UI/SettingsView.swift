@@ -290,24 +290,49 @@ private struct ModelRow: View {
         .padding(.vertical, 2)
     }
 
+    /// Symbols rather than words.
+    ///
+    /// Each row already carries a name, a size and a description, and three
+    /// rows of it read as a wall. `help` keeps the meaning available to anyone
+    /// who wants it, and to VoiceOver, which a bare glyph would otherwise
+    /// leave with nothing to say.
     @ViewBuilder
     private var controls: some View {
         if models.isDownloading(model.id) {
-            Button("Cancel") { models.cancel(model.id) }
-                .controlSize(.small)
+            iconButton("xmark.circle.fill", "Cancel the download", .secondary) {
+                models.cancel(model.id)
+            }
         } else if let installed {
             if models.canDelete(installed) {
-                Button("Delete", role: .destructive) { delete(installed) }
-                    .controlSize(.small)
+                iconButton("trash", "Delete \(model.displayName)", .secondary) {
+                    delete(installed)
+                }
             } else {
-                Text("Shared cache")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Not ours to delete, so there is no button to offer — see
+                // ModelManager.canDelete.
+                Image(systemName: "externaldrive")
+                    .foregroundStyle(.tertiary)
+                    .help("In the shared Hugging Face cache, so Clio will not delete it")
             }
         } else {
-            Button("Download") { models.download(model) }
-                .controlSize(.small)
+            iconButton("arrow.down.circle", "Download \(model.displayName)", .accentColor) {
+                models.download(model)
+            }
         }
+    }
+
+    private func iconButton(_ symbol: String,
+                            _ description: String,
+                            _ tint: Color,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15))
+                .foregroundStyle(tint)
+        }
+        .buttonStyle(.borderless)
+        .help(description)
+        .accessibilityLabel(description)
     }
 
     private var installed: InstalledModel? {
@@ -683,7 +708,30 @@ private struct AboutTab: View {
     var body: some View {
         Form {
             Section {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Self.appIcon
+                            .resizable()
+                            .frame(width: 96, height: 96)
+                        Text("Clio")
+                            .font(.title2.weight(.semibold))
+                        Text("Native macOS dictation, entirely on this Mac.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets())
+            }
+
+            Section {
                 LabeledContent("Version", value: Self.version)
+                LabeledContent("Source") {
+                    Link("github.com/petit-software/clio",
+                         destination: URL(string: "https://github.com/petit-software/clio")!)
+                }
                 LabeledContent("Shortcut listener",
                                value: coordinator.isHotkeyRunning ? "Running" : "Stopped")
             }
@@ -723,6 +771,18 @@ private struct AboutTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The artwork, not the bundle icon.
+    ///
+    /// Falls back to whatever the running app is using, so this still draws
+    /// something in a preview — which has no bundle to load a resource from.
+    private static var appIcon: Image {
+        if let url = Bundle.main.url(forResource: "AboutIcon", withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            return Image(nsImage: image)
+        }
+        return Image(nsImage: NSApp.applicationIconImage ?? NSImage())
     }
 
     private static var version: String {

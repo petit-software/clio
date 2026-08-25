@@ -106,25 +106,7 @@ public final class AudioRecorder: @unchecked Sendable {
         }
         lap("selectDevice")
 
-        let hwFormat = input.outputFormat(forBus: 0)
-        lap("readFormat")
-        guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
-            throw RecorderError.formatUnavailable
-        }
-
-        guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                         sampleRate: Self.sampleRate,
-                                         channels: 1,
-                                         interleaved: false),
-              let converter = AVAudioConverter(from: hwFormat, to: target)
-        else { throw RecorderError.converterUnavailable }
-        lap("converter")
-
-        input.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) {
-            [weak self] pcmBuffer, _ in
-            self?.append(pcmBuffer, using: converter, target: target)
-        }
-
+        try installTap(on: input)
         lap("installTap")
 
         engine.prepare()
@@ -133,8 +115,20 @@ public final class AudioRecorder: @unchecked Sendable {
             try engine.start()
             lap("engineStart")
         } catch {
-            input.removeTap(onBus: 0)
-            throw RecorderError.engineFailed(error.localizedDescription)
+            // One retry, after a reset. AVAudioEngine caches its input node,
+            // and a node created while the microphone permission did not exist
+            // yet holds a dead format — which is a first run, and exactly when
+            // an alert about the audio engine is least welcome.
+            engine.reset()
+            do {
+                try installTap(on: engine.inputNode)
+                engine.prepare()
+                try engine.start()
+                lap("engineStart")
+            } catch {
+                engine.inputNode.removeTap(onBus: 0)
+                throw RecorderError.engineFailed(error.localizedDescription)
+            }
         }
 
         isRecording = true
@@ -176,6 +170,33 @@ public final class AudioRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return didOverflow
+    }
+
+    /// Build the converter for the device's current format and start feeding
+    /// the buffer.
+    ///
+    /// Separate from `start()` because a device change mid-recording invalidates
+    /// the converter: it was built for the old format, and left in place it
+    /// turns everything after the change into noise.
+    private func installTap(on input: AVAudioInputNode) throws {
+        input.removeTap(onBus: 0)
+
+        let hwFormat = input.outputFormat(forBus: 0)
+        guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
+            throw RecorderError.formatUnavailable
+        }
+
+        guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                         sampleRate: Self.sampleRate,
+                                         channels: 1,
+                                         interleaved: false),
+              let converter = AVAudioConverter(from: hwFormat, to: target)
+        else { throw RecorderError.converterUnavailable }
+
+        input.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) {
+            [weak self] pcmBuffer, _ in
+            self?.append(pcmBuffer, using: converter, target: target)
+        }
     }
 
     /// Point the engine's input at a specific device.
@@ -291,9 +312,7 @@ public final class AudioRecorder: @unchecked Sendable {
             object: engine, queue: .main
         ) { [weak self] _ in
             guard let self, self.isRecording else { return }
-            Task { @MainActor [weak self] in
-                self?.onFailure?(RecorderError.engineFailed("The audio device changed."))
-            }
+            self.handleConfigurationChange()
         }
 
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -303,6 +322,34 @@ public final class AudioRecorder: @unchecked Sendable {
             guard let self, self.isRecording else { return }
             Task { @MainActor [weak self] in
                 self?.onFailure?(RecorderError.engineFailed("The Mac woke from sleep."))
+            }
+        }
+    }
+
+    /// The engine reconfigured underneath us.
+    ///
+    /// This is NOT a failure, and treating it as one is what produced an
+    /// "Audio engine failed to start" alert on a first run: macOS posts a
+    /// configuration change as soon as the input device initialises, so the
+    /// engine had started perfectly well and then been declared broken.
+    ///
+    /// §5.2 asks for a restart, which is also what keeps a genuine mid-session
+    /// device change from turning the rest of the recording into noise — the
+    /// converter belongs to the format it was built for.
+    private func handleConfigurationChange() {
+        guard isRecording else { return }
+        let input = engine.inputNode
+        do {
+            try installTap(on: input)
+            if !engine.isRunning {
+                engine.prepare()
+                try engine.start()
+            }
+        } catch {
+            // Now it really has failed: the device went away and nothing can
+            // be captured from it.
+            Task { @MainActor [weak self] in
+                self?.onFailure?(RecorderError.engineFailed(error.localizedDescription))
             }
         }
     }
