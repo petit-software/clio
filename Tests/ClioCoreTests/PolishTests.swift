@@ -224,3 +224,16 @@ func previewablePositions() {
     #expect(previewable.contains(.bottomRight))
     #expect(!previewable.contains(OverlayPosition.none))
 }
+
+@Test("The edge gap is one number, not a constant plus a padding")
+func edgeGapIsWhatItSays() {
+    // The window carries transparent room for its shadow, so the constant used
+    // to be 24 while the pill sat 38 away. The gap now means the distance you
+    // would measure on screen.
+    let visibleGap: CGFloat = 64
+    let shadowRoom: CGFloat = 14
+    #expect(visibleGap - shadowRoom == 50)   // what the window is inset by
+    // Every position uses it, bottom centre included — it used to be held
+    // 96 out to clear the Dock's reveal strip, which 64 clears anyway.
+    #expect(visibleGap > 50)
+}

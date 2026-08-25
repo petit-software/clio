@@ -274,34 +274,47 @@ public final class OverlayController {
 
     private var currentPosition: OverlayPosition = .bottomCenter
 
+    /// How far the pill sits from the edge of the usable screen area, the same
+    /// on every side and in every position.
+    ///
+    /// Bottom centre used to be held further out than the rest, to clear the
+    /// strip that reveals a hidden Dock. At this distance it clears it anyway,
+    /// and one position quietly sitting further out than its neighbours looked
+    /// like a bug when they were compared.
+    static let edgeGap: CGFloat = 64
+
     private func origin(for position: OverlayPosition, size: NSSize) -> NSPoint {
         let screen = NSScreen.main ?? NSScreen.screens.first
         guard let frame = screen?.visibleFrame else { return .zero }
 
-        // Inset from the visible frame, which already excludes the menu bar
-        // and the Dock — a corner measured from the screen would sit under
-        // them.
-        let margin: CGFloat = 24
+        // The gap between the PILL and the edge of the usable screen area.
+        //
+        // The window is bigger than the pill by shadowPadding on every side —
+        // transparent room so the shadow is not clipped — so that is taken off
+        // here. Before this, the constant read 24 and the pill sat 38 away,
+        // and the two numbers had to be added by whoever went looking.
+        //
+        // Measured from the VISIBLE frame, which already excludes the menu bar
+        // and the Dock; from the screen it would sit underneath both.
+        let gap = Self.edgeGap - OverlayView.shadowPadding
 
         switch position {
         case .none:
             return .zero
         case .topLeft:
-            return NSPoint(x: frame.minX + margin, y: frame.maxY - size.height - margin)
+            return NSPoint(x: frame.minX + gap, y: frame.maxY - size.height - gap)
         case .topCenter:
             return NSPoint(x: frame.midX - size.width / 2,
-                           y: frame.maxY - size.height - margin)
+                           y: frame.maxY - size.height - gap)
         case .topRight:
-            return NSPoint(x: frame.maxX - size.width - margin,
-                           y: frame.maxY - size.height - margin)
+            return NSPoint(x: frame.maxX - size.width - gap,
+                           y: frame.maxY - size.height - gap)
         case .bottomLeft:
-            return NSPoint(x: frame.minX + margin, y: frame.minY + margin)
+            return NSPoint(x: frame.minX + gap, y: frame.minY + gap)
         case .bottomCenter:
-            // Higher than the other two: the Dock's reveal area is here, and a
-            // pill sitting in it flickers as the Dock comes and goes.
-            return NSPoint(x: frame.midX - size.width / 2, y: frame.minY + 96)
+            return NSPoint(x: frame.midX - size.width / 2, y: frame.minY + gap)
         case .bottomRight:
-            return NSPoint(x: frame.maxX - size.width - margin, y: frame.minY + margin)
+            return NSPoint(x: frame.maxX - size.width - gap, y: frame.minY + gap)
         case .nearCursor:
             let mouse = NSEvent.mouseLocation
             // Clamped, or the pill hangs off the edge when typing near a corner.
