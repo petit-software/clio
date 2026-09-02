@@ -48,7 +48,7 @@ private struct GeneralTab: View {
                             get: { coordinator.settingsStore.settings.hotkey },
                             set: { coordinator.settingsStore.settings.hotkey = $0 ?? .defaultHotkey }),
                         other: coordinator.settingsStore.settings.secondaryHotkey,
-                        isRemovable: false)
+                        fallback: .defaultHotkey)
                 }
 
                 // Both chords are live at once. This one is here because fn
@@ -159,8 +159,9 @@ private struct HotkeyRecorder: View {
     /// The other shortcut, so the two are never recorded into a pair that
     /// cannot both fire.
     var other: Hotkey?
-    /// The primary cannot be removed — there has to be some way in.
-    var isRemovable = true
+    /// What the ✕ puts back. Nil removes the shortcut outright; the primary
+    /// passes the default, because there has to be some way in.
+    var fallback: Hotkey?
 
     @State private var isRecording = false
     @State private var monitor: Any?
@@ -172,16 +173,18 @@ private struct HotkeyRecorder: View {
                 Button(action: toggle) {
                     Text(label).frame(minWidth: 120)
                 }
-                if isRemovable, hotkey != nil, !isRecording {
+                if hotkey != nil, hotkey != fallback, !isRecording {
                     Button {
-                        commit(nil)
+                        commit(fallback)
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Remove this shortcut")
-                    .accessibilityLabel("Remove shortcut")
+                    .help(fallback.map { "Reset to \($0.displayString)" }
+                          ?? "Remove this shortcut")
+                    .accessibilityLabel(fallback == nil ? "Remove shortcut"
+                                                        : "Reset shortcut to default")
                 }
             }
             if let conflict {
@@ -296,7 +299,7 @@ private struct ModelTab: View {
             if models.installed.isEmpty {
                 Section {
                     Label("Download a model to start dictating.",
-                          systemImage: "arrow.down.circle")
+                          systemImage: "arrow.down.circle.fill")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -383,7 +386,7 @@ private struct ModelRow: View {
             }
         } else if let installed {
             if models.canDelete(installed) {
-                iconButton("trash", "Delete \(model.displayName)", .secondary) {
+                iconButton("minus.circle.fill", "Delete \(model.displayName)", .secondary) {
                     delete(installed)
                 }
             } else {
@@ -394,7 +397,7 @@ private struct ModelRow: View {
                     .help("In the shared Hugging Face cache, so Clio will not delete it")
             }
         } else {
-            iconButton("arrow.down.circle", "Download \(model.displayName)", .accentColor) {
+            iconButton("arrow.down.circle.fill", "Download \(model.displayName)", .accentColor) {
                 models.download(model)
             }
         }
