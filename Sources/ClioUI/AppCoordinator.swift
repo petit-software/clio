@@ -169,8 +169,11 @@ public final class AppCoordinator {
         hotkeys.secondaryHotkey = settings.secondaryHotkey
         hotkeys.mode = settings.hotkeyMode
         history.persistsToDisk = settings.keepHistoryOnDisk
-        overlay?.model.surface = PillSurface(opacity: settings.pillOpacity,
-                                             isClear: settings.pillClearGlass)
+        overlay?.apply(surface: Self.pillSurface(settings), size: settings.pillSize)
+    }
+
+    private static func pillSurface(_ settings: ClioCore.Settings) -> PillSurface {
+        PillSurface(opacity: settings.pillOpacity, isClear: settings.pillClearGlass)
     }
 
     public var isHotkeyRunning: Bool { hotkeys.isRunning }
@@ -195,8 +198,7 @@ public final class AppCoordinator {
         // actor, which meant the window could not even paint until it was
         // done — the feedback arrived two thirds of a second after the key.
         state = .recording
-        overlay?.model.surface = PillSurface(opacity: settings.pillOpacity,
-                                             isClear: settings.pillClearGlass)
+        overlay?.apply(surface: Self.pillSurface(settings), size: settings.pillSize)
         overlay?.show(position: settings.overlayPosition)
         feedback.play(.start, enabled: settings.playSoundOnStart)
 
@@ -435,10 +437,9 @@ public final class AppCoordinator {
     public func previewOverlayPosition(_ position: OverlayPosition) {
         guard !state.isBusy else { return }
         let settings = settingsStore.settings
-        overlay?.showPreview(
-            at: position,
-            surface: PillSurface(opacity: settings.pillOpacity,
-                                 isClear: settings.pillClearGlass))
+        overlay?.showPreview(at: position,
+                             surface: Self.pillSurface(settings),
+                             size: settings.pillSize)
     }
 
     // MARK: Microphone

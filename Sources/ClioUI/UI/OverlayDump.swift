@@ -19,6 +19,9 @@ public enum OverlayDump {
     /// recording and opening the microphone to do it.
     ///
     ///     CLIO_OVERLAY_SHOW=recording swift run Clio
+    ///     CLIO_OVERLAY_SIZE=extraLarge CLIO_OVERLAY_SHOW=recording swift run Clio
+    ///
+    /// `CLIO_OVERLAY_SIZE` takes a PillSize raw value (`large`, `extraLarge`).
     @discardableResult
     public static func show(state named: String) -> OverlayController {
         // Forced on this app only, so the dark appearance can be judged
@@ -49,6 +52,10 @@ public enum OverlayDump {
         if let raw = ProcessInfo.processInfo.environment["CLIO_OVERLAY_OPACITY"],
            let value = Double(raw) {
             controller.model.surface = PillSurface(opacity: value)
+        }
+        if let size = ProcessInfo.processInfo.environment["CLIO_OVERLAY_SIZE"]
+            .flatMap(PillSize.init(rawValue:)) {
+            controller.model.size = size
         }
         controller.update(state: state)
         controller.updateProgress(elapsed: 4, limit: 600)
@@ -109,6 +116,15 @@ public enum OverlayDump {
         rows.append(("preview", model { $0.isPreview = true }))
         rows.append(("nothing-heard", model {
             $0.state = .emptyResult("No speech detected.")
+        }))
+        // The two larger sizes, so the proportions can be checked against the
+        // default rather than assumed to have scaled with it.
+        rows.append(("recording-large", model {
+            $0.state = .recording; $0.level = 0.75; $0.captureIsLive = true
+            $0.size = .large
+        }))
+        rows.append(("transcribing-extra-large", model {
+            $0.state = .transcribing; $0.size = .extraLarge
         }))
 
         for (name, model) in rows {

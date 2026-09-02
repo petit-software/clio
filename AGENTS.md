@@ -53,6 +53,7 @@ CLIO_INTEGRATION=1 swift test --filter StartupLatency     # where start() spends
 CLIO_OVERLAY_DUMP=/tmp/x swift run Clio                   # every pill state to PNG
 CLIO_OVERLAY_SHOW=recording swift run Clio                # the real panel, on screen
 CLIO_OVERLAY_DARK=1 CLIO_OVERLAY_SHOW=transcribing swift run Clio
+CLIO_OVERLAY_SIZE=extraLarge CLIO_OVERLAY_SHOW=recording swift run Clio      # the Settings ▸ Size choices
 CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 ```
 

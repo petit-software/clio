@@ -28,6 +28,11 @@ public final class OverlayModel {
     /// reaching for a settings store it should not know about.
     public var surface = PillSurface()
 
+    /// Mirrored from settings for the same reason as `surface`. The view
+    /// derives every dimension from one height, so this is the one number
+    /// that grows the whole pill.
+    public var size: PillSize = .regular
+
     /// False while the microphone is still starting. The pill is on screen
     /// before that, and a level meter sitting dead at zero reads as broken —
     /// so it says it is waking instead.
@@ -132,7 +137,8 @@ public final class OverlayController {
         }
         hostingView.layoutSubtreeIfNeeded()
         let fitting = hostingView.fittingSize
-        return NSSize(width: max(fitting.width, 120), height: fitting.height)
+        let minimumWidth = 120 * CGFloat(model.size.scale)
+        return NSSize(width: max(fitting.width, minimumWidth), height: fitting.height)
     }
 
     /// Called when the user clicks the pill to abandon a transcription.
@@ -147,6 +153,7 @@ public final class OverlayController {
     /// choice in Settings can be seen rather than imagined.
     public func showPreview(at position: OverlayPosition,
                             surface: PillSurface,
+                            size: PillSize = .regular,
                             seconds: Double = 2) {
         // Hidden has nothing to show, and a preview appearing anyway would
         // contradict the setting being chosen.
@@ -158,6 +165,7 @@ public final class OverlayController {
 
         previewTask?.cancel()
         model.surface = surface
+        model.size = size
         model.isPreview = true
         model.state = .idle
         show(position: position)
@@ -185,13 +193,21 @@ public final class OverlayController {
 
     public init() {}
 
-    /// Mirrors the machine's state into the pill, and decides whether the panel
-    /// takes the pointer at all.
+    /// Take the look chosen in Settings. Refits the window if the pill is on
+    /// screen, since a bigger pill in a window that has not grown is clipped.
+    public func apply(surface: PillSurface, size: PillSize) {
+        model.surface = surface
+        model.size = size
+        resize()
+    }
+
     /// Drives the elapsed readout while recording.
     public func updateProgress(elapsed: TimeInterval, limit: TimeInterval) {
         model.progress = RecordingProgress(elapsed: elapsed, limit: limit)
     }
 
+    /// Mirrors the machine's state into the pill, and decides whether the panel
+    /// takes the pointer at all.
     public func update(state: DictationState, note: String? = nil) {
         if state != .idle { cancelPreview() }
         model.state = state

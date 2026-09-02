@@ -704,6 +704,23 @@ private struct FeedbackTab: View {
                 }
                 .pickerStyle(.radioGroup)
 
+                Picker("Size", selection: Binding(
+                    get: { coordinator.settingsStore.settings.pillSize },
+                    set: {
+                        coordinator.settingsStore.settings.pillSize = $0
+                        coordinator.applySettings()
+                        // Shown at the new size where it will sit, for the
+                        // same reason the position is: "1.5×" is a number,
+                        // and the pill is only otherwise seen while dictating.
+                        coordinator.previewOverlayPosition(
+                            coordinator.settingsStore.settings.overlayPosition)
+                    })) {
+                    ForEach(PillSize.allCases, id: \.self) { size in
+                        Text(size.label).tag(size)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 LabeledContent("Translucency") {
                     HStack(spacing: 8) {
                         // Reversed: the slider runs from see-through to solid,

@@ -67,6 +67,9 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Swap the frosted glass for the far more transparent clear variant.
     /// A different effect, not merely less of the same one.
     public var pillClearGlass: Bool = false
+    /// How big the pill is drawn. Every dimension in it is a fraction of one
+    /// height, so this scales the whole thing — dot, meter, text, ✕ — at once.
+    public var pillSize: PillSize = .regular
     public var playSoundOnStart: Bool = true
     public var playSoundOnStop: Bool = true
     public var playSoundOnCancel: Bool = true
@@ -149,6 +152,7 @@ public struct Settings: Codable, Equatable, Sendable {
         // would render an invisible or fully opaque pill with no way back.
         pillOpacity = min(1, max(0, read(.pillOpacity, defaults.pillOpacity)))
         pillClearGlass = read(.pillClearGlass, defaults.pillClearGlass)
+        pillSize = read(.pillSize, defaults.pillSize)
         playSoundOnStart = read(.playSoundOnStart, defaults.playSoundOnStart)
         playSoundOnStop = read(.playSoundOnStop, defaults.playSoundOnStop)
         playSoundOnCancel = read(.playSoundOnCancel, defaults.playSoundOnCancel)
@@ -191,6 +195,30 @@ public enum InjectionMethod: String, Codable, Sendable, CaseIterable {
         switch self {
         case .paste: return "Paste (⌘V)"
         case .typeCharacters: return "Type characters"
+        }
+    }
+}
+
+/// How big the pill is drawn, as a multiple of the design's size.
+public enum PillSize: String, Codable, Sendable, CaseIterable {
+    case regular
+    case large
+    case extraLarge
+
+    /// What the design's height is multiplied by.
+    public var scale: Double {
+        switch self {
+        case .regular: return 1
+        case .large: return 1.5
+        case .extraLarge: return 2
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .regular: return "Default"
+        case .large: return "1.5×"
+        case .extraLarge: return "2×"
         }
     }
 }

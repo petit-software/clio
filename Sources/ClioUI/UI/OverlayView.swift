@@ -11,12 +11,15 @@ struct OverlayView: View {
 
     // MARK: Design
 
-    /// The one dimension everything else derives from.
+    /// The one dimension everything else derives from, at the design's size.
     static let height: CGFloat = 52
     /// Room around the pill for its shadow, so the panel does not clip it.
     static let shadowPadding: CGFloat = 14
 
-    private var h: CGFloat { Self.height }
+    /// The height actually drawn: the design's, times the size chosen in
+    /// Settings. Everything below is a fraction of this, so the user's choice
+    /// grows the dot, the meter, the text and the ✕ together.
+    private var h: CGFloat { Self.height * CGFloat(model.size.scale) }
 
     @Environment(\.colorScheme) private var scheme
 
@@ -82,6 +85,9 @@ struct OverlayView: View {
         .shadow(color: contactShadow, radius: 2, x: 0, y: 1)
         .padding(Self.shadowPadding)
         .animation(.easeOut(duration: 0.18), value: model.state)
+        // A size change is deliberately NOT animated: the window is fitted to
+        // the new size at once, and a pill still shrinking inside a window
+        // that has already shrunk gets clipped on the way.
         .animation(.easeOut(duration: 0.12), value: model.isHovering)
     }
 
@@ -376,6 +382,22 @@ private func overlayModel(_ configure: (OverlayModel) -> Void) -> OverlayModel {
     OverlayView(model: overlayModel { $0.isPreview = true })
         .padding(20)
         .background(Color(red: 54/255, green: 52/255, blue: 49/255))
+}
+
+/// The three sizes Settings offers. Every dimension is a fraction of the
+/// height, so the larger ones should look like the same pill, closer.
+#Preview("Sizes") {
+    VStack(spacing: 4) {
+        ForEach(PillSize.allCases, id: \.self) { size in
+            OverlayView(model: overlayModel {
+                $0.state = .recording; $0.level = 0.75; $0.captureIsLive = true
+                $0.size = size
+            })
+            OverlayView(model: overlayModel { $0.state = .transcribing; $0.size = size })
+        }
+    }
+    .padding(20)
+    .background(Color(red: 54/255, green: 52/255, blue: 49/255))
 }
 
 #Preview("Long error") {

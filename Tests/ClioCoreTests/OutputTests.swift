@@ -106,3 +106,44 @@ struct OverlayPositionTests {
         #expect(settings.maxRecordingSeconds == 42)
     }
 }
+
+// MARK: - Pill size
+
+@Suite("Pill size")
+struct PillSizeTests {
+
+    @Test("Three sizes, the default first, at the multiples the labels promise")
+    func sizesAreWhatTheySay() {
+        #expect(PillSize.allCases == [.regular, .large, .extraLarge])
+        #expect(PillSize.allCases.map(\.scale) == [1, 1.5, 2])
+        #expect(PillSize.allCases.map(\.label) == ["Default", "1.5×", "2×"])
+        #expect(Settings().pillSize == .regular)
+    }
+
+    @Test("Stored values survive, so a saved size is not lost")
+    func rawValuesAreStable() {
+        #expect(PillSize(rawValue: "regular") == .regular)
+        #expect(PillSize(rawValue: "large") == .large)
+        #expect(PillSize(rawValue: "extraLarge") == .extraLarge)
+    }
+
+    @Test("Round-trips through the settings file")
+    func roundTrips() throws {
+        var settings = Settings()
+        settings.pillSize = .extraLarge
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(Settings.self, from: data)
+        #expect(decoded.pillSize == .extraLarge)
+    }
+
+    @Test("A file without the key, or with a size this version lacks, keeps the default")
+    func missingOrUnknownSizeFallsBack() throws {
+        let missing = try JSONDecoder().decode(Settings.self, from: Data("{}".utf8))
+        #expect(missing.pillSize == .regular)
+
+        let json = #"{"pillSize":"gigantic","maxRecordingSeconds":42}"#
+        let unknown = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+        #expect(unknown.pillSize == .regular)
+        #expect(unknown.maxRecordingSeconds == 42)
+    }
+}
