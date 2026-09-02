@@ -43,7 +43,14 @@ swift test                                  # 83 tests, 10 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
+xcodegen generate && open Clio.xcodeproj    # Xcode: run, debug, profile, ⌘U
 ```
+
+The Xcode project is generated from `project.yml` and not tracked. It is
+`build-app.sh` expressed as a target — same plist, entitlements, icon script
+and embedded Sparkle — signed with the Apple Development identity so
+Accessibility stays granted across builds, and with `get-task-allow` injected
+in Debug so the debugger can attach under the hardened runtime.
 
 Gated suites and tools, all off by default:
 

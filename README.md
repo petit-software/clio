@@ -38,6 +38,16 @@ open Clio.app
 `swift run` has no bundle, so it cannot request the microphone — use
 `build-app.sh` for anything touching permissions.
 
+To work in Xcode, generate the project (it is not tracked) and open it:
+
+```sh
+xcodegen generate     # brew install xcodegen
+open Clio.xcodeproj
+```
+
+The `Clio` scheme runs a signed, debuggable bundle and ⌘U runs the package's
+tests. `project.yml` says how it mirrors `build-app.sh`.
+
 Two suites are off by default because they are slow or need hardware:
 
 ```sh

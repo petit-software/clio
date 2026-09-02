@@ -1,0 +1,135 @@
+# XcodeGen spec for Clio.xcodeproj. The project is generated, not tracked:
+#
+#     xcodegen generate
+#
+# SwiftPM is still the source of truth for the code. The package builds the
+# libraries and the tests; this project exists for what SwiftPM cannot do — an
+# app bundle with an Info.plist, entitlements and a stable signature, so the
+# app can be run, debugged and profiled from Xcode with the microphone and
+# Accessibility actually granted. It is the Xcode equivalent of
+# scripts/build-app.sh, and every choice below mirrors that script.
+name: Clio
+options:
+  bundleIdPrefix: com.bartbak
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+  xcodeVersion: "26.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    # The icon script phase writes to a mktemp directory and reads the whole
+    # of Resources/Icon, neither of which the script sandbox allows.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+packages:
+  # The package in this directory. Xcode builds ClioCore and ClioUI from it and
+  # resolves WhisperKit and Sparkle through it, so there is exactly one
+  # dependency list to keep in step.
+  ClioPackage:
+    path: .
+
+targets:
+  Clio:
+    type: application
+    platform: macOS
+    sources:
+      # @main and the app delegate — the same file the package's executable
+      # target compiles, so `swift run` and Xcode start from identical code.
+      - path: Sources/Clio
+      # Read through Bundle.main, so it goes in Contents/Resources as a plain
+      # file — see the comment in ModelCatalog.swift for why it is not a
+      # SwiftPM resource bundle.
+      - path: Resources/models.json
+        buildPhase: resources
+      # Visible in the navigator, not built.
+      - path: Resources/Info.plist
+        buildPhase: none
+      - path: Resources/Clio.entitlements
+        buildPhase: none
+      - path: Package.swift
+        buildPhase: none
+      - path: AGENTS.md
+        buildPhase: none
+    dependencies:
+      - package: ClioPackage
+        product: ClioUI
+    settings:
+      base:
+        PRODUCT_NAME: Clio
+        PRODUCT_BUNDLE_IDENTIFIER: com.bartbak.clio
+        # The tracked plist, verbatim. Xcode's generated plist would have to
+        # duplicate the Sparkle keys and the usage description.
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/Clio.entitlements
+        # Hardened runtime, as release.sh signs it: a debug build that behaves
+        # differently from the shipped one around the microphone is a trap.
+        ENABLE_HARDENED_RUNTIME: YES
+        # Automatic signing with the Apple Development identity. Anything
+        # stable will do; what matters is that it is not ad-hoc, because an
+        # ad-hoc signature changes every build and Accessibility has to be
+        # re-granted each time.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: TJ3ALYQV5G
+      configs:
+        Debug:
+          # Debuggable: no optimisation, full DWARF, and the DEBUG condition
+          # so the CLIO_OVERLAY_* paths in ClioApp.swift are compiled in.
+          SWIFT_OPTIMIZATION_LEVEL: -Onone
+          GCC_OPTIMIZATION_LEVEL: 0
+          DEBUG_INFORMATION_FORMAT: dwarf
+          ENABLE_TESTABILITY: YES
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          # The hardened runtime refuses a debugger unless the binary carries
+          # get-task-allow. Xcode injects it for Debug when this is on, and
+          # only then — so a Release/Archive build never ships with it.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: -O
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+    postBuildScripts:
+      # Clio.icns is generated, never committed — see make-iconset.sh for why
+      # the exported PNG cannot ship as is. AboutIcon.png is the artwork the
+      # About pane draws, which is a different thing from the bundle icon.
+      # Inputs and outputs are declared so this only reruns when the icon
+      # source changes; the master re-fit is a `swift` script and slow.
+      - name: Build icons
+        shell: /bin/bash
+        script: |
+          set -euo pipefail
+          RESOURCES="$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          mkdir -p "$RESOURCES"
+          "$SRCROOT/scripts/make-iconset.sh" "$RESOURCES"
+          cp "$SRCROOT/Resources/Icon/clearlight.png" "$RESOURCES/AboutIcon.png"
+        inputFiles:
+          - $(SRCROOT)/Resources/Icon/default.png
+          - $(SRCROOT)/Resources/Icon/clearlight.png
+          - $(SRCROOT)/scripts/make-iconset.sh
+          - $(SRCROOT)/scripts/make-icon-master.swift
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Clio.icns
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AboutIcon.png
+
+schemes:
+  Clio:
+    build:
+      targets:
+        Clio: all
+    run:
+      config: Debug
+      debugEnabled: true
+      # Attach to the app, not to Sparkle's helper, if both are running.
+      askForAppToLaunch: false
+    test:
+      config: Debug
+      targets:
+        # The package's tests, so ⌘U runs the same suites as `swift test`.
+        - package: ClioPackage/ClioCoreTests
+    profile:
+      config: Release
+    archive:
+      config: Release
