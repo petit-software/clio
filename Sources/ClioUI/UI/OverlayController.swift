@@ -52,13 +52,30 @@ public final class OverlayModel {
     /// interrupt it.
     public var isPreview = false
 
+    /// Whether the pill is meant to be seen. Flipped by the controller around
+    /// ordering the panel in and out, so the view can animate the pill in and
+    /// out itself: the panel appears with the pill already collapsed, grows
+    /// it, and is only ordered out once it has faded.
+    public var isShown = false
+
+    /// True once the entrance has finished. Until then the pill is centred
+    /// in its window so it can open from the middle; after, it is pinned to
+    /// its anchored edge so state changes hold it still. Reset off screen.
+    public var isSettled = false
+
+    /// Where the pill is anchored, so the view knows which edge to hold still
+    /// while its width animates.
+    public var position: OverlayPosition = .bottomCenter
+
     /// Only while recording — a finished pill must not glow orange.
     public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 
     /// The design shows the ✕ while recording as well as transcribing, so
-    /// both are clickable. Injecting is over before a cursor could reach it.
+    /// both are clickable. Injecting counts too: it is drawn exactly like
+    /// transcribing, and a ✕ that vanished for the 150 ms the paste takes
+    /// read as a flicker between "Transcribing" and "Copied".
     public var isCancellableByClick: Bool {
-        state == .recording || state == .transcribing
+        state == .recording || state == .transcribing || state == .injecting
     }
 }
 
@@ -131,12 +148,18 @@ public final class OverlayController {
     /// The pill is as wide as its content — "Transcribing" needs more room
     /// than a level meter, and an error message more again — so the panel is
     /// measured from the view rather than fixed.
+    ///
+    /// Measured on a second hosting view that is never on screen, bound to
+    /// the same model. Measuring the visible one forces it through a layout
+    /// pass at the new state's final values, and that pass discards the
+    /// layout animation in flight: the capsule snapped to its new width while
+    /// only its label crossfaded. This one can be forced as often as needed.
+    private lazy var measuringView =
+        NSHostingView(rootView: OverlayView(model: model, isMeasuring: true))
+
     private var contentSize: NSSize {
-        guard let hostingView else {
-            return NSSize(width: 200, height: OverlayView.height + OverlayView.shadowPadding * 2)
-        }
-        hostingView.layoutSubtreeIfNeeded()
-        let fitting = hostingView.fittingSize
+        measuringView.layoutSubtreeIfNeeded()
+        let fitting = measuringView.fittingSize
         let minimumWidth = 120 * CGFloat(model.size.scale)
         return NSSize(width: max(fitting.width, minimumWidth), height: fitting.height)
     }
@@ -148,6 +171,20 @@ public final class OverlayController {
     public var panelFrame: NSRect? { panel?.frame }
 
     private var previewTask: Task<Void, Never>?
+    private var hideTask: Task<Void, Never>?
+    private var shrinkTask: Task<Void, Never>?
+    private var settleTask: Task<Void, Never>?
+
+    /// How long the pill takes to close, before the panel is ordered out.
+    /// Matches OverlayView.exit.
+    static let hideDuration: Duration = .milliseconds(200)
+    /// How long the entrance takes, after which the pill is pinned to its
+    /// anchored edge. Matches OverlayView.entrance and the last Arrival beat.
+    static let entranceDuration: Duration = .milliseconds(480)
+    /// How long a state change takes to settle, after which the panel can be
+    /// shrunk to fit without the pill visibly moving. Matches the state
+    /// animation in OverlayView, with a little slack.
+    static let settleDuration: Duration = .milliseconds(340)
 
     /// Put the pill on screen at `position` for a moment, labelled, so the
     /// choice in Settings can be seen rather than imagined.
@@ -209,7 +246,20 @@ public final class OverlayController {
     /// Mirrors the machine's state into the pill, and decides whether the panel
     /// takes the pointer at all.
     public func update(state: DictationState, note: String? = nil) {
-        if state != .idle { cancelPreview() }
+        // Idle is never drawn. The pill fades out saying whatever it said
+        // last and is reset once it is off screen — see hide(). Drawing idle
+        // at once shrank the capsule to nothing while it faded, and clipped
+        // the last word on the way.
+        if state == .idle {
+            if panel?.isVisible == true {
+                hide()
+            } else {
+                model.state = .idle
+                model.note = nil
+            }
+            return
+        }
+        cancelPreview()
         model.state = state
         model.note = note
         if state == .recording { model.progress.elapsed = 0 }
@@ -231,19 +281,68 @@ public final class OverlayController {
         // becomes one a bare `.none` silently starts meaning nil instead.
         guard position != OverlayPosition.none else { return hide() }
         currentPosition = position
+        // Read once per session. Re-reading on every resize made the pill
+        // chase the pointer from state to state.
+        if position == .nearCursor, !(panel?.isVisible ?? false) {
+            cursorAnchor = NSEvent.mouseLocation
+        }
+        // A hide that was still fading is abandoned; the pill comes back from
+        // wherever it had got to.
+        hideTask?.cancel()
+        hideTask = nil
 
         let panel = panel ?? makePanel()
         self.panel = panel
+        model.position = position
         panel.ignoresMouseEvents = !model.isCancellableByClick
         panel.setContentSize(contentSize)
         panel.setFrameOrigin(origin(for: position, size: panel.frame.size))
+
+        if panel.isVisible {
+            model.isShown = true
+            return
+        }
+        // Rendered collapsed FIRST, then shown, so the first frame on screen
+        // is the start of the entrance rather than the end of it. Without the
+        // forced layout SwiftUI coalesces the two writes and nothing animates.
+        // Forcing here is fine: the panel is not on screen yet, and this is
+        // the one state that must NOT animate.
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) { model.isShown = false }
+        hostingView?.layoutSubtreeIfNeeded()
         // orderFrontRegardless, never makeKeyAndOrderFront: taking key status
         // is exactly what we must not do.
         panel.orderFrontRegardless()
+        model.isShown = true
+        settleTask?.cancel()
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.entranceDuration)
+            guard !Task.isCancelled else { return }
+            self?.model.isSettled = true
+        }
     }
 
     func hide() {
-        panel?.orderOut(nil)
+        guard let panel, panel.isVisible, hideTask == nil else { return }
+        shrinkTask?.cancel()
+        shrinkTask = nil
+        settleTask?.cancel()
+        settleTask = nil
+        model.isShown = false
+        model.isHovering = false
+        // Ordered out only once the pill has faded. If show() lands in the
+        // meantime it cancels this and the panel simply stays.
+        hideTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.hideDuration)
+            guard !Task.isCancelled, let self else { return }
+            self.hideTask = nil
+            self.panel?.orderOut(nil)
+            // Reset off screen, where nothing animates.
+            self.model.state = .idle
+            self.model.note = nil
+            self.model.isSettled = false
+        }
     }
 
     private func makePanel() -> NSPanel {
@@ -279,16 +378,41 @@ public final class OverlayController {
     }
 
     /// Re-measure and keep the pill anchored where the user put it.
+    ///
+    /// The window is never animated. The pill animates its own width inside
+    /// it, held to the anchored edge, so all the window has to do is be big
+    /// enough: it grows at once, before the pill does, and shrinks only after
+    /// the pill has finished — a window that is briefly too large is
+    /// transparent, but one that is briefly too small clips the pill.
     private func resize() {
+        shrinkTask?.cancel()
+        shrinkTask = nil
         guard let panel, panel.isVisible else { return }
         let size = contentSize
         guard size != panel.frame.size else { return }
+        if size.width > panel.frame.width || size.height > panel.frame.height {
+            setFrame(size)
+        } else {
+            shrinkTask = Task { [weak self] in
+                try? await Task.sleep(for: Self.settleDuration)
+                guard !Task.isCancelled, let self else { return }
+                self.shrinkTask = nil
+                // Measured again: the state may have moved on since.
+                self.setFrame(self.contentSize)
+            }
+        }
+    }
+
+    private func setFrame(_ size: NSSize) {
+        guard let panel, size != panel.frame.size else { return }
         panel.setFrame(NSRect(origin: origin(for: currentPosition, size: size),
                               size: size),
                        display: true)
     }
 
     private var currentPosition: OverlayPosition = .bottomCenter
+    /// Where the pointer was when a near-cursor session began.
+    private var cursorAnchor: NSPoint = .zero
 
     /// How far the pill sits from the edge of the usable screen area, the same
     /// on every side and in every position.
@@ -332,7 +456,7 @@ public final class OverlayController {
         case .bottomRight:
             return NSPoint(x: frame.maxX - size.width - gap, y: frame.minY + gap)
         case .nearCursor:
-            let mouse = NSEvent.mouseLocation
+            let mouse = cursorAnchor
             // Clamped, or the pill hangs off the edge when typing near a corner.
             let x = min(max(mouse.x - size.width / 2, frame.minX + 8),
                         frame.maxX - size.width - 8)

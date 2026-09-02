@@ -61,6 +61,7 @@ CLIO_OVERLAY_DUMP=/tmp/x swift run Clio                   # every pill state to 
 CLIO_OVERLAY_SHOW=recording swift run Clio                # the real panel, on screen
 CLIO_OVERLAY_DARK=1 CLIO_OVERLAY_SHOW=transcribing swift run Clio
 CLIO_OVERLAY_SIZE=extraLarge CLIO_OVERLAY_SHOW=recording swift run Clio      # the Settings ▸ Size choices
+CLIO_OVERLAY_SHOW=sequence CLIO_OVERLAY_POSITION=bottomLeft swift run Clio   # a whole dictation, looping
 CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 ```
 
@@ -68,6 +69,10 @@ CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 `ImageRenderer` has nothing behind it — it draws glass flat. Anything about the
 pill's *surface* has to be judged on screen. Anything about its *layout* is
 fine in the PNG dump.
+
+`sequence` is how the transitions are judged: a still of any state says
+nothing about how it arrived. To look at it frame by frame, capture the screen
+in a loop with `screencapture -R` while it runs and tile the frames.
 
 `swift run` has no bundle, so it cannot request the microphone. Use
 `build-app.sh` for anything touching permissions.
@@ -132,6 +137,30 @@ same minute of speech.
 
 **Microphones are stored by CoreAudio UID, never `AudioDeviceID`.** The numeric
 id is reassigned on replug.
+
+**Never measure the pill on the hosting view that is on screen.** Forcing the
+visible `NSHostingView` through `layoutSubtreeIfNeeded` / `fittingSize` runs
+its layout at the new state's final values and throws away the layout
+animation in flight — the capsule snapped to its new width while only the
+label crossfaded, for as long as the overlay existed. `OverlayController`
+measures a second hosting view that is never shown. The window itself is
+never animated either: it grows before the pill does and shrinks after,
+and the pill holds to its anchored edge in between — except during the
+entrance, when it is centred so the capsule can open from its middle
+(`isSettled` is what switches it over; it flips off screen, never on).
+
+**Idle is never drawn.** The pill fades out saying whatever it said last and
+the model is reset off screen. Drawing idle at once shrank the capsule to
+nothing while it faded and clipped the last word.
+
+**`injecting` looks exactly like `transcribing` in the pill.** The paste
+takes about 150 ms, and a "Pasting" label for that long read as a flicker
+between "Transcribing" and "Copied", never as a word. The menu bar still says
+"Pasting…".
+
+**The overlay tool modes do not start Sparkle.** From a bare `swift run`
+binary its first-launch permission alert is modal, blocks the main actor, and
+with it every timed step the `sequence` tool takes.
 
 **The app icon must be re-fitted, not shipped as exported.** Icon Composer's iOS
 exports fill the canvas because iOS masks icons itself; macOS does not, and

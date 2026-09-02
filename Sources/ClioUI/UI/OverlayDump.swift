@@ -19,9 +19,14 @@ public enum OverlayDump {
     /// recording and opening the microphone to do it.
     ///
     ///     CLIO_OVERLAY_SHOW=recording swift run Clio
-    ///     CLIO_OVERLAY_SIZE=extraLarge CLIO_OVERLAY_SHOW=recording swift run Clio
+    ///     CLIO_OVERLAY_SHOW=sequence CLIO_OVERLAY_POSITION=bottomLeft swift run Clio
     ///
-    /// `CLIO_OVERLAY_SIZE` takes a PillSize raw value (`large`, `extraLarge`).
+    /// `sequence` walks a whole dictation — listening, transcribing, pasting,
+    /// copied, gone, then an error — on a loop, which is the only way to
+    /// judge the transitions: a still of any one state says nothing about
+    /// how it arrived. `CLIO_OVERLAY_POSITION` takes an OverlayPosition raw
+    /// value and applies to both. `CLIO_OVERLAY_SIZE` takes a PillSize raw
+    /// value (`large`, `extraLarge`) for a single state.
     @discardableResult
     public static func show(state named: String) -> OverlayController {
         // Forced on this app only, so the dark appearance can be judged
@@ -32,6 +37,12 @@ public enum OverlayDump {
             NSApp.appearance = NSAppearance(named: .darkAqua)
         }
         let controller = OverlayController()
+        let position = ProcessInfo.processInfo.environment["CLIO_OVERLAY_POSITION"]
+            .flatMap(OverlayPosition.init(rawValue:)) ?? .topCenter
+        if named == "sequence" {
+            runSequence(controller, at: position)
+            return controller
+        }
         // Exercises the real preview path, auto-hide included.
         if named == "preview" {
             controller.showPreview(at: .bottomRight, surface: PillSurface())
@@ -60,7 +71,7 @@ public enum OverlayDump {
         controller.update(state: state)
         controller.updateProgress(elapsed: 4, limit: 600)
         let mark = ContinuousClock.now
-        controller.show(position: .topCenter)
+        controller.show(position: position)
         let ms = Double((ContinuousClock.now - mark).components.attoseconds) / 1e15
         // stderr: unbuffered, so the number survives the process being killed.
         FileHandle.standardError.write(Data(
@@ -75,6 +86,54 @@ public enum OverlayDump {
         return controller
     }
 
+    /// One dictation after another, with the timings the real loop has: a
+    /// transcription of about a second, a paste of 150 ms, the result held
+    /// for 900 ms, then an error held for its 2.5 s.
+    private static func runSequence(_ controller: OverlayController,
+                                    at position: OverlayPosition) {
+        func log(_ line: String) {
+            FileHandle.standardError.write(Data("[overlay sequence] \(line)\n".utf8))
+        }
+        Task { @MainActor in
+            while true {
+                controller.model.transcriptIsOnClipboard = false
+                controller.model.captureIsLive = true
+                controller.update(state: .recording)
+                controller.show(position: position)
+                log("recording")
+                // The meter breathing, as it would on speech.
+                for tick in 0..<45 {
+                    controller.model.level = Float(0.35 + 0.35 * sin(Double(tick) / 3))
+                    controller.updateProgress(elapsed: Double(tick) / 30, limit: 600)
+                    try? await Task.sleep(for: .milliseconds(33))
+                }
+                controller.update(state: .transcribing)
+                log("transcribing")
+                try? await Task.sleep(for: .milliseconds(1000))
+                controller.update(state: .injecting)
+                log("injecting")
+                try? await Task.sleep(for: .milliseconds(150))
+                controller.model.transcriptIsOnClipboard = true
+                controller.update(state: .finished("Hello"))
+                log("finished")
+                try? await Task.sleep(for: .milliseconds(900))
+                controller.update(state: .idle)
+                controller.hide()
+                log("hidden")
+                try? await Task.sleep(for: .milliseconds(900))
+
+                controller.update(state: .failed("Nothing returned"))
+                controller.show(position: position)
+                log("error")
+                try? await Task.sleep(for: .milliseconds(1500))
+                controller.update(state: .idle)
+                controller.hide()
+                log("hidden")
+                try? await Task.sleep(for: .milliseconds(900))
+            }
+        }
+    }
+
     public static func write(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory,
                                                  withIntermediateDirectories: true)
@@ -82,6 +141,7 @@ public enum OverlayDump {
 
         func model(_ configure: (OverlayModel) -> Void) -> OverlayModel {
             let model = OverlayModel()
+            model.isShown = true
             configure(model)
             return model
         }

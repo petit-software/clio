@@ -30,7 +30,20 @@ struct ClioApp: App {
 /// quit inside the debounce window would otherwise lose the last change.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let coordinator = AppCoordinator(updates: UpdateManager())
+    // No updater in the overlay tool modes. Starting Sparkle from a bare
+    // `swift run` binary puts up its first-launch permission alert, and that
+    // alert is modal: it blocks the main actor, and with it every timed step
+    // the sequence tool takes.
+    let coordinator = AppCoordinator(updates: AppDelegate.isOverlayTool ? nil : UpdateManager())
+
+    private static var isOverlayTool: Bool {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        return env["CLIO_OVERLAY_DUMP"] != nil || env["CLIO_OVERLAY_SHOW"] != nil
+        #else
+        return false
+        #endif
+    }
     private let onboarding = OnboardingWindowController()
     #if DEBUG
     private var overlayPreview: OverlayController?

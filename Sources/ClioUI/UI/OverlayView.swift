@@ -9,6 +9,13 @@ import ClioCore
 struct OverlayView: View {
     @Bindable var model: OverlayModel
 
+    /// True on the copy the controller measures and never shows. It always
+    /// renders the pill open, so the window is sized for the pill at rest
+    /// rather than for whatever point of its entrance the real one is at.
+    var isMeasuring = false
+
+    private var shown: Bool { isMeasuring || model.isShown }
+
     // MARK: Design
 
     /// The one dimension everything else derives from, at the design's size.
@@ -71,6 +78,12 @@ struct OverlayView: View {
             trailing
         }
         .frame(height: h)
+        // The entrance. The capsule begins as a circle at its own centre and
+        // springs open to fit; on the way out it closes again. The content
+        // keeps its size and stays centred in the stack, overflowing the
+        // clip — invisible, since every element fades on its own (see
+        // Arrival) and is only fully there once the capsule is.
+        .frame(width: shown ? nil : h)
         .background {
             PillBackground(tint: pillFill,
                            glassTint: glassTint,
@@ -84,11 +97,71 @@ struct OverlayView: View {
         .shadow(color: ambientShadow, radius: 8, x: 0, y: 3)
         .shadow(color: contactShadow, radius: 2, x: 0, y: 1)
         .padding(Self.shadowPadding)
-        .animation(.easeOut(duration: 0.18), value: model.state)
+        // Between states: the width settles without overshoot, since the
+        // window it lives in is only ever grown ahead of it, never with it.
+        .animation(.smooth(duration: 0.3), value: model.state)
         // A size change is deliberately NOT animated: the window is fitted to
         // the new size at once, and a pill still shrinking inside a window
         // that has already shrunk gets clipped on the way.
         .animation(.easeOut(duration: 0.12), value: model.isHovering)
+        // In and out, from the centre. The shape springs open a little past
+        // its size and settles; it closes without bounce, because the next
+        // thing the user is looking at is their own text.
+        .scaleEffect(shown ? 1 : 0.92)
+        .animation(shown ? Self.entrance : Self.exit, value: shown)
+        // The fade is quicker than the shape, on both ends, so the pill is
+        // never a ghost: it is either arriving solid or already gone.
+        .opacity(shown ? 1 : 0)
+        .animation(shown ? .easeOut(duration: 0.16) : .easeIn(duration: 0.14),
+                   value: shown)
+        // The hosting window is measured from this view but may be wider
+        // while a state change settles — so the pill holds to the edge it is
+        // anchored on, and the slack sits on the far side where it is invisible.
+        .frame(maxWidth: .infinity,
+               alignment: Alignment(horizontal: horizontalAnchor, vertical: .center))
+    }
+
+    // MARK: Entrance
+
+    /// The shape's arrival and departure. The elements inside have their own,
+    /// see `Arrival`; the controller's hideDuration is derived from `exit`.
+    static let entrance: Animation = .spring(duration: 0.42, bounce: 0.22)
+    static let exit: Animation = .easeIn(duration: 0.18)
+
+    /// The edge the pill is pinned to, from where it sits on screen.
+    ///
+    /// Centre until the entrance has settled: the window is exactly the
+    /// pill's size at that point, and centring is what lets the capsule open
+    /// from its middle rather than from one end. Afterwards the anchored edge,
+    /// so a state change holds it still — see the frame above.
+    private var horizontalAnchor: HorizontalAlignment {
+        guard model.isSettled else { return .center }
+        switch model.position {
+        case .topLeft, .bottomLeft: return .leading
+        case .topRight, .bottomRight: return .trailing
+        case .topCenter, .bottomCenter, .nearCursor, .none: return .center
+        }
+    }
+
+    /// How one element gives way to another at a state change. The outgoing
+    /// one is gone quickly; the incoming one arrives a beat later, small, so
+    /// the two are never both half there — the capsule has already begun to
+    /// move by then, and the new content lands in it rather than on top of
+    /// what it replaced.
+    private static let swap: AnyTransition = .asymmetric(
+        insertion: .opacity.combined(with: .scale(scale: 0.85))
+            .animation(.spring(duration: 0.32, bounce: 0.2).delay(0.08)),
+        removal: .opacity.combined(with: .scale(scale: 0.9))
+            .animation(.easeIn(duration: 0.1)))
+
+    /// How the pieces come in: a beat after the capsule starts to open, in
+    /// order from left to right, each with its own small spring.
+    private enum Beat {
+        static let leading = 0.05
+        static let meter = 0.08
+        static let meterStep = 0.03
+        static let label = 0.10
+        static let trailing = 0.17
     }
 
     // MARK: Pieces
@@ -96,31 +169,45 @@ struct OverlayView: View {
     @ViewBuilder
     private var leading: some View {
         switch model.state {
-        case .recording:
-            Circle()
-                .fill(Self.recordDot)
-                .frame(width: h * 0.21, height: h * 0.21)
-                // 8pt beyond the drawing's inset. The record dot is small and
-                // round where the other states lead with a spinner or a run of
-                // text, so the same measured padding leaves it looking closer
-                // to the edge than they do.
-                .padding(.leading, h * 0.25 + 8)
-                .padding(.trailing, h * 0.29)
-        case .transcribing, .injecting:
-            Spinner(diameter: h * 0.29, colour: ink)
-                .padding(.leading, h * 0.31)
-                .padding(.trailing, h * 0.26)
-        case .finished:
-            Image(systemName: model.transcriptIsOnClipboard
-                  ? "square.fill.on.square.fill" : "checkmark")
-                .font(.system(size: h * 0.22, weight: .bold))
-                .foregroundStyle(ink)
-                .padding(.leading, h * 0.31)
-                .padding(.trailing, h * 0.26)
         case .idle, .failed, .emptyResult:
             // Errors, "nothing heard", and the position preview are the message
             // alone; the capsule's own padding is the only inset they need.
             Color.clear.frame(width: h * 0.31, height: 0)
+        case .recording, .transcribing, .injecting, .finished:
+            // One slot with one frame for the dot, the spinner and the tick,
+            // so a state change swaps the glyph in place. Each with its own
+            // padding, the left end of the pill re-laid itself out at every
+            // change, and the swap read as a lurch rather than a crossfade.
+            ZStack {
+                switch model.state {
+                case .recording:
+                    Circle()
+                        .fill(Self.recordDot)
+                        .frame(width: h * 0.21, height: h * 0.21)
+                        // A touch in from the slot's centre. The dot is small
+                        // and round where the others fill the slot, and at
+                        // the same centre it looks closer to the edge.
+                        .offset(x: 3)
+                        .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.2))
+                        .transition(Self.swap)
+                case .transcribing, .injecting:
+                    Spinner(diameter: h * 0.29, colour: ink)
+                        .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.4))
+                        .transition(Self.swap)
+                case .finished:
+                    Image(systemName: model.transcriptIsOnClipboard
+                          ? "square.fill.on.square.fill" : "checkmark")
+                        .font(.system(size: h * 0.22, weight: .bold))
+                        .foregroundStyle(ink)
+                        .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.4))
+                        .transition(Self.swap)
+                case .idle, .failed, .emptyResult:
+                    EmptyView()
+                }
+            }
+            .frame(width: h * 0.29, height: h * 0.29)
+            .padding(.leading, h * 0.31)
+            .padding(.trailing, h * 0.26)
         }
     }
 
@@ -130,8 +217,9 @@ struct OverlayView: View {
             // Dimmed and still until audio is actually flowing. Bars frozen at
             // zero would read as a microphone that is not working.
             LevelMeter(level: model.captureIsLive ? model.level : 0,
-                       height: h, colour: ink)
+                       height: h, colour: ink, shown: shown)
                 .opacity(model.captureIsLive ? 1 : 0.45)
+                .transition(Self.swap)
             // Only in the last stretch, and only because being cut off
             // mid-sentence without warning is worse than a tidy pill.
             if model.isNearLimit {
@@ -141,6 +229,8 @@ struct OverlayView: View {
                     .font(.system(size: h * 0.21 + 2, weight: Self.textWeight,
                                   design: .monospaced))
                     .foregroundStyle(Self.recordDot)
+                    .modifier(Arrival(shown: shown, after: Beat.label, rise: 3))
+                    .transition(Self.swap)
                     .padding(.leading, h * 0.2)
             }
         } else {
@@ -149,6 +239,13 @@ struct OverlayView: View {
                 .foregroundStyle(ink)
                 .lineLimit(1)
                 .fixedSize()
+                .modifier(Arrival(shown: shown, after: Beat.label, from: 0.96, rise: 3))
+                // A new label is a new view, so it comes and goes like every
+                // other element rather than crossfading in place: two strings
+                // of different lengths fading through each other read as a
+                // smudge. Only the capsule's width carries over.
+                .id(label)
+                .transition(Self.swap)
         }
     }
 
@@ -159,25 +256,60 @@ struct OverlayView: View {
                         fill: closeGrey,
                         glyph: pillFill,
                         emphasised: model.isHovering)
+                .modifier(Arrival(shown: shown, after: Beat.trailing, from: 0.3))
+                .transition(Self.swap)
                 .padding(.leading, h * 0.26)
                 .padding(.trailing, h * 0.31)
         } else {
-            Color.clear.frame(width: h * 0.31, height: 0)
+            Color.clear.frame(width: trailingInset, height: 0)
         }
+    }
+
+    /// The right-hand inset when nothing sits there. Wider for a result,
+    /// which has its glyph on the left: with the same inset on both sides the
+    /// words ended closer to their edge than the glyph began from its own.
+    private var trailingInset: CGFloat {
+        if case .finished = model.state { return h * 0.44 }
+        return h * 0.31
     }
 
     private var label: String {
         if model.isPreview { return "Preview" }
         if let note = model.note { return note }
         switch model.state {
-        case .transcribing: return "Transcribing"
-        case .injecting: return "Pasting"
+        // Injecting is drawn as transcribing on purpose. It lasts about
+        // 150 ms, and a pill that said "Pasting" for that long was seen as a
+        // flicker between "Transcribing" and "Copied", never as a word.
+        case .transcribing, .injecting: return "Transcribing"
         case .finished:
             return model.transcriptIsOnClipboard ? "Copied to clipboard" : "Pasted"
         case .failed(let message): return message
         case .emptyResult(let message): return message
         case .idle, .recording: return ""
         }
+    }
+}
+
+/// One element's own way in and out.
+///
+/// In: a small spring from a fraction of its size, `after` a beat, so the
+/// pieces of the pill land one after another rather than as a block. Out:
+/// a plain fade, quicker than the capsule closing around it, so nothing is
+/// still visible when the shape catches up with it.
+private struct Arrival: ViewModifier {
+    let shown: Bool
+    let after: Double
+    var from: CGFloat = 0.5
+    var rise: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(shown ? 1 : from)
+            .offset(y: shown ? 0 : rise)
+            .opacity(shown ? 1 : 0)
+            .animation(shown ? .spring(duration: 0.36, bounce: 0.32).delay(after)
+                             : .easeOut(duration: 0.1),
+                       value: shown)
     }
 }
 
@@ -284,19 +416,29 @@ private struct LevelMeter: View {
     let level: Float
     let height: CGFloat
     let colour: Color
+    /// Off, the bars are flat and gone; on, they rise one after another.
+    var shown = true
 
     private static let weights: [CGFloat] = [0.31, 0.57, 0.18, 0.31, 0.18]
 
     var body: some View {
         let barWidth = height * 0.104
         HStack(alignment: .center, spacing: barWidth) {
-            ForEach(Array(Self.weights.enumerated()), id: \.offset) { _, weight in
+            ForEach(Array(Self.weights.enumerated()), id: \.offset) { index, weight in
                 let full = height * weight
                 let floor = barWidth
                 Capsule()
                     .fill(colour)
                     .frame(width: barWidth,
                            height: floor + (full - floor) * CGFloat(level))
+                    // Each bar on its own beat, from the centre line up.
+                    .scaleEffect(y: shown ? 1 : 0.15)
+                    .opacity(shown ? 1 : 0)
+                    .animation(shown
+                               ? .spring(duration: 0.36, bounce: 0.34)
+                                   .delay(0.08 + 0.03 * Double(index))
+                               : .easeOut(duration: 0.1),
+                               value: shown)
             }
         }
         .frame(height: height * 0.57)
@@ -310,6 +452,7 @@ private struct LevelMeter: View {
 @MainActor
 private func overlayModel(_ configure: (OverlayModel) -> Void) -> OverlayModel {
     let model = OverlayModel()
+    model.isShown = true
     configure(model)
     return model
 }
