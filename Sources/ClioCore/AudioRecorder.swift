@@ -349,14 +349,18 @@ public final class AudioRecorder: @unchecked Sendable {
     }
 
     private func scheduleLevelTimer() {
-        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        let interval = 1.0 / 30.0
+        // Fresh per recording, and touched only from this timer on the main
+        // run loop, so it needs no lock.
+        var scaler = LevelScaler()
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.lock.lock()
             let rms = self.currentRMS
             self.lock.unlock()
             // Perceptual, not linear: raw RMS from speech sits so low that a
-            // linear bar looks broken.
-            let level = min(1, max(0, (20 * log10(max(rms, 1e-7)) + 60) / 60))
+            // linear bar looks broken. See LevelScaler for the window.
+            let level = scaler.level(rms: rms, dt: Float(interval))
             Task { @MainActor [weak self] in self?.onLevel?(level) }
         }
         RunLoop.main.add(timer, forMode: .common)
