@@ -3,34 +3,14 @@
     <channel>
         <title>Clio</title>
         <item>
-            <title>0.61</title>
-            <pubDate>Tue, 25 Aug 2026 10:26:31 +0200</pubDate>
+            <title>0.7</title>
+            <pubDate>Wed, 02 Sep 2026 21:51:40 +0200</pubDate>
             <link>https://github.com/petit-software/clio/releases</link>
-            <sparkle:version>59</sparkle:version>
-            <sparkle:shortVersionString>0.61</sparkle:shortVersionString>
+            <sparkle:version>70</sparkle:version>
+            <sparkle:shortVersionString>0.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/petit-software/clio/releases/download/v0.61/Clio-0.61.dmg" length="5163791" type="application/octet-stream" sparkle:edSignature="Ax2weiOTaYqw32Yeb94EjELPjM7GV5llskDGdCZwpemiWoQ2PehJj8/q5/F/+WOCgvRIKFbEJG/n8Bp22I7zAA=="/>
-        </item>
-        <item>
-            <title>0.6</title>
-            <pubDate>Tue, 25 Aug 2026 09:58:21 +0200</pubDate>
-            <link>https://github.com/petit-software/clio/releases</link>
-            <sparkle:version>55</sparkle:version>
-            <sparkle:shortVersionString>0.6</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/petit-software/clio/releases/download/v0.6/Clio-0.6.dmg" length="3614676" type="application/octet-stream" sparkle:edSignature="bL89Vo4Me3y65bETwSKKXquNPm3VfmcDVsWGG3X8Ne5Gcuv48ZzzLOQqAfdt7j3Idzs3TCdfbIPSqSpvlNMNAw=="/>
-        </item>
-        <item>
-            <title>0.5</title>
-            <pubDate>Mon, 24 Aug 2026 22:20:07 +0200</pubDate>
-            <link>https://github.com/petit-software/clio/releases</link>
-            <sparkle:version>49</sparkle:version>
-            <sparkle:shortVersionString>0.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/petit-software/clio/releases/download/v0.5/Clio-0.5.dmg" length="3611315" type="application/octet-stream" sparkle:edSignature="ntIOyLVn289mtt8DLKxrflGP6LdhjUgyBec/uSDfnQLetdpsTMfRSn0dPPOnI9bGVZLDG3jdyEl4hd0c29U+Dw=="/>
+            <enclosure url="https://github.com/petit-software/clio/releases/download/v0.7/Clio-0.7.dmg" length="5212382" type="application/octet-stream" sparkle:edSignature="/wJ74UT1pasx+uhIzBeaWmFtxhnM0RRFoAhZC+uRua8pCBNz574nRJqqyTBdYLjwQkdDi0Jy7Yd7Ad3hwcCbBA=="/>
         </item>
     </channel>
 </rss>
