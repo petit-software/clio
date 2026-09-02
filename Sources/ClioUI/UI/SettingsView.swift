@@ -710,7 +710,7 @@ private struct FeedbackTab: View {
                         coordinator.settingsStore.settings.pillSize = $0
                         coordinator.applySettings()
                         // Shown at the new size where it will sit, for the
-                        // same reason the position is: "1.5×" is a number,
+                        // same reason the position is: "1.25×" is a number,
                         // and the pill is only otherwise seen while dictating.
                         coordinator.previewOverlayPosition(
                             coordinator.settingsStore.settings.overlayPosition)

@@ -115,8 +115,8 @@ struct PillSizeTests {
     @Test("Three sizes, the default first, at the multiples the labels promise")
     func sizesAreWhatTheySay() {
         #expect(PillSize.allCases == [.regular, .large, .extraLarge])
-        #expect(PillSize.allCases.map(\.scale) == [1, 1.5, 2])
-        #expect(PillSize.allCases.map(\.label) == ["Default", "1.5×", "2×"])
+        #expect(PillSize.allCases.map(\.scale) == [1, 1.25, 1.5])
+        #expect(PillSize.allCases.map(\.label) == ["Default", "1.25×", "1.5×"])
         #expect(Settings().pillSize == .regular)
     }
 

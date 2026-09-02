@@ -209,16 +209,16 @@ public enum PillSize: String, Codable, Sendable, CaseIterable {
     public var scale: Double {
         switch self {
         case .regular: return 1
-        case .large: return 1.5
-        case .extraLarge: return 2
+        case .large: return 1.25
+        case .extraLarge: return 1.5
         }
     }
 
     public var label: String {
         switch self {
         case .regular: return "Default"
-        case .large: return "1.5×"
-        case .extraLarge: return "2×"
+        case .large: return "1.25×"
+        case .extraLarge: return "1.5×"
         }
     }
 }
