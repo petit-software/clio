@@ -10,6 +10,10 @@ public struct Settings: Codable, Equatable, Sendable {
 
     // General
     public var hotkey: Hotkey = .defaultHotkey
+    /// A second chord that does the same thing. Exists because `fn` is the
+    /// natural dictation key on an Apple keyboard and does not exist on
+    /// anyone else's: one shortcut for each, both live at once.
+    public var secondaryHotkey: Hotkey? = nil
     public var hotkeyMode: HotkeyMode = .pushToTalk
     public var launchAtLogin: Bool = false
     public var showMenuBarIcon: Bool = true
@@ -74,6 +78,16 @@ public struct Settings: Codable, Equatable, Sendable {
 
     public init() {}
 
+    /// Every chord that starts a dictation, primary first.
+    public var hotkeys: [Hotkey] {
+        [hotkey] + (secondaryHotkey.map { [$0] } ?? [])
+    }
+
+    /// "⌃; or fn" — for the menu bar and onboarding.
+    public var hotkeyDisplayString: String {
+        hotkeys.map(\.displayString).joined(separator: " or ")
+    }
+
     /// Decoded field by field, falling back to the default for anything absent
     /// or unreadable.
     ///
@@ -104,6 +118,7 @@ public struct Settings: Codable, Equatable, Sendable {
         schemaVersion = read(.schemaVersion, defaults.schemaVersion)
 
         hotkey = read(.hotkey, defaults.hotkey)
+        secondaryHotkey = readOptional(.secondaryHotkey, Hotkey.self)
         hotkeyMode = read(.hotkeyMode, defaults.hotkeyMode)
         launchAtLogin = read(.launchAtLogin, defaults.launchAtLogin)
         showMenuBarIcon = read(.showMenuBarIcon, defaults.showMenuBarIcon)

@@ -59,7 +59,7 @@ struct OnboardingView: View {
     }
 
     private var hotkeyLabel: String {
-        coordinator.settingsStore.settings.hotkey.displayString
+        coordinator.settingsStore.settings.hotkeyDisplayString
     }
 
     @ViewBuilder

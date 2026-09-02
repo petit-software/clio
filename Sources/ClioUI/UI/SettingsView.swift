@@ -41,7 +41,25 @@ private struct GeneralTab: View {
         Form {
             Section {
                 LabeledContent("Shortcut") {
-                    HotkeyRecorder(coordinator: coordinator)
+                    HotkeyRecorder(
+                        coordinator: coordinator,
+                        hotkey: Binding(
+                            get: { coordinator.settingsStore.settings.hotkey },
+                            set: { coordinator.settingsStore.settings.hotkey = $0 ?? .defaultHotkey }),
+                        other: coordinator.settingsStore.settings.secondaryHotkey,
+                        isRemovable: false)
+                }
+
+                // Both chords are live at once. This one is here because fn
+                // is the obvious dictation key on an Apple keyboard and does
+                // not exist on anyone else's.
+                LabeledContent("Alternate shortcut") {
+                    HotkeyRecorder(
+                        coordinator: coordinator,
+                        hotkey: Binding(
+                            get: { coordinator.settingsStore.settings.secondaryHotkey },
+                            set: { coordinator.settingsStore.settings.secondaryHotkey = $0 }),
+                        other: coordinator.settingsStore.settings.hotkey)
                 }
 
                 Picker("Mode", selection: Binding(
@@ -56,12 +74,16 @@ private struct GeneralTab: View {
                 }
                 .pickerStyle(.radioGroup)
 
-                if coordinator.settingsStore.settings.hotkey.requiresAppleKeyboard {
-                    Label("The fn (Globe) key only reports on Apple keyboards.",
-                          systemImage: "exclamationmark.triangle")
+                if let warning = keyboardWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
                         .font(.callout)
                         .foregroundStyle(.orange)
                 }
+            } footer: {
+                Text("Either shortcut starts a dictation. Set an alternate for "
+                     + "a keyboard that lacks the key the first one uses.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -94,6 +116,21 @@ private struct GeneralTab: View {
         .formStyle(.grouped)
     }
 
+    /// `fn` only reports on Apple keyboards. Said once, and not at all when
+    /// an alternate covers the other kind.
+    private var keyboardWarning: String? {
+        let settings = coordinator.settingsStore.settings
+        let needsApple = settings.hotkeys.map(\.requiresAppleKeyboard)
+        guard needsApple.contains(true) else { return nil }
+        if needsApple.allSatisfy({ $0 }) {
+            return settings.secondaryHotkey == nil
+                ? "The fn (Globe) key only reports on Apple keyboards. "
+                    + "Add an alternate shortcut for other keyboards."
+                : "The fn (Globe) key only reports on Apple keyboards."
+        }
+        return nil
+    }
+
     private func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled {
@@ -117,17 +154,47 @@ private struct GeneralTab: View {
 /// use, so this does not need the global tap.
 private struct HotkeyRecorder: View {
     @Bindable var coordinator: AppCoordinator
+    @Binding var hotkey: Hotkey?
+    /// The other shortcut, so the two are never recorded into a pair that
+    /// cannot both fire.
+    var other: Hotkey?
+    /// The primary cannot be removed — there has to be some way in.
+    var isRemovable = true
+
     @State private var isRecording = false
     @State private var monitor: Any?
+    @State private var conflict: String?
 
     var body: some View {
-        Button(action: toggle) {
-            Text(isRecording
-                 ? "Press a shortcut…"
-                 : coordinator.settingsStore.settings.hotkey.displayString)
-                .frame(minWidth: 120)
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 4) {
+                Button(action: toggle) {
+                    Text(label).frame(minWidth: 120)
+                }
+                if isRemovable, hotkey != nil, !isRecording {
+                    Button {
+                        commit(nil)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove this shortcut")
+                    .accessibilityLabel("Remove shortcut")
+                }
+            }
+            if let conflict {
+                Text(conflict)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
         }
         .onDisappear(perform: stopRecording)
+    }
+
+    private var label: String {
+        if isRecording { return "Press a shortcut…" }
+        return hotkey?.displayString ?? "None"
     }
 
     private func toggle() {
@@ -136,6 +203,7 @@ private struct HotkeyRecorder: View {
 
     private func startRecording() {
         isRecording = true
+        conflict = nil
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
@@ -144,21 +212,31 @@ private struct HotkeyRecorder: View {
                     stopRecording()
                     return nil
                 }
-                commit(Hotkey(keyCode: event.keyCode, modifierFlags: flags.rawValue))
+                record(Hotkey(keyCode: event.keyCode, modifierFlags: flags.rawValue))
                 return nil
             }
 
             // Modifier-only chord: committed once the user has actually held
             // something, so a stray Shift while reaching for the key is not it.
             if !flags.isEmpty {
-                commit(Hotkey(keyCode: nil, modifierFlags: flags.rawValue))
+                record(Hotkey(keyCode: nil, modifierFlags: flags.rawValue))
             }
             return nil
         }
     }
 
-    private func commit(_ hotkey: Hotkey) {
-        coordinator.settingsStore.settings.hotkey = hotkey
+    private func record(_ candidate: Hotkey) {
+        if let other, let reason = Hotkey.conflict(between: candidate, and: other) {
+            conflict = reason
+            stopRecording()
+            return
+        }
+        commit(candidate)
+    }
+
+    private func commit(_ hotkey: Hotkey?) {
+        conflict = nil
+        self.hotkey = hotkey
         coordinator.applySettings()
         stopRecording()
     }

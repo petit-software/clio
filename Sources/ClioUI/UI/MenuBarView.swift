@@ -74,7 +74,7 @@ public struct MenuBarView: View {
     private var statusLine: String {
         switch coordinator.state {
         case .idle:
-            let key = coordinator.settingsStore.settings.hotkey.displayString
+            let key = coordinator.settingsStore.settings.hotkeyDisplayString
             let mode = coordinator.settingsStore.settings.hotkeyMode
             return mode == .pushToTalk ? "Hold \(key) to dictate" : "Press \(key) to dictate"
         case .recording: return "Listening…"

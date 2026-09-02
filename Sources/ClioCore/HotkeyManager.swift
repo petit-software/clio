@@ -17,6 +17,8 @@
 //    taps that take too long (kCGEventTapDisabledByTimeout), so this matters.
 //  - Modifier-only chords (e.g. "hold right Option") are handled through
 //    flagsChanged, since they never produce keyDown/keyUp.
+//  - Two chords can be live at once (`hotkey` and `secondaryHotkey`). The
+//    one that went down is remembered so only its release ends the session.
 //
 //  The model types (Hotkey, HotkeyMode, HotkeyEvent) live in Hotkey.swift.
 //
@@ -45,6 +47,17 @@ public final class HotkeyManager {
         didSet { if hotkey != oldValue { reset() } }
     }
 
+    /// A second chord with the same meaning, typically for a keyboard that
+    /// has no `fn` key. Both are matched on every event; nothing here needs
+    /// to know which keyboard sent it.
+    public var secondaryHotkey: Hotkey? {
+        didSet { if secondaryHotkey != oldValue { reset() } }
+    }
+
+    private var hotkeys: [Hotkey] {
+        [hotkey] + (secondaryHotkey.map { [$0] } ?? [])
+    }
+
     public var mode: HotkeyMode = .pushToTalk {
         didSet { if mode != oldValue { reset() } }
     }
@@ -67,7 +80,9 @@ public final class HotkeyManager {
     /// across an isolation boundary.
     private let tapRunLoop = RunLoopBox()
 
-    private var isChordDown = false
+    /// The chord currently held, if any. Only that chord's release ends it.
+    private var heldHotkey: Hotkey?
+    private var isChordDown: Bool { heldHotkey != nil }
     private var holdTask: Task<Void, Never>?
     private var trustPollTimer: Timer?
 
@@ -141,7 +156,7 @@ public final class HotkeyManager {
         tapRunLoop.loop = nil
         runLoopSource = nil
         eventTap = nil
-        isChordDown = false
+        heldHotkey = nil
         isActive = false
     }
 
@@ -154,7 +169,7 @@ public final class HotkeyManager {
 
     private func reset() {
         if isActive { emit(.cancel) }
-        isChordDown = false
+        heldHotkey = nil
         holdTask?.cancel()
         holdTask = nil
         isActive = false
@@ -172,20 +187,30 @@ public final class HotkeyManager {
             return
         }
 
+        let eventType: HotkeyEventType
+        switch type {
+        case .keyDown: eventType = .keyDown
+        case .keyUp: eventType = .keyUp
+        case .flagsChanged: eventType = .flagsChanged
+        default: return
+        }
+
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
             .intersection(.deviceIndependentFlagsMask)
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
 
         Task { @MainActor [weak self] in
-            self?.process(type: type, keyCode: keyCode, flags: flags, isRepeat: isRepeat)
+            self?.process(type: eventType, keyCode: keyCode, flags: flags, isRepeat: isRepeat)
         }
     }
 
     // MARK: Matching (main actor)
 
-    private func process(
-        type: CGEventType,
+    /// One keyboard event. Internal rather than private so the matching can
+    /// be exercised without an event tap.
+    func process(
+        type: HotkeyEventType,
         keyCode: UInt16,
         flags: NSEvent.ModifierFlags,
         isRepeat: Bool
@@ -198,37 +223,22 @@ public final class HotkeyManager {
             return
         }
 
-        if hotkey.isModifierOnly {
-            guard type == .flagsChanged else { return }
-            let matched = flags == hotkey.modifiers && !flags.isEmpty
-            if matched && !isChordDown {
-                isChordDown = true
-                chordPressed()
-            } else if !matched && isChordDown {
-                isChordDown = false
-                chordReleased()
-            }
+        if let held = heldHotkey {
+            // Only the chord that was pressed can be released. The other one
+            // going down meanwhile is ignored, not a second session.
+            guard held.matchesRelease(type: type, keyCode: keyCode, flags: flags)
+            else { return }
+            heldHotkey = nil
+            chordReleased()
             return
         }
 
-        guard keyCode == hotkey.keyCode else { return }
-
-        switch type {
-        case .keyDown:
-            guard !isRepeat else { return }
-            guard flags == hotkey.modifiers else { return }
-            guard !isChordDown else { return }
-            isChordDown = true
-            chordPressed()
-
-        case .keyUp:
-            guard isChordDown else { return }
-            isChordDown = false
-            chordReleased()
-
-        default:
-            break
-        }
+        guard type != .keyDown || !isRepeat else { return }
+        guard let pressed = hotkeys.first(where: {
+            $0.matchesPress(type: type, keyCode: keyCode, flags: flags)
+        }) else { return }
+        heldHotkey = pressed
+        chordPressed()
     }
 
     // MARK: Semantics

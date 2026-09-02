@@ -166,6 +166,7 @@ public final class AppCoordinator {
     public func applySettings() {
         let settings = settingsStore.settings
         hotkeys.hotkey = settings.hotkey
+        hotkeys.secondaryHotkey = settings.secondaryHotkey
         hotkeys.mode = settings.hotkeyMode
         history.persistsToDisk = settings.keepHistoryOnDisk
         overlay?.model.surface = PillSurface(opacity: settings.pillOpacity,

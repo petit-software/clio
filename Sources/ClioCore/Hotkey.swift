@@ -23,6 +23,44 @@ public struct Hotkey: Codable, Equatable, Sendable {
     /// `fn` only reports on Apple-branded keyboards. Surface a warning in the UI.
     public var requiresAppleKeyboard: Bool { modifiers.contains(.function) }
 
+    /// Does this event press this chord?
+    public func matchesPress(type: HotkeyEventType,
+                             keyCode: UInt16,
+                             flags: NSEvent.ModifierFlags) -> Bool {
+        if isModifierOnly {
+            return type == .flagsChanged && !flags.isEmpty && flags == modifiers
+        }
+        return type == .keyDown && keyCode == self.keyCode && flags == modifiers
+    }
+
+    /// Does this event let go of this chord, given that it is held?
+    public func matchesRelease(type: HotkeyEventType,
+                               keyCode: UInt16,
+                               flags: NSEvent.ModifierFlags) -> Bool {
+        if isModifierOnly {
+            return type == .flagsChanged && flags != modifiers
+        }
+        return type == .keyUp && keyCode == self.keyCode
+    }
+
+    /// Why these two cannot both be live, or nil if they can.
+    ///
+    /// A modifier-only chord fires the moment its modifiers are down, so a
+    /// second chord that starts with those same modifiers — `fn` next to
+    /// `fn Space`, say — could never be reached. Rejected when recorded rather
+    /// than discovered at the desk.
+    public static func conflict(between a: Hotkey, and b: Hotkey) -> String? {
+        if a == b {
+            return "Both shortcuts are the same."
+        }
+        for (first, second) in [(a, b), (b, a)]
+        where first.isModifierOnly && second.modifiers.isSuperset(of: first.modifiers) {
+            return "\(first.displayString) would fire before "
+                + "\(second.displayString) could."
+        }
+        return nil
+    }
+
     public static let defaultHotkey = Hotkey(
         keyCode: UInt16(kVK_ANSI_Semicolon),
         modifierFlags: NSEvent.ModifierFlags.control.rawValue
@@ -104,6 +142,14 @@ public enum HotkeyMode: String, Codable, Sendable, CaseIterable {
         case .toggle: return "Toggle"
         }
     }
+}
+
+/// The subset of CGEventType the matcher cares about, so it can be driven
+/// from a test without a real event tap.
+public enum HotkeyEventType: Sendable {
+    case keyDown
+    case keyUp
+    case flagsChanged
 }
 
 public enum HotkeyEvent: Sendable {
