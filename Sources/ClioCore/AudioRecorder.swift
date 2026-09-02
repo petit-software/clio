@@ -41,11 +41,32 @@ public final class AudioRecorder: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let lock = NSLock()
 
+    /// Serialises every touch of the engine.
+    ///
+    /// `start()` runs on a background task and takes ~400 ms, most of it in
+    /// the hardware. `cancel()` arrives from the main actor whenever the user
+    /// presses Esc — and if that lands inside that window, the next key press
+    /// starts a second capture against an engine the first is still
+    /// configuring. Two threads in `installTap` at once ends in an
+    /// Objective-C exception that Swift cannot catch, and the app is gone.
+    /// Seen four times in crash reports before this lock existed.
+    private let engineLock = NSLock()
+    /// Guarded by `lock`. Bumped by every `cancel()`. A `start()` notes the
+    /// value on entry and, if it has moved by the time the hardware is up,
+    /// tears down again instead of leaving a hot microphone nobody knows
+    /// about. A counter rather than a flag so that two cancels and two
+    /// starts inside one ~400 ms window still pair up correctly.
+    private var cancelCount = 0
+
     /// Preallocated. `capacity` is maxRecordingSeconds × 16 kHz.
     private var buffer: [Float] = []
     private var writeIndex = 0
     private var didOverflow = false
     private var currentRMS: Float = 0
+
+    /// The format the current tap and converter were built for. Only ever
+    /// touched under `engineLock`.
+    private var tapFormat: AVAudioFormat?
 
     private var levelTimer: Timer?
     private var configObserver: NSObjectProtocol?
@@ -74,7 +95,21 @@ public final class AudioRecorder: @unchecked Sendable {
     ///   the system default. A device that is no longer attached falls back to
     ///   the default rather than failing the recording — losing the words
     ///   because a headset was unplugged would be the worse outcome.
+    ///
+    /// Throws `CancellationError` if `cancel()` was called while the hardware
+    /// was still waking up: the capture never became live and nothing is
+    /// left running.
     public func start(maxSeconds: Double, deviceUID: String? = nil) throws {
+        // A second start waits for the one in flight to finish rather than
+        // racing it. That one either becomes the recording, in which case
+        // this returns early below, or was cancelled, in which case this one
+        // starts on a clean engine.
+        lock.lock()
+        let cancelsAtEntry = cancelCount
+        lock.unlock()
+
+        engineLock.lock()
+        defer { engineLock.unlock() }
         guard !isRecording else { return }
 
         startBreakdown = []
@@ -127,11 +162,23 @@ public final class AudioRecorder: @unchecked Sendable {
                 lap("engineStart")
             } catch {
                 engine.inputNode.removeTap(onBus: 0)
+                tapFormat = nil
                 throw RecorderError.engineFailed(error.localizedDescription)
             }
         }
 
-        isRecording = true
+        lock.lock()
+        let cancelled = cancelCount != cancelsAtEntry
+        if !cancelled { isRecording = true }
+        lock.unlock()
+
+        if cancelled {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+            tapFormat = nil
+            throw CancellationError()
+        }
+
         startLevelTimer()
         observeInterruptions()
     }
@@ -139,6 +186,8 @@ public final class AudioRecorder: @unchecked Sendable {
     /// Stops capture and returns everything recorded, in order.
     @discardableResult
     public func stop() -> [Float] {
+        engineLock.lock()
+        defer { engineLock.unlock() }
         guard isRecording else { return [] }
         teardown()
 
@@ -151,6 +200,17 @@ public final class AudioRecorder: @unchecked Sendable {
     }
 
     public func cancel() {
+        // Counted before anything else, so a start still waking the hardware
+        // sees it. That start then tears itself down; waiting for it here
+        // would stall the main actor on the microphone.
+        lock.lock()
+        cancelCount &+= 1
+        let recording = isRecording
+        lock.unlock()
+        guard recording else { return }
+
+        engineLock.lock()
+        defer { engineLock.unlock() }
         guard isRecording else { return }
         teardown()
         lock.lock()
@@ -180,6 +240,7 @@ public final class AudioRecorder: @unchecked Sendable {
     /// turns everything after the change into noise.
     private func installTap(on input: AVAudioInputNode) throws {
         input.removeTap(onBus: 0)
+        tapFormat = nil
 
         let hwFormat = input.outputFormat(forBus: 0)
         guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
@@ -197,6 +258,7 @@ public final class AudioRecorder: @unchecked Sendable {
             [weak self] pcmBuffer, _ in
             self?.append(pcmBuffer, using: converter, target: target)
         }
+        tapFormat = hwFormat
     }
 
     /// Point the engine's input at a specific device.
@@ -337,11 +399,21 @@ public final class AudioRecorder: @unchecked Sendable {
     /// device change from turning the rest of the recording into noise — the
     /// converter belongs to the format it was built for.
     private func handleConfigurationChange() {
+        engineLock.lock()
+        defer { engineLock.unlock() }
         guard isRecording else { return }
         let input = engine.inputNode
+        // Removing a tap from a running engine is not synchronous, and a new
+        // one installed straight after can find the old one still there —
+        // the same uncatchable exception as two starts at once. Stopped first,
+        // and only rebuilt at all when the format actually changed; on a
+        // first run the notification fires with nothing different.
+        let format = input.outputFormat(forBus: 0)
+        let formatChanged = format != tapFormat
         do {
-            try installTap(on: input)
-            if !engine.isRunning {
+            if formatChanged || !engine.isRunning {
+                engine.stop()
+                try installTap(on: input)
                 engine.prepare()
                 try engine.start()
             }
@@ -358,8 +430,11 @@ public final class AudioRecorder: @unchecked Sendable {
         isRecording = false
         levelTimer?.invalidate()
         levelTimer = nil
-        engine.inputNode.removeTap(onBus: 0)
+        // Stopped before the tap comes off: removal from a running engine is
+        // deferred, and the next start must not find it still there.
         engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        tapFormat = nil
         if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)
             self.configObserver = nil

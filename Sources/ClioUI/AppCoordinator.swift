@@ -209,6 +209,10 @@ public final class AppCoordinator {
                 try recorder.start(maxSeconds: settings.maxRecordingSeconds,
                                    deviceUID: settings.inputDeviceUID)
                 return true
+            } catch is CancellationError {
+                // Esc landed while the microphone was still waking up. The
+                // session is already over; nothing to report.
+                return false
             } catch {
                 await MainActor.run { [weak self] in
                     self?.fail(error.localizedDescription)

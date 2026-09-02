@@ -219,6 +219,44 @@ struct MicrophoneIntegrationTests {
         }
     }
 
+    /// The crash from the 0.61 reports, replayed.
+    ///
+    /// Esc during the ~400 ms the hardware takes to wake used to be a no-op
+    /// in the recorder, so the next key press started a second capture on
+    /// top of the first — two threads in `installTap`, and an uncatchable
+    /// exception. Now the first start sees the cancel and tears down, and
+    /// the second waits for it and records on a clean engine.
+    @Test("A cancel during start is honoured, and the next start records")
+    func cancelDuringStartThenRestart() async throws {
+        let recorder = AudioRecorder()
+
+        let first = Task.detached {
+            do {
+                try recorder.start(maxSeconds: 5)
+                return "recorded"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return "failed: \(error)"
+            }
+        }
+        // Inside the window, as the user's Esc would be.
+        try await Task.sleep(for: .milliseconds(20))
+        recorder.cancel()
+
+        let second = Task.detached {
+            try recorder.start(maxSeconds: 5)
+        }
+        try await second.value
+        #expect(await first.value == "cancelled")
+        #expect(recorder.isRecording)
+
+        try await Task.sleep(for: .milliseconds(400))
+        let samples = recorder.stop()
+        #expect(samples.count > Int(0.2 * AudioRecorder.sampleRate))
+        #expect(!recorder.isRecording)
+    }
+
     @Test("An unplugged microphone falls back instead of failing")
     func missingDeviceFallsBack() async throws {
         let recorder = AudioRecorder()
