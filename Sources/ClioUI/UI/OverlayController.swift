@@ -67,6 +67,18 @@ public final class OverlayModel {
     /// while its width animates.
     public var position: OverlayPosition = .bottomCenter
 
+    /// Bumped each time the pill should shake its head — every "nothing
+    /// heard" — so the view can play the jiggle once per arrival. A counter
+    /// rather than a flag: two empty results in a row are the same state,
+    /// and a flag would leave the second one still.
+    public var shakes = 0
+
+    /// Whether the activity ring round the rim is lit. Follows transcribing
+    /// and injecting, except that it is put out *before* the result state
+    /// arrives — see OverlayController.update — so it never fades while the
+    /// capsule is changing shape under it.
+    public var isRingShown = false
+
     /// Only while recording — a finished pill must not glow orange.
     public var isNearLimit: Bool { state == .recording && progress.isNearLimit }
 
@@ -174,6 +186,7 @@ public final class OverlayController {
     private var hideTask: Task<Void, Never>?
     private var shrinkTask: Task<Void, Never>?
     private var settleTask: Task<Void, Never>?
+    private var resultTask: Task<Void, Never>?
 
     /// How long the pill takes to close, before the panel is ordered out.
     /// Matches OverlayView.exit.
@@ -184,7 +197,10 @@ public final class OverlayController {
     /// How long a state change takes to settle, after which the panel can be
     /// shrunk to fit without the pill visibly moving. Matches the state
     /// animation in OverlayView, with a little slack.
-    static let settleDuration: Duration = .milliseconds(340)
+    static let settleDuration: Duration = .milliseconds(400)
+    /// How long the activity ring takes to go out, before whatever ends the
+    /// transcription is drawn. Matches OverlayView.ringExit, with a beat.
+    static let ringFadeDuration: Duration = .milliseconds(220)
 
     /// Put the pill on screen at `position` for a moment, labelled, so the
     /// choice in Settings can be seen rather than imagined.
@@ -246,6 +262,8 @@ public final class OverlayController {
     /// Mirrors the machine's state into the pill, and decides whether the panel
     /// takes the pointer at all.
     public func update(state: DictationState, note: String? = nil) {
+        resultTask?.cancel()
+        resultTask = nil
         // Idle is never drawn. The pill fades out saying whatever it said
         // last and is reset once it is off screen — see hide(). Drawing idle
         // at once shrank the capsule to nothing while it faded, and clipped
@@ -256,14 +274,40 @@ public final class OverlayController {
             } else {
                 model.state = .idle
                 model.note = nil
+                model.isRingShown = false
             }
             return
         }
         cancelPreview()
+        let ringWanted = state == .transcribing || state == .injecting
+        if model.isRingShown && !ringWanted {
+            // The end of a transcription, in two steps: the ring goes out
+            // first, on a pill that is otherwise still, and the result is
+            // drawn only once it has. Together, the rim faded while the
+            // capsule was already stretching to fit the result, and the two
+            // read as one smeared movement rather than a thing finishing.
+            model.isRingShown = false
+            resultTask = Task { [weak self] in
+                try? await Task.sleep(for: Self.ringFadeDuration)
+                guard !Task.isCancelled, let self else { return }
+                self.resultTask = nil
+                self.apply(state: state, note: note)
+            }
+            return
+        }
+        model.isRingShown = ringWanted
+        apply(state: state, note: note)
+    }
+
+    private func apply(state: DictationState, note: String?) {
         model.state = state
         model.note = note
         if state == .recording { model.progress.elapsed = 0 }
         if state != .recording { model.captureIsLive = false }
+        // Nothing heard: the pill shakes its head as well as saying so. The
+        // words alone read as one more grey label; the motion is what says
+        // "no" at a glance.
+        if case .emptyResult = state { model.shakes += 1 }
         if !model.isCancellableByClick {
             model.isHovering = false
         }
@@ -329,6 +373,8 @@ public final class OverlayController {
         shrinkTask = nil
         settleTask?.cancel()
         settleTask = nil
+        resultTask?.cancel()
+        resultTask = nil
         model.isShown = false
         model.isHovering = false
         // Ordered out only once the pill has faded. If show() lands in the
@@ -341,6 +387,7 @@ public final class OverlayController {
             // Reset off screen, where nothing animates.
             self.model.state = .idle
             self.model.note = nil
+            self.model.isRingShown = false
             self.model.isSettled = false
         }
     }

@@ -268,7 +268,7 @@ public final class AppCoordinator {
         inputLevel = 0
 
         guard captured.count > Int(0.2 * AudioRecorder.sampleRate) else {
-            nothingHeard("That was too short to transcribe.")
+            nothingHeard("Too short.")
             return
         }
 
@@ -361,7 +361,9 @@ public final class AppCoordinator {
             state = reason.map { .failed($0) } ?? .finished(text)
         }
 
-        scheduleReturnToIdle(after: .milliseconds(900))
+        // A little over the old 900: the pill lets its activity ring go
+        // out before it draws the result, and the hold is counted from here.
+        scheduleReturnToIdle(after: .milliseconds(1100))
     }
 
     public func cancel() {

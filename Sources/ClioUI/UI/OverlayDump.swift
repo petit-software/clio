@@ -22,11 +22,12 @@ public enum OverlayDump {
     ///     CLIO_OVERLAY_SHOW=sequence CLIO_OVERLAY_POSITION=bottomLeft swift run Clio
     ///
     /// `sequence` walks a whole dictation — listening, transcribing, pasting,
-    /// copied, gone, then an error — on a loop, which is the only way to
+    /// copied, gone, then an error, then a silent one that is shaken off —
+    /// on a loop, which is the only way to
     /// judge the transitions: a still of any one state says nothing about
     /// how it arrived. `CLIO_OVERLAY_POSITION` takes an OverlayPosition raw
     /// value and applies to both. `CLIO_OVERLAY_SIZE` takes a PillSize raw
-    /// value (`large`, `extraLarge`) for a single state.
+    /// value (`large`, `extraLarge`) and applies to both as well.
     @discardableResult
     public static func show(state named: String) -> OverlayController {
         // Forced on this app only, so the dark appearance can be judged
@@ -40,6 +41,10 @@ public enum OverlayDump {
         let position = ProcessInfo.processInfo.environment["CLIO_OVERLAY_POSITION"]
             .flatMap(OverlayPosition.init(rawValue:)) ?? .topCenter
         if named == "sequence" {
+            if let size = ProcessInfo.processInfo.environment["CLIO_OVERLAY_SIZE"]
+                .flatMap(PillSize.init(rawValue:)) {
+                controller.model.size = size
+            }
             runSequence(controller, at: position)
             return controller
         }
@@ -52,6 +57,7 @@ public enum OverlayDump {
         switch named {
         case "transcribing": state = .transcribing
         case "error": state = .failed("Nothing returned")
+        case "empty": state = .emptyResult("No speech detected.")
         case "finished": state = .finished("Hello")
         case "copied":
             state = .finished("Hello")
@@ -76,6 +82,15 @@ public enum OverlayDump {
         // stderr: unbuffered, so the number survives the process being killed.
         FileHandle.standardError.write(Data(
             String(format: "[overlay show] window on screen in %.1f ms\n", ms).utf8))
+        // The shake is triggered by update(), which here runs before the
+        // panel — and the view that would play it — exists. Bumped again once
+        // the pill is up, so `empty` shows the shake and not just the words.
+        if case .emptyResult = state {
+            Task { @MainActor in
+                try? await Task.sleep(for: OverlayController.entranceDuration)
+                controller.model.shakes += 1
+            }
+        }
         if let frame = controller.panelFrame, let screen = NSScreen.main?.frame.height {
             // stderr and converted to screencapture's top-left origin, so a
             // capture can be aimed at the panel rather than guessed at.
@@ -88,7 +103,7 @@ public enum OverlayDump {
 
     /// One dictation after another, with the timings the real loop has: a
     /// transcription of about a second, a paste of 150 ms, the result held
-    /// for 900 ms, then an error held for its 2.5 s.
+    /// for 1.1 s, then an error held for its 2.5 s.
     private static func runSequence(_ controller: OverlayController,
                                     at position: OverlayPosition) {
         func log(_ line: String) {
@@ -116,7 +131,7 @@ public enum OverlayDump {
                 controller.model.transcriptIsOnClipboard = true
                 controller.update(state: .finished("Hello"))
                 log("finished")
-                try? await Task.sleep(for: .milliseconds(900))
+                try? await Task.sleep(for: .milliseconds(1100))
                 controller.update(state: .idle)
                 controller.hide()
                 log("hidden")
@@ -126,6 +141,26 @@ public enum OverlayDump {
                 controller.show(position: position)
                 log("error")
                 try? await Task.sleep(for: .milliseconds(1500))
+                controller.update(state: .idle)
+                controller.hide()
+                log("hidden")
+                try? await Task.sleep(for: .milliseconds(900))
+
+                // Nothing heard, the way it actually happens: the key is
+                // released on a silent recording, and the pill that was
+                // listening shakes its head.
+                controller.model.captureIsLive = true
+                controller.update(state: .recording)
+                controller.show(position: position)
+                log("recording (silent)")
+                for tick in 0..<30 {
+                    controller.model.level = Float(0.04 + 0.03 * sin(Double(tick) / 2))
+                    controller.updateProgress(elapsed: Double(tick) / 30, limit: 600)
+                    try? await Task.sleep(for: .milliseconds(33))
+                }
+                controller.update(state: .emptyResult("No speech detected."))
+                log("nothing heard")
+                try? await Task.sleep(for: .milliseconds(2500))
                 controller.update(state: .idle)
                 controller.hide()
                 log("hidden")

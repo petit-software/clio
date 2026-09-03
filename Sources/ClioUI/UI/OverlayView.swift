@@ -16,6 +16,14 @@ struct OverlayView: View {
 
     private var shown: Bool { isMeasuring || model.isShown }
 
+    /// Transcribing or pasting — the stretch the activity ring runs for.
+    /// Never on the measuring copy: the ring is a timeline redrawing every
+    /// frame, and that copy is only ever asked for its size.
+    private var isWorking: Bool {
+        guard !isMeasuring else { return false }
+        return model.state == .transcribing || model.state == .injecting
+    }
+
     // MARK: Design
 
     /// The one dimension everything else derives from, at the design's size.
@@ -90,6 +98,23 @@ struct OverlayView: View {
                            outline: outline,
                            surface: model.surface)
         }
+        // While the model is working, its colours run round the rim. Inside
+        // the clip, on top of the hairline: it is the outline lit up, not a
+        // second shape around the pill. Injecting counts, for the same
+        // reason it shares the spinner — it looks like transcribing.
+        .overlay {
+            if isWorking {
+                ActivityRing(lineWidth: h * 0.045)
+                    // In with the state, as the capsule takes its new width.
+                    .transition(.opacity)
+                    // Out on its own, ahead of the result: the controller
+                    // drops this first and only then changes state, so the
+                    // ring is gone before the capsule moves — a rim that
+                    // stretched while it faded read as a smear.
+                    .opacity(model.isRingShown ? 1 : 0)
+                    .animation(Self.ringExit, value: model.isRingShown)
+            }
+        }
         .clipShape(Capsule())
         // Shadows go OUTSIDE the clip. Inside the background they were drawn
         // and then clipped to the capsule, which removes them completely —
@@ -99,7 +124,7 @@ struct OverlayView: View {
         .padding(Self.shadowPadding)
         // Between states: the width settles without overshoot, since the
         // window it lives in is only ever grown ahead of it, never with it.
-        .animation(.smooth(duration: 0.3), value: model.state)
+        .animation(.smooth(duration: 0.36), value: model.state)
         // A size change is deliberately NOT animated: the window is fitted to
         // the new size at once, and a pill still shrinking inside a window
         // that has already shrunk gets clipped on the way.
@@ -114,6 +139,26 @@ struct OverlayView: View {
         .opacity(shown ? 1 : 0)
         .animation(shown ? .easeOut(duration: 0.16) : .easeIn(duration: 0.14),
                    value: shown)
+        // The head-shake for "nothing heard". Outside every other animation
+        // so the state change's smooth width settle and the shake never
+        // share a transaction, and the whole pill — shadow included — moves
+        // as one piece. Keyframes rather than a spring: a shake has to end
+        // where it began, and to end dead.
+        .keyframeAnimator(initialValue: CGFloat(0), trigger: model.shakes) { pill, x in
+            pill.offset(x: x)
+        } keyframes: { _ in
+            KeyframeTrack {
+                // A beat, so the new label has landed before the pill moves —
+                // the shake is a comment on the words, not on the state change.
+                CubicKeyframe(0, duration: Self.shakeDelay)
+                CubicKeyframe(-Self.shakeAmplitude, duration: 0.07)
+                CubicKeyframe(Self.shakeAmplitude * 0.9, duration: 0.09)
+                CubicKeyframe(-Self.shakeAmplitude * 0.65, duration: 0.09)
+                CubicKeyframe(Self.shakeAmplitude * 0.35, duration: 0.08)
+                CubicKeyframe(-Self.shakeAmplitude * 0.12, duration: 0.07)
+                CubicKeyframe(0, duration: 0.07)
+            }
+        }
         // The hosting window is measured from this view but may be wider
         // while a state change settles — so the pill holds to the edge it is
         // anchored on, and the slack sits on the far side where it is invisible.
@@ -127,6 +172,21 @@ struct OverlayView: View {
     /// see `Arrival`; the controller's hideDuration is derived from `exit`.
     static let entrance: Animation = .spring(duration: 0.42, bounce: 0.22)
     static let exit: Animation = .easeIn(duration: 0.18)
+
+    /// The activity ring going out. The controller's ringFadeDuration waits
+    /// for this before it draws the result.
+    static let ringExit: Animation = .easeOut(duration: 0.2)
+
+    /// The head-shake, see the keyframes in `body`. The amplitude is fixed
+    /// rather than a fraction of the height: the pill only has `shadowPadding`
+    /// of room inside its window on either side, and at the largest size a
+    /// proportional swing would leave it — the shadow first — for a frame or
+    /// two. Under that limit at every size, decaying, so it reads as a
+    /// shake rather than a wobble.
+    static let shakeAmplitude: CGFloat = 10
+    /// Matches the label's Arrival beat, so the pill has the words on it
+    /// before it starts to disagree with them.
+    static let shakeDelay: Double = 0.14
 
     /// The edge the pill is pinned to, from where it sits on screen.
     ///
@@ -144,15 +204,17 @@ struct OverlayView: View {
     }
 
     /// How one element gives way to another at a state change. The outgoing
-    /// one is gone quickly; the incoming one arrives a beat later, small, so
-    /// the two are never both half there — the capsule has already begun to
-    /// move by then, and the new content lands in it rather than on top of
-    /// what it replaced.
+    /// one is gone quickly; the incoming one arrives a beat later, so the
+    /// two are never both half there — and late enough that the capsule has
+    /// most of its new width by then, so a longer label lands inside it
+    /// rather than being clipped at the ends while it is still growing.
+    /// A plain ease, barely scaled: a result is the end of something, and a
+    /// bounce there read as excitement about it.
     private static let swap: AnyTransition = .asymmetric(
-        insertion: .opacity.combined(with: .scale(scale: 0.85))
-            .animation(.spring(duration: 0.32, bounce: 0.2).delay(0.08)),
-        removal: .opacity.combined(with: .scale(scale: 0.9))
-            .animation(.easeIn(duration: 0.1)))
+        insertion: .opacity.combined(with: .scale(scale: 0.96))
+            .animation(.easeOut(duration: 0.28).delay(0.18)),
+        removal: .opacity.combined(with: .scale(scale: 0.96))
+            .animation(.easeIn(duration: 0.12)))
 
     /// How the pieces come in: a beat after the capsule starts to open, in
     /// order from left to right, each with its own small spring.
@@ -169,45 +231,27 @@ struct OverlayView: View {
     @ViewBuilder
     private var leading: some View {
         switch model.state {
-        case .idle, .failed, .emptyResult:
-            // Errors, "nothing heard", and the position preview are the message
-            // alone; the capsule's own padding is the only inset they need.
+        case .idle, .failed, .emptyResult, .transcribing, .injecting, .finished:
+            // Everything that is words — a result, an error, "nothing heard",
+            // the position preview, and working, which the ring round the
+            // rim already says — is the message alone; the capsule's own
+            // padding is the only inset it needs. No glyph on a result in
+            // particular: one arriving on the left re-laid the whole left
+            // end of the pill out at the very moment the label changed, and
+            // the two together read as a lurch.
             Color.clear.frame(width: h * 0.31, height: 0)
-        case .recording, .transcribing, .injecting, .finished:
-            // One slot with one frame for the dot, the spinner and the tick,
-            // so a state change swaps the glyph in place. Each with its own
-            // padding, the left end of the pill re-laid itself out at every
-            // change, and the swap read as a lurch rather than a crossfade.
-            ZStack {
-                switch model.state {
-                case .recording:
-                    Circle()
-                        .fill(Self.recordDot)
-                        .frame(width: h * 0.21, height: h * 0.21)
-                        // A touch in from the slot's centre. The dot is small
-                        // and round where the others fill the slot, and at
-                        // the same centre it looks closer to the edge.
-                        .offset(x: 3)
-                        .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.2))
-                        .transition(Self.swap)
-                case .transcribing, .injecting:
-                    Spinner(diameter: h * 0.29, colour: ink)
-                        .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.4))
-                        .transition(Self.swap)
-                case .finished:
-                    Image(systemName: model.transcriptIsOnClipboard
-                          ? "square.fill.on.square.fill" : "checkmark")
-                        .font(.system(size: h * 0.22, weight: .bold))
-                        .foregroundStyle(ink)
-                        .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.4))
-                        .transition(Self.swap)
-                case .idle, .failed, .emptyResult:
-                    EmptyView()
-                }
-            }
-            .frame(width: h * 0.29, height: h * 0.29)
-            .padding(.leading, h * 0.31)
-            .padding(.trailing, h * 0.26)
+        case .recording:
+            Circle()
+                .fill(Self.recordDot)
+                .frame(width: h * 0.21, height: h * 0.21)
+                // A touch in from the slot's centre, where the meter's first
+                // bar expects it.
+                .offset(x: 3)
+                .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.2))
+                .transition(Self.swap)
+                .frame(width: h * 0.29, height: h * 0.29)
+                .padding(.leading, h * 0.31)
+                .padding(.trailing, h * 0.26)
         }
     }
 
@@ -261,16 +305,8 @@ struct OverlayView: View {
                 .padding(.leading, h * 0.26)
                 .padding(.trailing, h * 0.31)
         } else {
-            Color.clear.frame(width: trailingInset, height: 0)
+            Color.clear.frame(width: h * 0.31, height: 0)
         }
-    }
-
-    /// The right-hand inset when nothing sits there. Wider for a result,
-    /// which has its glyph on the left: with the same inset on both sides the
-    /// words ended closer to their edge than the glyph began from its own.
-    private var trailingInset: CGFloat {
-        if case .finished = model.state { return h * 0.44 }
-        return h * 0.31
     }
 
     private var label: String {
@@ -351,38 +387,38 @@ private struct PillBackground: View {
     private var glass: Glass { surface.isClear ? .clear : .regular }
 }
 
-/// The spinner, drawn rather than an `NSProgressIndicator`.
+/// The rim of the pill while the model is working: the AI ramp, run round
+/// the capsule's outline.
 ///
-/// Two reasons the system one will not do: on macOS it ignores `.tint`, so it
-/// cannot be coloured to match the label; and it renders as a placeholder
-/// glyph in any static snapshot, which makes the design impossible to check
-/// against the drawing.
-private struct Spinner: View {
-    let diameter: CGFloat
-    let colour: Color
+/// An angular gradient swept by time, stroked straight onto the shape, so
+/// it follows the capsule exactly at any width. A rotated gradient square
+/// under a stroke mask would have done the same with a state and an
+/// `onAppear`; the timeline has neither, and stops the moment the ring is
+/// gone. The ramp ends where it begins so the sweep has no seam.
+private struct ActivityRing: View {
+    let lineWidth: CGFloat
 
-    private static let spokes = 12
-
-    @State private var turning = false
+    /// The shared "AI" ramp, in its order: blue, purple, pink, teal.
+    static let ramp: [Color] = [
+        Color(red: 0.36, green: 0.52, blue: 0.98),
+        Color(red: 0.60, green: 0.40, blue: 0.96),
+        Color(red: 0.95, green: 0.46, blue: 0.76),
+        Color(red: 0.38, green: 0.80, blue: 0.90),
+    ]
+    /// One full turn. A transcription is about a second; this lets the ring
+    /// be seen moving in that time without reading as a spin.
+    static let period: TimeInterval = 1.8
 
     var body: some View {
-        ZStack {
-            ForEach(0..<Self.spokes, id: \.self) { index in
-                Capsule()
-                    .fill(colour)
-                    // Fading around the ring is what reads as motion; without
-                    // it a spinning ring of identical spokes looks static.
-                    .opacity(0.25 + 0.75 * Double(index) / Double(Self.spokes))
-                    .frame(width: diameter * 0.13, height: diameter * 0.3)
-                    .offset(y: -diameter * 0.34)
-                    .rotationEffect(.degrees(Double(index) / Double(Self.spokes) * 360))
-            }
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let turn = (t / Self.period).truncatingRemainder(dividingBy: 1)
+            Capsule().strokeBorder(
+                AngularGradient(colors: Self.ramp + [Self.ramp[0]],
+                                center: .center,
+                                angle: .degrees(turn * 360)),
+                lineWidth: lineWidth)
         }
-        .frame(width: diameter, height: diameter)
-        .rotationEffect(.degrees(turning ? 360 : 0))
-        .animation(.linear(duration: 0.9).repeatForever(autoreverses: false),
-                   value: turning)
-        .onAppear { turning = true }
     }
 }
 
