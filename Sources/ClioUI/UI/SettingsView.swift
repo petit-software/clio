@@ -81,7 +81,8 @@ private struct GeneralTab: View {
                         .foregroundStyle(.orange)
                 }
             } footer: {
-                Text("Either shortcut starts a dictation. Set an alternate for "
+                Text("Either shortcut starts a dictation. A shortcut can be "
+                     + "up to three keys held together. Set an alternate for "
                      + "a keyboard that lacks the key the first one uses.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -151,6 +152,12 @@ private struct GeneralTab: View {
 
 /// Records the next chord the user presses.
 ///
+/// Keys are collected as they go down and the chord is committed when the
+/// first of them comes back up, or when it reaches `Hotkey.maxKeys` — so
+/// holding ⌃ and pressing A then S records ⌃A+S. Modifiers alone are
+/// committed when they are released, not pressed: the ⌃ held on the way to
+/// a key is not a chord in itself.
+///
 /// A local NSEvent monitor is enough here — Settings is focused when it's in
 /// use, so this does not need the global tap.
 private struct HotkeyRecorder: View {
@@ -166,6 +173,9 @@ private struct HotkeyRecorder: View {
     @State private var isRecording = false
     @State private var monitor: Any?
     @State private var conflict: String?
+    /// What has been pressed so far in this recording, shown in the button
+    /// as it builds up.
+    @State private var pending: Hotkey?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -197,7 +207,10 @@ private struct HotkeyRecorder: View {
     }
 
     private var label: String {
-        if isRecording { return "Press a shortcut…" }
+        if isRecording {
+            guard let pending else { return "Press a shortcut…" }
+            return pending.displayString + "…"
+        }
         return hotkey?.displayString ?? "None"
     }
 
@@ -208,22 +221,49 @@ private struct HotkeyRecorder: View {
     private func startRecording() {
         isRecording = true
         conflict = nil
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+        pending = nil
+        monitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .keyUp, .flagsChanged]
+        ) { event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-            if event.type == .keyDown {
+            switch event.type {
+            case .keyDown:
                 guard event.keyCode != UInt16(kVK_Escape) else {
                     stopRecording()
                     return nil
                 }
-                record(Hotkey(keyCode: event.keyCode, modifierFlags: flags.rawValue))
-                return nil
-            }
+                guard !event.isARepeat else { return nil }
+                // The modifiers are whatever was held with the first key;
+                // later keys join it rather than restating it.
+                var chord = pending.flatMap { $0.isModifierOnly ? nil : $0 }
+                    ?? Hotkey(keyCodes: [], modifierFlags: flags.rawValue)
+                if !chord.keyCodes.contains(event.keyCode) {
+                    chord.keyCodes.append(event.keyCode)
+                }
+                pending = chord
+                if chord.keyCodes.count == Hotkey.maxKeys { record(chord) }
 
-            // Modifier-only chord: committed once the user has actually held
-            // something, so a stray Shift while reaching for the key is not it.
-            if !flags.isEmpty {
-                record(Hotkey(keyCode: nil, modifierFlags: flags.rawValue))
+            case .keyUp:
+                // The first key to come back up ends the chord. A key that
+                // was never part of it — Return finishing the click that
+                // started recording, say — is not a release.
+                if let pending, pending.keyCodes.contains(event.keyCode) {
+                    record(pending)
+                }
+
+            default:
+                // Modifiers alone: gathered while held, committed when the
+                // last one is let go, so a stray Shift on the way to a key
+                // is not it and neither is the ⌃ under ⌃A.
+                guard pending?.isModifierOnly ?? true else { return nil }
+                if flags.isEmpty {
+                    if let pending { record(pending) }
+                } else {
+                    pending = Hotkey(
+                        keyCodes: [],
+                        modifierFlags: flags.union(pending?.modifiers ?? []).rawValue)
+                }
             }
             return nil
         }
@@ -247,6 +287,7 @@ private struct HotkeyRecorder: View {
 
     private func stopRecording() {
         isRecording = false
+        pending = nil
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
     }

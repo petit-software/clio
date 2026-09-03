@@ -135,3 +135,116 @@ func oldSettingsFileDecodes() throws {
     #expect(settings.secondaryHotkey == nil)
     #expect(settings.hotkeyMode == .toggle)
 }
+
+// MARK: - Several keys held together
+
+private let keyA = UInt16(kVK_ANSI_A)
+private let keyS = UInt16(kVK_ANSI_S)
+private let keyD = UInt16(kVK_ANSI_D)
+private let ctrlAS = Hotkey(keyCodes: [keyA, keyS], modifierFlags: control.rawValue)
+
+@MainActor
+@Test("A two-key chord fires on whichever key lands last, in either order")
+func multiKeyChordFires() {
+    let (m, events) = manager()
+    m.hotkey = ctrlAS
+
+    // One key alone is not the chord.
+    m.process(type: .keyDown, keyCode: keyA, flags: control, isRepeat: false)
+    #expect(events() == [])
+    m.process(type: .keyDown, keyCode: keyS, flags: control, isRepeat: false)
+    #expect(events() == [.begin])
+    m.process(type: .keyUp, keyCode: keyA, flags: control, isRepeat: false)
+    m.process(type: .keyUp, keyCode: keyS, flags: control, isRepeat: false)
+
+    // The other way round (toggle mode, so this press ends the session).
+    m.process(type: .keyDown, keyCode: keyS, flags: control, isRepeat: false)
+    m.process(type: .keyDown, keyCode: keyA, flags: control, isRepeat: false)
+    #expect(events() == [.begin, .end])
+}
+
+@MainActor
+@Test("A chord needs its keys down at the same time, with the right modifiers")
+func multiKeyChordNeedsAllKeysHeld() {
+    let (m, events) = manager()
+    m.hotkey = ctrlAS
+
+    // A tapped and released before S: not held together.
+    m.process(type: .keyDown, keyCode: keyA, flags: control, isRepeat: false)
+    m.process(type: .keyUp, keyCode: keyA, flags: control, isRepeat: false)
+    m.process(type: .keyDown, keyCode: keyS, flags: control, isRepeat: false)
+    m.process(type: .keyUp, keyCode: keyS, flags: control, isRepeat: false)
+    #expect(events() == [])
+
+    // Both down, but without ⌃.
+    m.process(type: .keyDown, keyCode: keyA, flags: [], isRepeat: false)
+    m.process(type: .keyDown, keyCode: keyS, flags: [], isRepeat: false)
+    #expect(events() == [])
+}
+
+@MainActor
+@Test("Push to talk with a three-key chord ends when any one key is let go")
+func multiKeyPushToTalkReleasesOnAnyKey() async throws {
+    let (m, events) = manager(mode: .pushToTalk)
+    m.hotkey = Hotkey(keyCodes: [keyA, keyS, keyD], modifierFlags: 0)
+    m.holdThreshold = 0.01
+
+    m.process(type: .keyDown, keyCode: keyA, flags: [], isRepeat: false)
+    m.process(type: .keyDown, keyCode: keyS, flags: [], isRepeat: false)
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(events() == [])
+    m.process(type: .keyDown, keyCode: keyD, flags: [], isRepeat: false)
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(events() == [.begin])
+
+    // A key that is not part of the chord changes nothing.
+    m.process(type: .keyDown, keyCode: space, flags: [], isRepeat: false)
+    m.process(type: .keyUp, keyCode: space, flags: [], isRepeat: false)
+    #expect(events() == [.begin])
+
+    m.process(type: .keyUp, keyCode: keyS, flags: [], isRepeat: false)
+    #expect(events() == [.begin, .end])
+    // The rest coming up afterwards is not a second release.
+    m.process(type: .keyUp, keyCode: keyA, flags: [], isRepeat: false)
+    m.process(type: .keyUp, keyCode: keyD, flags: [], isRepeat: false)
+    #expect(events() == [.begin, .end])
+}
+
+@Test("A chord is capped at three keys and is the same chord in any order")
+func multiKeyChordShape() {
+    let capped = Hotkey(keyCodes: [keyA, keyS, keyD, space], modifierFlags: 0)
+    #expect(capped.keyCodes == [keyA, keyS, keyD])
+    #expect(Hotkey(keyCodes: [keyS, keyA], modifierFlags: control.rawValue) == ctrlAS)
+    #expect(Hotkey(keyCodes: [keyA], modifierFlags: control.rawValue) != ctrlAS)
+    #expect(ctrlAS.displayString == "⌃A+S")
+}
+
+@Test("A chord that is a subset of the other shadows it")
+func multiKeyConflicts() {
+    let ctrlA = Hotkey(keyCodes: [keyA], modifierFlags: control.rawValue)
+    #expect(Hotkey.conflict(between: ctrlA, and: ctrlAS) != nil)
+    #expect(Hotkey.conflict(between: ctrlAS, and: ctrlA) != nil)
+    // Different modifiers never collide: ⌃A does not fire under ⌃⇧.
+    let ctrlShiftAS = Hotkey(keyCodes: [keyA, keyS],
+                             modifierFlags: NSEvent.ModifierFlags([.control, .shift]).rawValue)
+    #expect(Hotkey.conflict(between: ctrlA, and: ctrlShiftAS) == nil)
+    // Overlapping but neither contains the other.
+    let ctrlSD = Hotkey(keyCodes: [keyS, keyD], modifierFlags: control.rawValue)
+    #expect(Hotkey.conflict(between: ctrlAS, and: ctrlSD) == nil)
+}
+
+@Test("A multi-key chord round-trips, and the old single-key form still reads")
+func multiKeyChordCodable() throws {
+    let data = try JSONEncoder().encode(ctrlAS)
+    #expect(try JSONDecoder().decode(Hotkey.self, from: data) == ctrlAS)
+
+    // Written by this version, read by the one before: it sees the first key.
+    let json = try #require(String(data: data, encoding: .utf8))
+    #expect(json.contains(#""keyCode":0"#))
+
+    let old = #"{"keyCode":41,"modifierFlags":262144}"#
+    #expect(try JSONDecoder().decode(Hotkey.self, from: Data(old.utf8)) == .defaultHotkey)
+    let oldModifierOnly = #"{"keyCode":null,"modifierFlags":8388608}"#
+    #expect(try JSONDecoder().decode(Hotkey.self, from: Data(oldModifierOnly.utf8))
+            == Hotkey(keyCode: nil, modifierFlags: fn.rawValue))
+}

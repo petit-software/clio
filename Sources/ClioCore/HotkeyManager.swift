@@ -19,6 +19,9 @@
 //    flagsChanged, since they never produce keyDown/keyUp.
 //  - Two chords can be live at once (`hotkey` and `secondaryHotkey`). The
 //    one that went down is remembered so only its release ends the session.
+//  - A chord may be up to three keys held together. The keys currently down
+//    are tracked so the chord fires on whichever of its keys lands last, and
+//    letting go of any one of them releases it.
 //
 //  The model types (Hotkey, HotkeyMode, HotkeyEvent) live in Hotkey.swift.
 //
@@ -82,6 +85,11 @@ public final class HotkeyManager {
 
     /// The chord currently held, if any. Only that chord's release ends it.
     private var heldHotkey: Hotkey?
+    /// Every non-modifier key currently down, so a chord of several keys
+    /// fires when the last of them arrives. Kept across resets — it
+    /// describes the keyboard, not the session — and dropped with the tap,
+    /// which is the only thing keeping it true.
+    private var keysDown: Set<UInt16> = []
     private var isChordDown: Bool { heldHotkey != nil }
     private var holdTask: Task<Void, Never>?
     private var trustPollTimer: Timer?
@@ -157,6 +165,7 @@ public final class HotkeyManager {
         runLoopSource = nil
         eventTap = nil
         heldHotkey = nil
+        keysDown = []
         isActive = false
     }
 
@@ -215,6 +224,12 @@ public final class HotkeyManager {
         flags: NSEvent.ModifierFlags,
         isRepeat: Bool
     ) {
+        switch type {
+        case .keyDown: keysDown.insert(keyCode)
+        case .keyUp: keysDown.remove(keyCode)
+        case .flagsChanged: break
+        }
+
         // Esc always cancels an in-flight session, whatever the hotkey is and
         // whatever started it.
         if type == .keyDown, keyCode == UInt16(kVK_Escape),
@@ -235,7 +250,8 @@ public final class HotkeyManager {
 
         guard type != .keyDown || !isRepeat else { return }
         guard let pressed = hotkeys.first(where: {
-            $0.matchesPress(type: type, keyCode: keyCode, flags: flags)
+            $0.matchesPress(type: type, keyCode: keyCode, flags: flags,
+                            heldKeys: keysDown)
         }) else { return }
         heldHotkey = pressed
         chordPressed()
