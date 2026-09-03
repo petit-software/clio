@@ -143,11 +143,24 @@ visible `NSHostingView` through `layoutSubtreeIfNeeded` / `fittingSize` runs
 its layout at the new state's final values and throws away the layout
 animation in flight — the capsule snapped to its new width while only the
 label crossfaded, for as long as the overlay existed. `OverlayController`
-measures a second hosting view that is never shown. The window itself is
-never animated either: it grows before the pill does and shrinks after,
-and the pill holds to its anchored edge in between — except during the
-entrance, when it is centred so the capsule can open from its middle
-(`isSettled` is what switches it over; it flips off screen, never on).
+measures a second hosting view that is never shown, bound to a model of its
+own so a state can be measured before the visible pill is told about it.
+The window itself is never animated either: it grows before the pill does
+and shrinks after, and the pill holds to its anchored edge in between —
+except during the entrance, when it is centred so the capsule can open from
+its middle (`isSettled` is what switches it over; it flips off screen,
+never on).
+
+**Fit the window, commit that, THEN change the state.** For a centred
+position the window moves by half the growth to stay centred on the pill it
+is about to hold. Done in the same update as the state change, SwiftUI saw a
+pill whose origin in the window had not changed and grew it from its left
+edge while the window jumped left: a lurch, then one-sided growth. `apply`
+sets the frame first and forces one layout pass at the *old* state — the one
+time forcing the visible view is right, because nothing is animating yet —
+and only then writes the state. The centring frame in `OverlayView` sits
+inside the state animation for the same reason: outside it, the placement
+snapped and only the width eased.
 
 **Idle is never drawn.** The pill fades out saying whatever it said last and
 the model is reset off screen. Drawing idle at once shrank the capsule to

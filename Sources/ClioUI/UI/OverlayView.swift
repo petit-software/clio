@@ -122,6 +122,19 @@ struct OverlayView: View {
         .shadow(color: ambientShadow, radius: 8, x: 0, y: 3)
         .shadow(color: contactShadow, radius: 2, x: 0, y: 1)
         .padding(Self.shadowPadding)
+        // The hosting window is measured from this view but may be wider
+        // while a state change settles — so the pill holds to the edge it is
+        // anchored on, and the slack sits on the far side where it is invisible.
+        //
+        // INSIDE the state animation, deliberately. The placement this frame
+        // computes is what moves the pill when it changes width in a window
+        // that is already the new size: centred, its origin shifts by half
+        // the growth. Outside the animation that shift was instant and only
+        // the width eased, so the pill grew from its left edge — one-sided,
+        // after a lurch. Here, origin and width ease together and the pill
+        // grows from its middle, in place.
+        .frame(maxWidth: .infinity,
+               alignment: Alignment(horizontal: horizontalAnchor, vertical: .center))
         // Between states: the width settles without overshoot, since the
         // window it lives in is only ever grown ahead of it, never with it.
         .animation(.smooth(duration: 0.36), value: model.state)
@@ -159,11 +172,6 @@ struct OverlayView: View {
                 CubicKeyframe(0, duration: 0.07)
             }
         }
-        // The hosting window is measured from this view but may be wider
-        // while a state change settles — so the pill holds to the edge it is
-        // anchored on, and the slack sits on the far side where it is invisible.
-        .frame(maxWidth: .infinity,
-               alignment: Alignment(horizontal: horizontalAnchor, vertical: .center))
     }
 
     // MARK: Entrance

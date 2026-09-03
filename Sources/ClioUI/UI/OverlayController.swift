@@ -166,10 +166,27 @@ public final class OverlayController {
     /// pass at the new state's final values, and that pass discards the
     /// layout animation in flight: the capsule snapped to its new width while
     /// only its label crossfaded. This one can be forced as often as needed.
+    ///
+    /// Bound to a model of its own, a copy of the real one, so a state can be
+    /// measured *before* the visible pill is told about it. The window has
+    /// to be fitted first and the pill changed second — see apply().
+    private let measuringModel = OverlayModel()
     private lazy var measuringView =
-        NSHostingView(rootView: OverlayView(model: model, isMeasuring: true))
+        NSHostingView(rootView: OverlayView(model: measuringModel, isMeasuring: true))
 
     private var contentSize: NSSize {
+        contentSize(for: model.state, note: model.note)
+    }
+
+    private func contentSize(for state: DictationState, note: String?) -> NSSize {
+        measuringModel.state = state
+        measuringModel.note = note
+        measuringModel.size = model.size
+        measuringModel.surface = model.surface
+        measuringModel.isPreview = model.isPreview
+        measuringModel.progress = model.progress
+        measuringModel.transcriptIsOnClipboard = model.transcriptIsOnClipboard
+        measuringModel.captureIsLive = model.captureIsLive
         measuringView.layoutSubtreeIfNeeded()
         let fitting = measuringView.fittingSize
         let minimumWidth = 120 * CGFloat(model.size.scale)
@@ -300,6 +317,26 @@ public final class OverlayController {
     }
 
     private func apply(state: DictationState, note: String?) {
+        // The window FIRST, then the pill. A state that needs a wider pill
+        // needs a wider window, and for a centred position that window also
+        // moves, by half the growth, to stay centred on the pill it will
+        // hold. Done in one go with the state change, SwiftUI saw a pill
+        // whose origin in the window had not changed and only its size had,
+        // and grew it from its left edge — while the window had already
+        // jumped left. On screen: a lurch, then one-sided growth. Fitted
+        // ahead, the visible pill takes the new bounds in at its old width,
+        // and the change that follows animates its origin and its size
+        // together: from the middle, in place.
+        let size = contentSize(for: state, note: note)
+        if let panel, panel.isVisible,
+           size.width > panel.frame.width || size.height > panel.frame.height {
+            shrinkTask?.cancel()
+            shrinkTask = nil
+            setFrame(size)
+            // Committed before the model changes, or the two land in one
+            // update and the bounds change is animated with the state.
+            hostingView?.layoutSubtreeIfNeeded()
+        }
         model.state = state
         model.note = note
         if state == .recording { model.progress.elapsed = 0 }
@@ -311,8 +348,8 @@ public final class OverlayController {
         if !model.isCancellableByClick {
             model.isHovering = false
         }
-        // The pill changes width with its content, so the window has to follow
-        // — and stay put where it was anchored while doing it.
+        // A narrower pill: the window shrinks to fit only after the pill has
+        // finished — see resize().
         resize()
         // Click-through except while there is something to cancel. The panel
         // sits over other apps, and swallowing clicks it has no use for would
