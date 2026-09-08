@@ -141,7 +141,8 @@ public final class AppCoordinator {
 
         permissions.onAccessibilityChange = { [weak self] trusted in
             guard let self else { return }
-            if trusted { self.hotkeys.restart() } else { self.hotkeys.stop() }
+            // Re-granting Accessibility must not switch a paused Clio back on.
+            if trusted, self.isListening { self.hotkeys.restart() } else { self.hotkeys.stop() }
         }
         permissions.beginPolling()
 
@@ -177,6 +178,24 @@ public final class AppCoordinator {
     }
 
     public var isHotkeyRunning: Bool { hotkeys.isRunning }
+
+    /// The switch in the menu. Off, and the shortcut is not listened for:
+    /// the tap comes down, so the keys go to whatever app has them, and the
+    /// menu bar mark dims. Anything in flight is abandoned first, so the
+    /// switch cannot leave a recording running with no way to stop it.
+    /// Not persisted — a relaunch listens, which is what a fresh start of a
+    /// dictation app should do.
+    public var isListening = true {
+        didSet {
+            guard isListening != oldValue else { return }
+            if isListening {
+                try? hotkeys.start()
+            } else {
+                cancel()
+                hotkeys.stop()
+            }
+        }
+    }
 
     // MARK: The loop
 
