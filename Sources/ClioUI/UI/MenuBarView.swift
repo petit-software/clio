@@ -68,7 +68,24 @@ public struct MenuBarView: View {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q", modifiers: .command)
+
+            Divider()
+
+            // A bare Text in a .menu-style extra is a disabled item, which is
+            // what a version line should be: readable, not pressable.
+            Text(Self.versionLine)
         }
+    }
+
+    /// "Clio 0.8 (412)". A `swift run` binary has no bundle to ask, so it
+    /// says so rather than inventing a number.
+    static var versionLine: String {
+        let info = Bundle.main.infoDictionary
+        guard let short = info?["CFBundleShortVersionString"] as? String else {
+            return "Clio (unbundled build)"
+        }
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "Clio \(short) (\($0))" } ?? "Clio \(short)"
     }
 
     private var statusLine: String {
