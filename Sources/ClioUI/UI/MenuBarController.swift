@@ -22,9 +22,6 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
     private let openSetup: () -> Void
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
-    /// The line under the name, kept so the switch can rewrite it in place
-    /// while the menu is still open.
-    private var statusLine: NSMenuItem?
 
     public init(coordinator: AppCoordinator, openSetup: @escaping () -> Void) {
         self.coordinator = coordinator
@@ -33,12 +30,28 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false
+        // Status bar menus follow the system appearance, not the app's.
+        // This passes an app-level override (the CLIO_OVERLAY_DARK tools)
+        // through, in the vibrant form a menu would have taken from the
+        // system, and does nothing when there is no override.
+        if NSApp.appearance?.name == .darkAqua {
+            menu.appearance = NSAppearance(named: .vibrantDark)
+        }
         statusItem.menu = menu
         observeIcon()
     }
 
-    /// Opens the menu, as a click on the icon would.
+    /// Whether the menu is on screen.
+    public private(set) var isOpen = false
+
+    public func menuWillOpen(_ menu: NSMenu) { isOpen = true }
+    public func menuDidClose(_ menu: NSMenu) { isOpen = false }
+
+    /// Opens the menu, as a click on the icon would. A no-op while it is
+    /// already open, so a caller can retry until it takes: a window coming
+    /// up at the same moment can dismiss it.
     public func open() {
+        guard !isOpen else { return }
         statusItem.button?.performClick(nil)
     }
 
@@ -91,9 +104,6 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         menu.addItem(headerItem())
-        let status = Self.disabled(statusText)
-        statusLine = status
-        menu.addItem(status)
 
         if !coordinator.permissions.allGranted || coordinator.activeModel == nil {
             menu.addItem(.separator())
@@ -153,36 +163,17 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
     /// The first row: the name, the shortcut beside it in grey the way a
     /// menu shows a key equivalent — which it cannot literally be, since fn
     /// alone or a three-key chord has no key-equivalent form — and the
-    /// switch. Flipping the switch rewrites the status line beneath it, so
-    /// the open menu does not contradict itself.
+    /// switch. What state we are in is not repeated here: the mark in the
+    /// menu bar and the pill already say, and the switch says whether the
+    /// shortcut is listened for.
     private func headerItem() -> NSMenuItem {
-        let row = ListeningRow(coordinator: coordinator) { [weak self] in
-            guard let self else { return }
-            statusLine?.title = statusText
-        }
-        let hosting = NSHostingView(rootView: row)
+        let hosting = NSHostingView(rootView: ListeningRow(coordinator: coordinator))
         hosting.frame.size = hosting.fittingSize
         // Stretched to the menu's width, which the other items decide.
         hosting.autoresizingMask = [.width]
         let item = NSMenuItem()
         item.view = hosting
         return item
-    }
-
-    private var statusText: String {
-        guard coordinator.isListening else { return "Off — shortcut not listening" }
-        switch coordinator.state {
-        case .idle:
-            // The key itself is on the line above, next to the name.
-            let mode = coordinator.settingsStore.settings.hotkeyMode
-            return mode == .pushToTalk ? "Hold to dictate" : "Press to dictate"
-        case .recording: return "Listening…"
-        case .transcribing: return "Transcribing…"
-        case .injecting: return "Pasting…"
-        case .finished: return "Done"
-        case .failed(let message): return message
-        case .emptyResult(let message): return message
-        }
     }
 
     /// The microphone picker.
@@ -309,7 +300,6 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
 /// The first row of the menu: name, shortcut, switch.
 private struct ListeningRow: View {
     @Bindable var coordinator: AppCoordinator
-    let onChange: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -319,12 +309,9 @@ private struct ListeningRow: View {
             Spacer(minLength: 16)
             Toggle("Listen for the shortcut", isOn: Binding(
                 get: { coordinator.isListening },
-                set: {
-                    coordinator.isListening = $0
-                    onChange()
-                }))
+                set: { coordinator.isListening = $0 }))
                 .toggleStyle(.switch)
-                .controlSize(.small)
+                .controlSize(.mini)
                 .labelsHidden()
         }
         // Text at the same x as the items below it, and the switch at the

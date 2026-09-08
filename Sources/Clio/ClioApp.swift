@@ -98,17 +98,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         coordinator.start()
+
+        #if DEBUG
+        // Before the menu exists: it reads the app's appearance once, when
+        // it is built — see MenuBarController.
+        if ProcessInfo.processInfo.environment["CLIO_MENU_SHOW"] != nil,
+           ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+        #endif
+
         menuBar = MenuBarController(coordinator: coordinator) { [weak self] in self?.showSetup() }
 
         #if DEBUG
         // The status menu, opened, so it can be looked at without a mouse.
         if ProcessInfo.processInfo.environment["CLIO_MENU_SHOW"] != nil {
-            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
-                NSApp.appearance = NSAppearance(named: .darkAqua)
+            // Retried for a few seconds: the intro window coming up at the
+            // same moment can dismiss a menu that has just opened.
+            func tryToOpen(attempt: Int) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    guard let self else { return }
+                    menuBar?.open()
+                    if attempt < 6, menuBar?.isOpen != true {
+                        tryToOpen(attempt: attempt + 1)
+                    }
+                }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                self?.menuBar?.open()
-            }
+            tryToOpen(attempt: 1)
         }
         #endif
 
