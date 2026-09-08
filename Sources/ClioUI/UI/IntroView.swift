@@ -138,6 +138,7 @@ private struct WelcomeStep: View {
                 Text("Turn your voice into polished text.\n"
                      + "Works in Slack, Gmail and any other site or app.")
                     .font(.system(size: 15))
+                    .lineSpacing(2.5)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -260,11 +261,14 @@ private struct SetupStep: View {
             // Once macOS has recorded a denial it ignores the API request, so
             // a denied state goes straight to System Settings. So does a
             // process that cannot ask — see canRequestMicrophone.
+            // One word on every permission button. Where it has to go via
+            // System Settings the tooltip says so; the row's width does not.
             if permissions.microphone == .notDetermined,
                PermissionsCoordinator.canRequestMicrophone {
-                Button("Allow") { Task { await permissions.requestMicrophone() } }
+                Button("Grant") { Task { await permissions.requestMicrophone() } }
             } else {
-                Button("Open Settings", action: permissions.openMicrophoneSettings)
+                Button("Grant", action: permissions.openMicrophoneSettings)
+                    .help("Opens System Settings ▸ Privacy ▸ Microphone")
             }
         }
     }
@@ -274,11 +278,12 @@ private struct SetupStep: View {
                  title: "Accessibility",
                  detail: "Lets Clio paste for you.",
                  done: permissions.accessibility.isGranted) {
-            Button("Open Settings") {
+            Button("Grant") {
                 permissions.accessibility == .notDetermined
                     ? permissions.requestAccessibility()
                     : permissions.openAccessibilitySettings()
             }
+            .help("Opens System Settings ▸ Privacy ▸ Accessibility")
         }
     }
 
