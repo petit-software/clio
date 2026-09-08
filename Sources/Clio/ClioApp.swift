@@ -8,14 +8,8 @@ struct ClioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarView(coordinator: delegate.coordinator,
-                        openSetup: delegate.showSetup)
-        } label: {
-            MenuBarLabel(coordinator: delegate.coordinator)
-        }
-        .menuBarExtraStyle(.menu)
-
+        // The menu bar item is AppKit, owned by the delegate — see
+        // MenuBarController for why it is not a MenuBarExtra.
         Settings {
             SettingsView(coordinator: delegate.coordinator)
                 .onAppear { delegate.coordinator.permissions.refresh() }
@@ -23,7 +17,7 @@ struct ClioApp: App {
     }
 }
 
-/// Owns the coordinator and the intro window.
+/// Owns the coordinator, the menu bar item and the intro window.
 ///
 /// The coordinator lives here rather than in `@State` on the App so that
 /// `applicationWillTerminate` can shut it down — settings are debounced, and a
@@ -41,11 +35,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let env = ProcessInfo.processInfo.environment
         return env["CLIO_OVERLAY_DUMP"] != nil || env["CLIO_OVERLAY_SHOW"] != nil
             || env["CLIO_INTRO_SHOW"] != nil || env["CLIO_SETTINGS_SHOW"] != nil
+            || env["CLIO_MENU_SHOW"] != nil
         #else
         return false
         #endif
     }
     private let intro = IntroWindowController()
+    private var menuBar: MenuBarController?
     #if DEBUG
     private var overlayPreview: OverlayController?
     #endif
@@ -85,28 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
                 NSApp.appearance = NSAppearance(named: .darkAqua)
             }
-            // Through the Settings scene, by way of its own menu item: the
-            // scene is what gives the TabView its icon-and-label tab bar, and
-            // a TabView hosted in a plain window draws a segmented control
-            // with no icons at all. A bare showSettingsWindow: to a nil
-            // target is answered by nothing on this macOS.
+            // Through the Settings scene: the scene is what gives the
+            // TabView its icon-and-label tab bar, and a TabView hosted in a
+            // plain window draws a segmented control with no icons at all.
+            // A beat after launch, since the scene is not in the responder
+            // chain until SwiftUI has finished setting up.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                NSApp.activate(ignoringOtherApps: true)
-                let item = NSApp.mainMenu?.items.first?.submenu?.items
-                    .first { $0.keyEquivalent == "," }
-                let log = { (line: String) in
-                    FileHandle.standardError.write(Data("CLIO_SETTINGS_SHOW: \(line)\n".utf8))
-                }
-                guard let item, let action = item.action else {
-                    log("no Settings… menu item found")
-                    return
-                }
-                log("menu item '\(item.title)' action \(action) target \(String(describing: item.target))")
-                let sent = NSApp.sendAction(action, to: item.target, from: item)
-                log("sent: \(sent)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    log("windows: \(NSApp.windows.map { "\($0.title) \($0.isVisible)" })")
-                }
+                MenuBarController.openSettings()
             }
             return
         }
@@ -117,6 +98,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         coordinator.start()
+        menuBar = MenuBarController(coordinator: coordinator) { [weak self] in self?.showSetup() }
+
+        #if DEBUG
+        // The status menu, opened, so it can be looked at without a mouse.
+        if ProcessInfo.processInfo.environment["CLIO_MENU_SHOW"] != nil {
+            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.menuBar?.open()
+            }
+        }
+        #endif
 
         // Anything missing that the app cannot work without, and the intro
         // comes up. Skipping it is allowed, so this can happen more than once.

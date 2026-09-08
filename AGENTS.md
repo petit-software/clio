@@ -67,6 +67,7 @@ CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alon
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open
+CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open
 ```
 
 `CLIO_OVERLAY_SHOW` exists because glass samples what is behind the window, and
