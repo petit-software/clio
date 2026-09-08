@@ -66,6 +66,7 @@ CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alone, on screen
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
+CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open
 ```
 
 `CLIO_OVERLAY_SHOW` exists because glass samples what is behind the window, and
@@ -77,8 +78,11 @@ fine in the PNG dump.
 nothing about how it arrived. To look at it frame by frame, capture the screen
 in a loop with `screencapture -R` while it runs and tile the frames.
 
-`swift run` has no bundle, so it cannot request the microphone. Use
-`build-app.sh` for anything touching permissions.
+`swift run` has no bundle, so it cannot request the microphone — TCC kills a
+process that asks without a usage description, silently. `requestMicrophone`
+checks for one first, so the intro tool's setup step offers System Settings
+there instead of a button that would end the process. Use `build-app.sh` for
+anything touching permissions.
 
 ## Releasing
 

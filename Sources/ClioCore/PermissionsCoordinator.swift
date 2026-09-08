@@ -79,11 +79,23 @@ public final class PermissionsCoordinator {
 
     // MARK: Requests
 
+    /// Whether this process is allowed to ask for the microphone at all.
+    ///
+    /// TCC kills a process that asks without `NSMicrophoneUsageDescription`
+    /// in its Info.plist — no prompt, no crash report, just gone. A bare
+    /// `swift run` binary has no Info.plist, so from the CLIO_INTRO_SHOW tool
+    /// the setup card's Allow button took the whole process down. Checked
+    /// here so the request is a no-op there instead, and so the UI can offer
+    /// System Settings rather than a button that does nothing.
+    public nonisolated static var canRequestMicrophone: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "NSMicrophoneUsageDescription") != nil
+    }
+
     /// Prompts inline the first time; afterwards macOS ignores it and the user
     /// has to go to System Settings, which is why `openMicrophoneSettings`
     /// exists alongside.
     public func requestMicrophone() async {
-        guard !isSimulated else { return }
+        guard !isSimulated, Self.canRequestMicrophone else { return }
         let granted = await AVCaptureDevice.requestAccess(for: .audio)
         microphone = granted ? .granted : .denied
     }

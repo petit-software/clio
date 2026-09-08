@@ -40,6 +40,21 @@ struct SimulationTests {
     }
 
     @MainActor
+    @Test("A process with no usage description never asks for the microphone")
+    func unbundledRequestIsInert() async {
+        // The test host has no NSMicrophoneUsageDescription, like a bare
+        // `swift run` binary. Asking from either is fatal — TCC ends the
+        // process — so the request has to know not to. If a future host
+        // does carry one this assertion no longer applies, and it must not
+        // make the real request instead.
+        try? #require(!PermissionsCoordinator.canRequestMicrophone)
+        let coordinator = PermissionsCoordinator()
+        let before = coordinator.microphone
+        await coordinator.requestMicrophone()
+        #expect(coordinator.microphone == before)
+    }
+
+    @MainActor
     @Test("Requests are inert while simulated")
     func simulatedRequestsDoNothing() async {
         // A preview must never make the real system throw up a TCC prompt.
