@@ -14,19 +14,19 @@ public struct SettingsView: View {
     public var body: some View {
         TabView {
             GeneralTab(coordinator: coordinator)
-                .tabItem { Label("General", systemImage: "gearshape") }
+                .tabItem { Label { Text("General") } icon: { SettingsIcon.general } }
             ModelTab(coordinator: coordinator)
-                .tabItem { Label("Model", systemImage: "cpu") }
+                .tabItem { Label { Text("Model") } icon: { SettingsIcon.model } }
             AudioTab(coordinator: coordinator)
-                .tabItem { Label("Audio", systemImage: "mic") }
+                .tabItem { Label { Text("Audio") } icon: { SettingsIcon.audio } }
             TranscriptionTab(coordinator: coordinator)
-                .tabItem { Label("Transcription", systemImage: "text.bubble") }
+                .tabItem { Label { Text("Transcription") } icon: { SettingsIcon.transcription } }
             OutputTab(coordinator: coordinator)
-                .tabItem { Label("Output", systemImage: "character.text.justify") }
+                .tabItem { Label { Text("Output") } icon: { SettingsIcon.output } }
             FeedbackTab(coordinator: coordinator)
-                .tabItem { Label("Feedback", systemImage: "bell") }
+                .tabItem { Label { Text("Feedback") } icon: { SettingsIcon.feedback } }
             AboutTab(coordinator: coordinator)
-                .tabItem { Label("About", systemImage: "info.circle") }
+                .tabItem { Label { Text("About") } icon: { SettingsIcon.about } }
         }
         .frame(width: 480, height: 400)
         .floatingWindow()

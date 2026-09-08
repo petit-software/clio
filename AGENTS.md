@@ -65,6 +65,7 @@ CLIO_OVERLAY_SHOW=sequence CLIO_OVERLAY_POSITION=bottomLeft swift run Clio   # a
 CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alone, on screen
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
+CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 ```
 
 `CLIO_OVERLAY_SHOW` exists because glass samples what is behind the window, and

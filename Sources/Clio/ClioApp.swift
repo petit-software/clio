@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         let env = ProcessInfo.processInfo.environment
         return env["CLIO_OVERLAY_DUMP"] != nil || env["CLIO_OVERLAY_SHOW"] != nil
-            || env["CLIO_INTRO_SHOW"] != nil
+            || env["CLIO_INTRO_SHOW"] != nil || env["CLIO_SETTINGS_SHOW"] != nil
         #else
         return false
         #endif
@@ -75,6 +75,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             intro.show(coordinator: coordinator,
                        startingAt: which == "setup" ? .setup : .welcome) {
                 NSApp.terminate(nil)
+            }
+            return
+        }
+        // The Settings window, alone. Its tab bar draws the icons at a size
+        // and weight that no preview reproduces, so they are judged here.
+        if ProcessInfo.processInfo.environment["CLIO_SETTINGS_SHOW"] != nil {
+            NSApp.setActivationPolicy(.accessory)
+            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+            // Through the Settings scene, by way of its own menu item: the
+            // scene is what gives the TabView its icon-and-label tab bar, and
+            // a TabView hosted in a plain window draws a segmented control
+            // with no icons at all. A bare showSettingsWindow: to a nil
+            // target is answered by nothing on this macOS.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                NSApp.activate(ignoringOtherApps: true)
+                let item = NSApp.mainMenu?.items.first?.submenu?.items
+                    .first { $0.keyEquivalent == "," }
+                let log = { (line: String) in
+                    FileHandle.standardError.write(Data("CLIO_SETTINGS_SHOW: \(line)\n".utf8))
+                }
+                guard let item, let action = item.action else {
+                    log("no Settings… menu item found")
+                    return
+                }
+                log("menu item '\(item.title)' action \(action) target \(String(describing: item.target))")
+                let sent = NSApp.sendAction(action, to: item.target, from: item)
+                log("sent: \(sent)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    log("windows: \(NSApp.windows.map { "\($0.title) \($0.isVisible)" })")
+                }
             }
             return
         }
