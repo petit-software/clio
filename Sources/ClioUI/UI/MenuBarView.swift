@@ -5,20 +5,20 @@ import ClioCore
 /// worth having without opening Settings.
 public struct MenuBarView: View {
     @Bindable var coordinator: AppCoordinator
-    let openOnboarding: () -> Void
+    let openSetup: () -> Void
 
-    public init(coordinator: AppCoordinator, openOnboarding: @escaping () -> Void) {
+    public init(coordinator: AppCoordinator, openSetup: @escaping () -> Void) {
         self.coordinator = coordinator
-        self.openOnboarding = openOnboarding
+        self.openSetup = openSetup
     }
 
     public var body: some View {
         Group {
             Text(statusLine)
 
-            if !coordinator.permissions.allGranted {
+            if !coordinator.permissions.allGranted || coordinator.activeModel == nil {
                 Divider()
-                Button("Finish Setup…", action: openOnboarding)
+                Button("Finish Setup…", action: openSetup)
             }
 
             Divider()

@@ -93,8 +93,9 @@ targets:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
     postBuildScripts:
       # Clio.icns is generated, never committed — see make-iconset.sh for why
-      # the exported PNG cannot ship as is. AboutIcon.png is the artwork the
-      # About pane draws, which is a different thing from the bundle icon.
+      # the exported PNG cannot ship as is. IntroIcon.png is the artwork the
+      # intro card and About pane draw, which is a different thing from the
+      # bundle icon — see AppIcon.swift.
       # Inputs and outputs are declared so this only reruns when the icon
       # source changes; the master re-fit is a `swift` script and slow.
       - name: Build icons
@@ -104,15 +105,14 @@ targets:
           RESOURCES="$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
           mkdir -p "$RESOURCES"
           "$SRCROOT/scripts/make-iconset.sh" "$RESOURCES"
-          cp "$SRCROOT/Resources/Icon/clearlight.png" "$RESOURCES/AboutIcon.png"
+          cp "$SRCROOT/Resources/Icon/default.png" "$RESOURCES/IntroIcon.png"
         inputFiles:
           - $(SRCROOT)/Resources/Icon/default.png
-          - $(SRCROOT)/Resources/Icon/clearlight.png
           - $(SRCROOT)/scripts/make-iconset.sh
           - $(SRCROOT)/scripts/make-icon-master.swift
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Clio.icns
-          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AboutIcon.png
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/IntroIcon.png
 
 schemes:
   Clio:

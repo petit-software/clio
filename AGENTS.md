@@ -63,6 +63,8 @@ CLIO_OVERLAY_DARK=1 CLIO_OVERLAY_SHOW=transcribing swift run Clio
 CLIO_OVERLAY_SIZE=extraLarge CLIO_OVERLAY_SHOW=recording swift run Clio      # the Settings ▸ Size choices
 CLIO_OVERLAY_SHOW=sequence CLIO_OVERLAY_POSITION=bottomLeft swift run Clio   # a whole dictation, looping
 CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
+CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alone, on screen
+CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
 ```
 
 `CLIO_OVERLAY_SHOW` exists because glass samples what is behind the window, and

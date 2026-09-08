@@ -5,7 +5,7 @@ import ClioCore
 /// Fixtures for Xcode previews.
 ///
 /// Every dependency here is simulated. That is the whole point: a preview of
-/// the onboarding window has to be able to show "microphone denied" on a Mac
+/// the setup step has to be able to show "microphone denied" on a Mac
 /// where it is granted, and a preview of the model list must not depend on
 /// what this machine happens to have downloaded.
 ///
@@ -61,6 +61,7 @@ enum Preview {
         devices: [AudioInputDevice] = [builtInMic, displayMic],
         installed: [InstalledModel] = [installedModel],
         downloads: [String: DownloadProgress] = [:],
+        failures: [String: String] = [:],
         transcripts: [String] = [],
         settings: (inout Settings) -> Void = { _ in }
     ) -> AppCoordinator {
@@ -75,7 +76,8 @@ enum Preview {
             permissions: PermissionsCoordinator(simulating: microphone,
                                                 accessibility: accessibility),
             models: ModelManager.simulating(installed: installed,
-                                            downloads: downloads),
+                                            downloads: downloads,
+                                            failures: failures),
             audioDevices: AudioDeviceMonitor(simulating: devices),
             history: history,
             engine: StubTranscriptionEngine())
