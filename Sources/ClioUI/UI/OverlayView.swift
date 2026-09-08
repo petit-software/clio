@@ -104,7 +104,8 @@ struct OverlayView: View {
         // reason it shares the spinner — it looks like transcribing.
         .overlay {
             if isWorking {
-                ActivityRing(lineWidth: h * 0.045)
+                ActivityRing(lineWidth: h * 0.045,
+                             ramp: isDark ? ActivityRing.dark : ActivityRing.light)
                     // In with the state, as the capsule takes its new width.
                     .transition(.opacity)
                     // Out on its own, ahead of the result: the controller
@@ -406,12 +407,26 @@ private struct PillBackground: View {
 private struct ActivityRing: View {
     let lineWidth: CGFloat
 
-    /// The shared "AI" ramp, in its order: blue, purple, pink, teal.
-    static let ramp: [Color] = [
-        Color(red: 0.36, green: 0.52, blue: 0.98),
-        Color(red: 0.60, green: 0.40, blue: 0.96),
-        Color(red: 0.95, green: 0.46, blue: 0.76),
-        Color(red: 0.38, green: 0.80, blue: 0.90),
+    /// The colours to sweep, in order; the last runs back into the first.
+    let ramp: [Color]
+
+    /// The icon's own colours, sampled off the artwork: the deep olive
+    /// under its black top, the mid olive, the lime it ends on, and the
+    /// near-white of its bars. Two ramps because the pill follows the
+    /// appearance and each end of the icon disappears against one of them:
+    /// the white against a light pill, the deep olive against a dark one.
+    /// So each ramp leaves out the end it cannot show.
+    static let light: [Color] = [
+        Color(red: 0x33/255, green: 0x39/255, blue: 0x20/255),   // #333920
+        Color(red: 0x84/255, green: 0x92/255, blue: 0x59/255),   // #849259
+        Color(red: 0xDE/255, green: 0xF4/255, blue: 0x98/255),   // #DEF498
+        Color(red: 0xB3/255, green: 0xC5/255, blue: 0x7A/255),   // #B3C57A
+    ]
+    static let dark: [Color] = [
+        Color(red: 0x84/255, green: 0x92/255, blue: 0x59/255),   // #849259
+        Color(red: 0xDE/255, green: 0xF4/255, blue: 0x98/255),   // #DEF498
+        Color(red: 0xF1/255, green: 0xF3/255, blue: 0xEA/255),   // the bars
+        Color(red: 0xB3/255, green: 0xC5/255, blue: 0x7A/255),   // #B3C57A
     ]
     /// One full turn. A transcription is about a second; this lets the ring
     /// be seen moving in that time without reading as a spin.
@@ -422,7 +437,7 @@ private struct ActivityRing: View {
             let t = context.date.timeIntervalSinceReferenceDate
             let turn = (t / Self.period).truncatingRemainder(dividingBy: 1)
             Capsule().strokeBorder(
-                AngularGradient(colors: Self.ramp + [Self.ramp[0]],
+                AngularGradient(colors: ramp + [ramp[0]],
                                 center: .center,
                                 angle: .degrees(turn * 360)),
                 lineWidth: lineWidth)

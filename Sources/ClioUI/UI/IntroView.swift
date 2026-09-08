@@ -89,18 +89,44 @@ private struct WelcomeStep: View {
     let getStarted: () -> Void
     @State private var hasEntered = false
 
+    /// The pill that takes the icon's place, running a dictation that never
+    /// happened.
+    ///
+    /// The real `OverlayView` on a model of its own, so what the card shows
+    /// is what the user is about to see — same capsule, same meter, same
+    /// labels — rather than a drawing of it.
+    @State private var pill = OverlayModel()
+    /// Whether the icon is the one on stage. Never true while the pill is
+    /// shown: the two take turns in the same spot, they do not share it.
+    @State private var iconIsOnStage = true
+
     var body: some View {
         VStack(spacing: 0) {
+            // The stage: the icon, or the pill, given the room. The words
+            // wait below, next to the button.
             Spacer(minLength: 0)
 
-            AppIcon.image
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 96, height: 96)
-                .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-                .accessibilityHidden(true)
-                .entering(hasEntered, step: 1)
+            ZStack {
+                AppIcon.image
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 96, height: 96)
+                    .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+                    // Goes and comes the way everything on the card does.
+                    .scaleEffect(iconIsOnStage ? 1 : IntroView.entranceScale)
+                    .opacity(iconIsOnStage ? 1 : 0)
+                    .animation(IntroView.entrance, value: iconIsOnStage)
+
+                // Draws itself in and out on `isShown`; the loop keeps that
+                // and `iconIsOnStage` from ever being true at once.
+                OverlayView(model: pill)
+            }
+            .frame(height: 96)
+            .accessibilityHidden(true)
+            .entering(hasEntered, step: 1)
+
+            Spacer(minLength: 0)
 
             VStack(spacing: 10) {
                 Text("Welcome to Clio")
@@ -117,9 +143,7 @@ private struct WelcomeStep: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .entering(hasEntered, step: 3)
             }
-            .padding(.top, 24)
-
-            Spacer(minLength: 0)
+            .padding(.bottom, 24)
 
             Button("Get Started", action: getStarted)
                 .buttonStyle(IntroButtonStyle())
@@ -127,6 +151,48 @@ private struct WelcomeStep: View {
                 .entering(hasEntered, step: 4)
         }
         .onAppear { hasEntered = true }
+        // Cancelled with the view, so the loop stops the moment the step
+        // changes or the card closes.
+        .task { await runDemo() }
+    }
+
+    /// The icon and the pill, taking turns. The icon holds the stage for a
+    /// few seconds; it leaves, and the pill runs a dictation with the
+    /// timings the real loop has, shortened where the real one waits on
+    /// hardware — opens listening, the meter breathes as it would on speech,
+    /// a beat of transcribing with the ring lit, "Pasted" — and closes; the
+    /// icon comes back. Neither is ever on stage while the other is.
+    private func runDemo() async {
+        pill.captureIsLive = true
+        while !Task.isCancelled {
+            // The icon's turn. Long enough on the first pass for the card's
+            // own entrance to finish first.
+            try? await Task.sleep(for: .milliseconds(3000))
+            iconIsOnStage = false
+            try? await Task.sleep(for: .milliseconds(320))
+
+            // The pill's turn.
+            pill.transcriptIsOnClipboard = false
+            pill.state = .recording
+            pill.level = 0
+            pill.isShown = true
+            for tick in 0..<36 {
+                pill.level = Float(0.35 + 0.35 * sin(Double(tick) / 3))
+                try? await Task.sleep(for: .milliseconds(33))
+            }
+            pill.state = .transcribing
+            pill.isRingShown = true
+            try? await Task.sleep(for: .milliseconds(700))
+            pill.isRingShown = false
+            try? await Task.sleep(for: .milliseconds(200))
+            pill.state = .finished("")
+            try? await Task.sleep(for: .milliseconds(900))
+            pill.isShown = false
+            // The pill's exit is 0.18 s; gone before the icon is back.
+            try? await Task.sleep(for: .milliseconds(260))
+            pill.state = .idle
+            iconIsOnStage = true
+        }
     }
 }
 
@@ -192,8 +258,10 @@ private struct SetupStep: View {
                  detail: "So Clio can hear you.",
                  done: permissions.microphone.isGranted) {
             // Once macOS has recorded a denial it ignores the API request, so
-            // a denied state goes straight to System Settings.
-            if permissions.microphone == .notDetermined {
+            // a denied state goes straight to System Settings. So does a
+            // process that cannot ask — see canRequestMicrophone.
+            if permissions.microphone == .notDetermined,
+               PermissionsCoordinator.canRequestMicrophone {
                 Button("Allow") { Task { await permissions.requestMicrophone() } }
             } else {
                 Button("Open Settings", action: permissions.openMicrophoneSettings)
