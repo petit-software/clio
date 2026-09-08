@@ -50,9 +50,34 @@ targets:
         buildPhase: none
       - path: Resources/Clio.entitlements
         buildPhase: none
+      # The rest of the repository, visible in the navigator so it can be
+      # read and edited from Xcode, but never built by this target: the
+      # library and test sources compile through the package (twice would
+      # mean duplicate symbols), the icons go through the script phase, and
+      # the scripts and docs are just files.
+      - path: Sources/ClioCore
+        buildPhase: none
+      - path: Sources/ClioUI
+        buildPhase: none
+      - path: Tests
+        buildPhase: none
+      - path: Resources/Icon
+        buildPhase: none
+      - path: scripts
+        buildPhase: none
+      - path: docs
+        buildPhase: none
       - path: Package.swift
         buildPhase: none
+      - path: Package.resolved
+        buildPhase: none
+      - path: project.yml
+        buildPhase: none
       - path: AGENTS.md
+        buildPhase: none
+      - path: README.md
+        buildPhase: none
+      - path: .gitignore
         buildPhase: none
     dependencies:
       - package: ClioPackage
