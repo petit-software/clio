@@ -4,3 +4,4 @@
 Clio.app/
 .DS_Store
 dist/
+.ultra/
