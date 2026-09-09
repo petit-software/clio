@@ -40,6 +40,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
         #endif
     }
+    private var isMenuTool: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CLIO_MENU_SHOW"] != nil
+        #else
+        false
+        #endif
+    }
     private let intro = IntroWindowController()
     private var menuBar: MenuBarController?
     #if DEBUG
@@ -113,8 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         // The status menu, opened, so it can be looked at without a mouse.
         if ProcessInfo.processInfo.environment["CLIO_MENU_SHOW"] != nil {
-            // Retried for a few seconds: the intro window coming up at the
-            // same moment can dismiss a menu that has just opened.
+            // Retried for a few seconds: a window coming up at the same
+            // moment can dismiss a menu that has just opened.
             func tryToOpen(attempt: Int) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                     guard let self else { return }
@@ -130,7 +137,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Anything missing that the app cannot work without, and the intro
         // comes up. Skipping it is allowed, so this can happen more than once.
-        if !coordinator.permissions.allGranted || coordinator.activeModel == nil {
+        //
+        // Not in the menu tool. The card would activate the app, and the
+        // menu is to be seen the way a user sees it: opened over someone
+        // else's window, with Clio inactive — which is the state its
+        // controls draw in.
+        if !coordinator.permissions.allGranted || coordinator.activeModel == nil,
+           !isMenuTool {
             intro.show(coordinator: coordinator)
         }
     }

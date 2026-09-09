@@ -310,14 +310,42 @@ private struct ListeningRow: View {
             Toggle("Listen for the shortcut", isOn: Binding(
                 get: { coordinator.isListening },
                 set: { coordinator.isListening = $0 }))
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .labelsHidden()
+                .toggleStyle(MenuSwitchStyle())
         }
         // Text at the same x as the items below it, and the switch at the
         // same x as their key equivalents end.
         .padding(.leading, 14)
         .padding(.trailing, 14)
         .padding(.vertical, 3)
+    }
+}
+
+/// A switch drawn to the system's mini switch — 36 by 16, an oval knob — in
+/// the accent colour whether or not the app is active.
+///
+/// The real one is an NSSwitch, and an NSSwitch draws its on state in grey
+/// while the app is inactive. For a status item's menu that is always:
+/// opening the menu does not activate the app, so the native switch spent
+/// its life looking off. This one only knows on and off.
+private struct MenuSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let on = configuration.isOn
+        Button { configuration.isOn.toggle() } label: {
+            Capsule()
+                .fill(on ? Color.accentColor : Color.primary.opacity(0.15))
+                .frame(width: 36, height: 16)
+                .overlay(alignment: on ? .trailing : .leading) {
+                    Capsule()
+                        .fill(.white)
+                        .frame(width: 21, height: 13)
+                        .shadow(color: .black.opacity(0.2), radius: 1, y: 0.5)
+                        .padding(1.5)
+                }
+                .animation(.easeInOut(duration: 0.15), value: on)
+        }
+        .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+        }
     }
 }

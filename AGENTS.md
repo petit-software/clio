@@ -67,7 +67,7 @@ CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alon
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
 CLIO_METER_DUMP=/tmp/meter CLIO_METER_VOICE=voice.wav swift test --filter MeterDumpTests  # the meter's bars for a recording: filmstrip, traces, numbers
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
-CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open
+CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
 ```
 
 `CLIO_METER_DUMP` exists because the meter was twice shipped without being

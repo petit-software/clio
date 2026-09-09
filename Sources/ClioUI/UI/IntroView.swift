@@ -262,6 +262,9 @@ private struct SetupStep: View {
                 .keyboardShortcut(.defaultAction)
                 .entering(hasEntered, step: 6)
         }
+        // Further in from the sides than the welcome: rows of text read
+        // better with a margin, and the welcome's long line needs the width.
+        .padding(.horizontal, 14)
         .onAppear {
             hasEntered = true
             permissions.beginPolling()
