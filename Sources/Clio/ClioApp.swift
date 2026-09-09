@@ -54,6 +54,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hammer the recorder against the configured microphone and quit.
+        // Not DEBUG-only: it has to run from the signed bundle, which is the
+        // only process allowed the microphone, and the bundle is a release
+        // build.
+        if let count = ProcessInfo.processInfo.environment["CLIO_RECORDER_STRESS"].flatMap(Int.init) {
+            let device = coordinator.settingsStore.settings.inputDeviceUID
+            Task { @MainActor in
+                let failures = await AudioRecorder.stress(cycles: count, deviceUID: device)
+                let report = failures.isEmpty
+                    ? "[recorder stress] \(count) cycles on \(device ?? "the default input"): no failures\n"
+                    : "[recorder stress] \(failures.count) of \(count) failed:\n" + failures.joined(separator: "\n") + "\n"
+                FileHandle.standardError.write(Data(report.utf8))
+                exit(failures.isEmpty ? 0 : 1)
+            }
+            return
+        }
         #if DEBUG
         // Render the overlay states and quit, without starting the app proper.
         if let directory = ProcessInfo.processInfo.environment["CLIO_OVERLAY_DUMP"] {

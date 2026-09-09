@@ -41,7 +41,9 @@ public final class AudioRecorder: @unchecked Sendable {
     /// Called on the main actor if capture dies mid-recording.
     @MainActor public var onFailure: ((Error) -> Void)?
 
-    private let engine = AVAudioEngine()
+    /// Replaced, under `engineLock`, when an engine refuses a tap: whatever
+    /// state it was in is not worth understanding, and a new one is cheap.
+    private var engine = AVAudioEngine()
     private let lock = NSLock()
 
     /// Serialises every touch of the engine.
@@ -71,9 +73,21 @@ public final class AudioRecorder: @unchecked Sendable {
     private var currentBands: [Float] = []
     private let meter = MeterAnalyzer()
 
-    /// The format the current tap and converter were built for. Only ever
-    /// touched under `engineLock`.
+    /// The input's format when the current tap was installed. Only ever
+    /// touched under `engineLock`; used to tell a real device change from
+    /// the configuration notice macOS posts on first start.
     private var tapFormat: AVAudioFormat?
+
+    /// The converter from the tap's buffers to 16 kHz mono, built from the
+    /// first buffer and rebuilt whenever a buffer arrives in a different
+    /// format. Touched only on the tap's thread, which is the only thread
+    /// that sees the buffers.
+    private var converter: AVAudioConverter?
+    private var converterInput: AVAudioFormat?
+    private static let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                                    sampleRate: sampleRate,
+                                                    channels: 1,
+                                                    interleaved: false)!
 
     private var levelTimer: Timer?
     private var configObserver: NSObjectProtocol?
@@ -149,7 +163,14 @@ public final class AudioRecorder: @unchecked Sendable {
         }
         lap("selectDevice")
 
-        try installTap(on: input)
+        do {
+            try installTap(on: input)
+        } catch RecorderError.engineFailed {
+            // Every crash report this app has ever produced was this install
+            // raising. Now it throws instead, and the engine that raised is
+            // not worth reasoning about: a new one has no history.
+            try installTapOnFreshEngine(deviceUID: deviceUID)
+        }
         lap("installTap")
 
         engine.prepare()
@@ -169,7 +190,7 @@ public final class AudioRecorder: @unchecked Sendable {
                 try engine.start()
                 lap("engineStart")
             } catch {
-                engine.inputNode.removeTap(onBus: 0)
+                _ = ObjCException.catching { self.engine.inputNode.removeTap(onBus: 0) }
                 tapFormat = nil
                 throw RecorderError.engineFailed(error.localizedDescription)
             }
@@ -182,7 +203,7 @@ public final class AudioRecorder: @unchecked Sendable {
 
         if cancelled {
             engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
+            _ = ObjCException.catching { self.engine.inputNode.removeTap(onBus: 0) }
             tapFormat = nil
             throw CancellationError()
         }
@@ -240,14 +261,23 @@ public final class AudioRecorder: @unchecked Sendable {
         return didOverflow
     }
 
-    /// Build the converter for the device's current format and start feeding
-    /// the buffer.
+    /// Start feeding the buffer from the input.
     ///
-    /// Separate from `start()` because a device change mid-recording invalidates
-    /// the converter: it was built for the old format, and left in place it
-    /// turns everything after the change into noise.
+    /// The tap takes whatever format the input has — `format: nil` — rather
+    /// than the one read a moment earlier. The engine checks a given format
+    /// against the node's at install time and raises if they differ, and a
+    /// Bluetooth headset switching from its listening profile to its call
+    /// profile changes that format exactly when a recording starts. The
+    /// converter is built from the buffers themselves, so it is always for
+    /// the format actually arriving.
+    ///
+    /// Install and removal run through `ObjCException.catching`, because the
+    /// engine's other complaint — a tap it believes is still there — is
+    /// also an NSException, and that one has taken the app down from every
+    /// version so far. A refused install throws a `RecorderError` instead,
+    /// and `start` gets one more try on a fresh engine.
     private func installTap(on input: AVAudioInputNode) throws {
-        input.removeTap(onBus: 0)
+        _ = ObjCException.catching { input.removeTap(onBus: 0) }
         tapFormat = nil
 
         let hwFormat = input.outputFormat(forBus: 0)
@@ -255,18 +285,72 @@ public final class AudioRecorder: @unchecked Sendable {
             throw RecorderError.formatUnavailable
         }
 
-        guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                         sampleRate: Self.sampleRate,
-                                         channels: 1,
-                                         interleaved: false),
-              let converter = AVAudioConverter(from: hwFormat, to: target)
-        else { throw RecorderError.converterUnavailable }
-
-        input.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) {
-            [weak self] pcmBuffer, _ in
-            self?.append(pcmBuffer, using: converter, target: target)
+        if let reason = ObjCException.catching({
+            input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] pcmBuffer, _ in
+                self?.append(pcmBuffer)
+            }
+        }) {
+            throw RecorderError.engineFailed("The audio engine refused to listen: \(reason)")
         }
         tapFormat = hwFormat
+    }
+
+    /// The engine refused a tap. Throw it away, make another, point it at the
+    /// same device, and install again — once.
+    private func installTapOnFreshEngine(deviceUID: String?) throws {
+        _ = ObjCException.catching { self.engine.stop() }
+        engine = AVAudioEngine()
+        let input = engine.inputNode
+        if let deviceUID, let device = AudioDevices.device(forUID: deviceUID) {
+            try selectDevice(device.deviceID, on: input)
+        }
+        try installTap(on: input)
+    }
+
+    // MARK: Stress
+
+    /// Start and stop, over and over, the way a shortcut tapped in a hurry
+    /// does — some stops landing while the hardware is still waking, some
+    /// after — and report anything that was refused. Every crash report this
+    /// app produced came from that pattern on a Bluetooth headset, and it
+    /// could only be reproduced by hand until this existed.
+    ///
+    ///     CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio
+    ///
+    /// From the bundle, not `swift run`: only the bundle may use the
+    /// microphone. Returns the failures, one line each.
+    public static func stress(cycles: Int, deviceUID: String?) async -> [String] {
+        let recorder = AudioRecorder()
+        var failures: [String] = []
+        var seed: UInt32 = 11
+        for cycle in 0..<cycles {
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            let holdMs = Int(seed % 500) + 20          // 20…520 ms held
+            let gapMs = Int((seed >> 8) % 300) + 10    // 10…310 ms between
+            let starter = Task.detached(priority: .userInitiated) {
+                do {
+                    try recorder.start(maxSeconds: 5, deviceUID: deviceUID)
+                    return "ok"
+                } catch is CancellationError {
+                    return "cancelled"
+                } catch {
+                    return "FAILED \(error.localizedDescription)"
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(holdMs))
+            if cycle % 3 == 2 {
+                recorder.cancel()          // a release while it is still waking
+            } else {
+                _ = await starter.value    // a release after it is live
+                recorder.stop()
+            }
+            let outcome = await starter.value
+            if outcome.hasPrefix("FAILED") {
+                failures.append("cycle \(cycle) hold \(holdMs)ms: \(outcome)")
+            }
+            try? await Task.sleep(for: .milliseconds(gapMs))
+        }
+        return failures
     }
 
     /// Point the engine's input at a specific device.
@@ -296,9 +380,16 @@ public final class AudioRecorder: @unchecked Sendable {
 
     // MARK: Capture
 
-    private func append(_ pcmBuffer: AVAudioPCMBuffer,
-                        using converter: AVAudioConverter,
-                        target: AVAudioFormat) {
+    private func append(_ pcmBuffer: AVAudioPCMBuffer) {
+        let target = Self.targetFormat
+        // Built for the format that is actually arriving, and rebuilt the
+        // moment that changes — which, mid-recording, is a device change.
+        if converter == nil || converterInput != pcmBuffer.format {
+            converter = AVAudioConverter(from: pcmBuffer.format, to: target)
+            converterInput = pcmBuffer.format
+        }
+        guard let converter else { return }
+
         // The meter reads the hardware buffer, before it is resampled: a
         // 48 kHz frame has the whole voice in it, and the analysis is sized
         // to exactly this buffer.
@@ -464,7 +555,7 @@ public final class AudioRecorder: @unchecked Sendable {
         // Stopped before the tap comes off: removal from a running engine is
         // deferred, and the next start must not find it still there.
         engine.stop()
-        engine.inputNode.removeTap(onBus: 0)
+        _ = ObjCException.catching { self.engine.inputNode.removeTap(onBus: 0) }
         tapFormat = nil
         if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)

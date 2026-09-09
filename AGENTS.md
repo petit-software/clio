@@ -66,6 +66,7 @@ CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alone, on screen
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
 CLIO_METER_DUMP=/tmp/meter CLIO_METER_VOICE=voice.wav swift test --filter MeterDumpTests  # the meter's bars for a recording: filmstrip, traces, numbers
+CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio      # start/stop the microphone 40 times in a hurry; from the bundle, not swift run
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
 ```
@@ -113,6 +114,16 @@ minutes, so a check right after publishing will still be told it is up to date
 
 Each of these cost real time. The reasoning sits in the code at each fix; this
 is the index.
+
+**Every touch of `AVAudioEngine` that can raise goes through
+`ObjCException.catching`.** The engine reports what it considers misuse as an
+NSException, Swift cannot catch one, and an uncaught one ends the process
+with a crash report that omits the reason. Every crash report this app ever
+produced was the tap install raising — on a Bluetooth headset, which changes
+its format as the recording starts. The tap therefore takes no format of its
+own (`format: nil`), the converter is built from the buffers that arrive, and
+a refused install gets a fresh engine and one retry. `CLIO_RECORDER_STRESS`
+is how that is exercised.
 
 **Never write the event tap callback as a closure inside `HotkeyManager`.** The
 manager is `@MainActor`, so a closure literal inherits main-actor isolation; as

@@ -25,7 +25,14 @@ let package = Package(
         // audio capture, transcription, text injection. Kept separate so the parts
         // with real logic are testable without standing up an app.
         .target(name: "ClioCore",
-                dependencies: [.product(name: "WhisperKit", package: "WhisperKit")]),
+                dependencies: [
+                    "ClioObjC",
+                    .product(name: "WhisperKit", package: "WhisperKit"),
+                ]),
+        // One Objective-C function: run a block and catch the NSException
+        // it may raise. Swift cannot; AVAudioEngine throws them; see
+        // ObjCException.swift in ClioCore for the why.
+        .target(name: "ClioObjC"),
         // The app itself: menu bar, overlay panel, settings, onboarding.
         // Every SwiftUI view lives here rather than in the executable, so that
         // Xcode can render its #Preview blocks: previews are dependable in a
