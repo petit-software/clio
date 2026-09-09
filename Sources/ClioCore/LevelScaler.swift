@@ -20,16 +20,26 @@ public struct LevelScaler: Sendable, Equatable {
     /// not leave the next sentence looking small.
     public static let decayDBPerSecond: Float = 10
 
-    public private(set) var ceilingDB: Float = minimumCeilingDB
+    /// This instance's window. The defaults suit the whole signal; a single
+    /// frequency band of it is quieter and gets a lower pair.
+    public let silenceDB: Float
+    public let minimumCeilingDB: Float
 
-    public init() {}
+    public private(set) var ceilingDB: Float
+
+    public init(silenceDB: Float = LevelScaler.silenceDB,
+                minimumCeilingDB: Float = LevelScaler.minimumCeilingDB) {
+        self.silenceDB = silenceDB
+        self.minimumCeilingDB = minimumCeilingDB
+        ceilingDB = minimumCeilingDB
+    }
 
     /// The level for a buffer of the given RMS, `dt` seconds after the last.
     public mutating func level(rms: Float, dt: Float) -> Float {
         let db = 20 * log10(max(rms, 1e-7))
-        ceilingDB = max(Self.minimumCeilingDB,
+        ceilingDB = max(minimumCeilingDB,
                         max(db, ceilingDB - Self.decayDBPerSecond * dt))
-        let span = ceilingDB - Self.silenceDB
-        return min(1, max(0, (db - Self.silenceDB) / span))
+        let span = ceilingDB - silenceDB
+        return min(1, max(0, (db - silenceDB) / span))
     }
 }

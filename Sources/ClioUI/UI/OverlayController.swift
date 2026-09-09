@@ -11,6 +11,9 @@ import ClioCore
 public final class OverlayModel {
     public var state: DictationState = .idle
     public var level: Float = 0
+    /// The five band levels for the meter's bars, or empty to draw every
+    /// bar from `level` — which is what a still or a preview does.
+    public var bands: [Float] = []
     /// Set by the panel's tracking area, not by SwiftUI's `.onHover`.
     public var isHovering = false
 

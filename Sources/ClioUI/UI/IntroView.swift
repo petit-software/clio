@@ -157,6 +157,26 @@ private struct WelcomeStep: View {
         .task { await runDemo() }
     }
 
+    /// What the demo says, as the meter hears it: 30 Hz levels shaped like
+    /// two short words, a pause, and a longer one.
+    static let phrase: [Float] = [
+        0.05, 0.6, 0.85, 0.7, 0.3, 0.75, 0.55, 0.15, 0.05,        // "hel-lo"
+        0.5, 0.9, 0.6, 0.8, 0.35, 0.1, 0.05, 0.05, 0.05,          // "there"
+        0.1, 0.65, 0.8, 0.45, 0.7, 0.9, 0.6, 0.25, 0.7, 0.5, 0.2, // "how are you"
+        0.05, 0.05, 0.4, 0.75, 0.55, 0.15, 0.05, 0.05,            // "…doing"
+    ]
+
+    /// Five band levels for one tick of the phrase: the level, shared out
+    /// unevenly and differently each tick, the way a real spectrum is. A
+    /// hash rather than a random source, so the demo is the same every time.
+    static func bands(for level: Float, tick: Int) -> [Float] {
+        (0..<5).map { band in
+            let noise = sin(Double(tick) * 12.9898 + Double(band) * 78.233) * 43758.5453
+            let share = Float(noise - noise.rounded(.down))   // 0…1
+            return min(1, level * (0.45 + 0.75 * share))
+        }
+    }
+
     /// The icon and the pill, taking turns. The icon holds the stage for a
     /// few seconds; it leaves, and the pill runs a dictation with the
     /// timings the real loop has, shortened where the real one waits on
@@ -177,10 +197,13 @@ private struct WelcomeStep: View {
             pill.state = .recording
             pill.level = 0
             pill.isShown = true
-            for tick in 0..<36 {
-                pill.level = Float(0.35 + 0.35 * sin(Double(tick) / 3))
+            // A phrase, not a sine: a few syllables, a breath, a few more.
+            for (tick, level) in Self.phrase.enumerated() {
+                pill.level = level
+                pill.bands = Self.bands(for: level, tick: tick)
                 try? await Task.sleep(for: .milliseconds(33))
             }
+            pill.bands = []
             pill.state = .transcribing
             pill.isRingShown = true
             try? await Task.sleep(for: .milliseconds(700))

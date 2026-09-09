@@ -65,9 +65,15 @@ CLIO_OVERLAY_SHOW=sequence CLIO_OVERLAY_POSITION=bottomLeft swift run Clio   # a
 CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alone, on screen
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
+CLIO_METER_DUMP=/tmp/meter CLIO_METER_VOICE=voice.wav swift test --filter MeterDumpTests  # the meter's bars for a recording: filmstrip, traces, numbers
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open
 ```
+
+`CLIO_METER_DUMP` exists because the meter was twice shipped without being
+watched. `say -o v.aiff "…" && afconvert -f WAVE -d LEI16@48000 v.aiff v.wav`
+makes a sample; judge the bars on the trace (do they pin, do they all move
+alike) before judging them on screen.
 
 `CLIO_OVERLAY_SHOW` exists because glass samples what is behind the window, and
 `ImageRenderer` has nothing behind it — it draws glass flat. Anything about the

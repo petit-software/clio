@@ -270,6 +270,7 @@ struct OverlayView: View {
             // Dimmed and still until audio is actually flowing. Bars frozen at
             // zero would read as a microphone that is not working.
             LevelMeter(level: model.captureIsLive ? model.level : 0,
+                       bands: model.captureIsLive ? model.bands : [],
                        height: h, colour: ink, shown: shown)
                 .opacity(model.captureIsLive ? 1 : 0.45)
                 .transition(Self.swap)
@@ -469,27 +470,49 @@ private struct CloseButton: View {
 
 /// The live level, as the five bars in the design.
 ///
-/// Every bar shares one centre line and keeps its share of the silhouette, so
-/// the meter breathes rather than jumping — the same rule as the menu bar mark.
+/// Each bar is one frequency band of the voice (see MeterAnalyzer), so the
+/// bars move differently because the sound does. New values arrive thirty
+/// times a second and each bar eases towards its own.
+///
+/// Every bar sits in a frame of the tallest bar's height that never changes,
+/// and the bar is a `Shape` whose path is what animates. This is the whole
+/// trick. Drawn as views whose frames grew and shrank, the row re-laid
+/// itself out on every reading, and the meter — and everything centred
+/// with it — nudged up and down by a fraction of a point each time: a
+/// tremor under the motion, worst exactly when the voice was liveliest.
+/// Nothing here has a frame that depends on the level.
 private struct LevelMeter: View {
     let level: Float
+    var bands: [Float] = []
     let height: CGFloat
     let colour: Color
     /// Off, the bars are flat and gone; on, they rise one after another.
     var shown = true
 
-    private static let weights: [CGFloat] = [0.31, 0.57, 0.18, 0.31, 0.18]
+    /// Each bar's full height as a share of the pill's. The mark's rhythm —
+    /// tall second bar, short third and fifth — but with more travel than
+    /// the mark itself: drawn at the icon's proportions the two short bars
+    /// had four points to move in and read as dead whatever the voice did.
+    private static let weights: [CGFloat] = [0.46, 0.76, 0.32, 0.56, 0.32]
+
+    private var fractions: [Float] {
+        bands.count == Self.weights.count ? bands : Array(repeating: level, count: Self.weights.count)
+    }
 
     var body: some View {
         let barWidth = height * 0.104
+        let tallest = height * Self.weights.max()!
+        let fractions = self.fractions
         HStack(alignment: .center, spacing: barWidth) {
             ForEach(Array(Self.weights.enumerated()), id: \.offset) { index, weight in
-                let full = height * weight
-                let floor = barWidth
-                Capsule()
+                Bar(level: CGFloat(fractions[index]), floor: barWidth, full: height * weight)
                     .fill(colour)
-                    .frame(width: barWidth,
-                           height: floor + (full - floor) * CGFloat(level))
+                    // The frame is the tallest bar's, for every bar, always.
+                    .frame(width: barWidth, height: tallest)
+                    // Between one reading and the next: a spring with no
+                    // bounce, retargeted each reading, interpolating the
+                    // path and nothing else.
+                    .animation(.smooth(duration: 0.12), value: fractions[index])
                     // Each bar on its own beat, from the centre line up.
                     .scaleEffect(y: shown ? 1 : 0.15)
                     .opacity(shown ? 1 : 0)
@@ -500,8 +523,27 @@ private struct LevelMeter: View {
                                value: shown)
             }
         }
-        .frame(height: height * 0.57)
-        .animation(.linear(duration: 0.06), value: level)
+        .frame(height: tallest)
+    }
+
+    /// One bar: a capsule of `floor` width, between `floor` and `full` tall,
+    /// centred in whatever rect it is given. The level is the animatable
+    /// part, so SwiftUI interpolates the path and the frame is never asked.
+    private struct Bar: Shape {
+        var level: CGFloat
+        let floor: CGFloat
+        let full: CGFloat
+
+        var animatableData: CGFloat {
+            get { level }
+            set { level = newValue }
+        }
+
+        func path(in rect: CGRect) -> Path {
+            let h = floor + (full - floor) * max(0, min(1, level))
+            let bar = CGRect(x: rect.midX - floor / 2, y: rect.midY - h / 2, width: floor, height: h)
+            return Path(roundedRect: bar, cornerRadius: floor / 2)
+        }
     }
 }
 

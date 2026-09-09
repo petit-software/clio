@@ -114,6 +114,9 @@ public final class AppCoordinator {
         // Clicking the pill while it is transcribing abandons the run.
         overlay?.onCancel = { [weak self] in self?.cancel() }
 
+        recorder.onBands = { [weak self] bands in
+            self?.overlay?.model.bands = bands
+        }
         recorder.onLevel = { [weak self] level in
             guard let self else { return }
             self.inputLevel = level

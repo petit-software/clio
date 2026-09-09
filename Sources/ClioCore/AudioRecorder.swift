@@ -35,6 +35,9 @@ public final class AudioRecorder: @unchecked Sendable {
 
     /// Called ~30×/s on the main actor with a 0…1 level for the meter.
     @MainActor public var onLevel: ((Float) -> Void)?
+    /// Called alongside `onLevel` with the five bars of the meter — see
+    /// MeterAnalyzer. Empty once the recording ends.
+    @MainActor public var onBands: (([Float]) -> Void)?
     /// Called on the main actor if capture dies mid-recording.
     @MainActor public var onFailure: ((Error) -> Void)?
 
@@ -63,6 +66,10 @@ public final class AudioRecorder: @unchecked Sendable {
     private var writeIndex = 0
     private var didOverflow = false
     private var currentRMS: Float = 0
+    /// The latest band levels, guarded by `lock`. Analysed on the tap's
+    /// thread, read by the level timer.
+    private var currentBands: [Float] = []
+    private let meter = MeterAnalyzer()
 
     /// The format the current tap and converter were built for. Only ever
     /// touched under `engineLock`.
@@ -127,6 +134,7 @@ public final class AudioRecorder: @unchecked Sendable {
         writeIndex = 0
         didOverflow = false
         currentRMS = 0
+        currentBands = []
         lock.unlock()
         lap("buffer")
 
@@ -291,6 +299,20 @@ public final class AudioRecorder: @unchecked Sendable {
     private func append(_ pcmBuffer: AVAudioPCMBuffer,
                         using converter: AVAudioConverter,
                         target: AVAudioFormat) {
+        // The meter reads the hardware buffer, before it is resampled: a
+        // 48 kHz frame has the whole voice in it, and the analysis is sized
+        // to exactly this buffer.
+        let bands: [Float]
+        if let channel = pcmBuffer.floatChannelData?[0] {
+            let frames = Int(pcmBuffer.frameLength)
+            bands = meter.process(
+                UnsafeBufferPointer(start: channel, count: frames),
+                sampleRate: pcmBuffer.format.sampleRate,
+                dt: Float(Double(frames) / pcmBuffer.format.sampleRate))
+        } else {
+            bands = []
+        }
+
         let ratio = target.sampleRate / pcmBuffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(pcmBuffer.frameLength) * ratio) + 1024
         guard let converted = AVAudioPCMBuffer(pcmFormat: target,
@@ -335,6 +357,7 @@ public final class AudioRecorder: @unchecked Sendable {
             if copied < count { didOverflow = true }
         }
         currentRMS = rms
+        currentBands = bands
         lock.unlock()
     }
 
@@ -357,11 +380,15 @@ public final class AudioRecorder: @unchecked Sendable {
             guard let self else { return }
             self.lock.lock()
             let rms = self.currentRMS
+            let bands = self.currentBands
             self.lock.unlock()
             // Perceptual, not linear: raw RMS from speech sits so low that a
             // linear bar looks broken. See LevelScaler for the window.
             let level = scaler.level(rms: rms, dt: Float(interval))
-            Task { @MainActor [weak self] in self?.onLevel?(level) }
+            Task { @MainActor [weak self] in
+                self?.onLevel?(level)
+                self?.onBands?(bands)
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         levelTimer = timer
@@ -447,6 +474,9 @@ public final class AudioRecorder: @unchecked Sendable {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
             self.wakeObserver = nil
         }
-        Task { @MainActor [weak self] in self?.onLevel?(0) }
+        Task { @MainActor [weak self] in
+            self?.onLevel?(0)
+            self?.onBands?([])
+        }
     }
 }
