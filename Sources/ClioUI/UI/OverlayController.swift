@@ -90,8 +90,14 @@ public final class OverlayModel {
     /// transcribing, and a ✕ that vanished for the 150 ms the paste takes
     /// read as a flicker between "Transcribing" and "Copied".
     public var isCancellableByClick: Bool {
-        state == .recording || state == .transcribing || state == .injecting
+        isInteractive && (state == .recording || state == .transcribing || state == .injecting)
     }
+
+    /// False for a pill that is only being looked at — the welcome card's
+    /// demo — so it draws no ✕. The ✕ abandons the dictation in progress;
+    /// on a pill nobody can press, it is a control that does nothing,
+    /// shown as if it did.
+    public var isInteractive = true
 }
 
 /// Hosts the pill and handles the pointer itself.

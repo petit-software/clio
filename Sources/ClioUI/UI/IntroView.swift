@@ -185,6 +185,7 @@ private struct WelcomeStep: View {
     /// icon comes back. Neither is ever on stage while the other is.
     private func runDemo() async {
         pill.captureIsLive = true
+        pill.isInteractive = false
         while !Task.isCancelled {
             // The icon's turn. Long enough on the first pass for the card's
             // own entrance to finish first.
