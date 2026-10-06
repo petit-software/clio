@@ -20,6 +20,15 @@ public enum AudioTransport: Sendable, Equatable {
     /// the headset as output and dictate into the built-in mic.
     public var degradesPlayback: Bool { self == .bluetooth }
 
+    /// Whether opening this microphone is something its owner notices.
+    ///
+    /// A built-in or USB microphone starts and stops and nobody can tell.
+    /// A Bluetooth headset drops into call mode, and an iPhone's microphone
+    /// makes the phone connect and say so. Anything that listens without
+    /// being asked to — the sweep, the level in Settings — stays to the
+    /// quiet ones.
+    public var opensQuietly: Bool { self == .builtIn || self == .usb }
+
     public var symbolName: String {
         switch self {
         case .builtIn: return "laptopcomputer"
@@ -85,7 +94,8 @@ public enum AudioDevices {
             // separates a microphone from a pair of speakers.
             guard inputChannelCount(deviceID) > 0,
                   let uid = string(deviceID, kAudioDevicePropertyDeviceUID),
-                  let name = string(deviceID, kAudioObjectPropertyName)
+                  let name = string(deviceID, kAudioObjectPropertyName),
+                  !isProcessDefaultAggregate(uid: uid)
             else { return nil }
 
             return AudioInputDevice(
@@ -104,6 +114,14 @@ public enum AudioDevices {
             }
             return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
         }
+    }
+
+    /// The private device CoreAudio makes for a process that follows the
+    /// system default: `CADefaultDeviceAggregate-<pid>-<n>`. It exists only
+    /// while that process is capturing and belongs to it, so it was a row in
+    /// the picker named after a pid — sometimes another app's.
+    static func isProcessDefaultAggregate(uid: String) -> Bool {
+        uid.hasPrefix("CADefaultDeviceAggregate")
     }
 
     public static func defaultInput() -> AudioInputDevice? {

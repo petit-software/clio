@@ -17,7 +17,7 @@ One dictation, end to end, with the file that owns each step.
 |---|---|---|
 | 1 | key down, 180 ms hold threshold | `ClioCore/HotkeyManager` |
 | 2 | pill appears — **before** anything slow | `ClioUI/AppCoordinator.beginRecording` |
-| 3 | microphone starts, off the main actor (~425 ms) | `ClioCore/AudioRecorder` |
+| 3 | microphone starts, off the main actor (60 ms built-in, ~470 ms a USB display) | `ClioCore/AudioRecorder`, `InputCapture` |
 | 4 | key up → stop, samples returned | `AudioRecorder.stop` |
 | 5 | silence trimmed off both ends | `ClioCore/VoiceActivityTrimmer` |
 | 6 | Whisper on the Neural Engine | `ClioCore/WhisperKitEngine` |
@@ -29,7 +29,7 @@ Every state is cancellable. Esc, or clicking the pill, at any point.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 83 tests live here.
+  without standing up an app. All 133 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -39,7 +39,7 @@ Every state is cancellable. Esc, or clicking the pill, at any point.
 
 ```sh
 swift build
-swift test                                  # 83 tests, 10 suites, no network
+swift test                                  # 133 tests, 16 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -66,7 +66,8 @@ CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alone, on screen
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
 CLIO_METER_DUMP=/tmp/meter CLIO_METER_VOICE=voice.wav swift test --filter MeterDumpTests  # the meter's bars for a recording: filmstrip, traces, numbers
-CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio      # start/stop the microphone 40 times in a hurry; from the bundle, not swift run
+CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio      # start/stop 40 times in a hurry on each built-in and USB input, then listen to it, then switch between them; from the bundle, not swift run
+CLIO_RECORDER_STRESS_ALL=1 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio   # the same, on Bluetooth headsets and iPhones too — ask whoever is wearing them first
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
 ```
@@ -115,15 +116,59 @@ minutes, so a check right after publishing will still be told it is up to date
 Each of these cost real time. The reasoning sits in the code at each fix; this
 is the index.
 
-**Every touch of `AVAudioEngine` that can raise goes through
-`ObjCException.catching`.** The engine reports what it considers misuse as an
-NSException, Swift cannot catch one, and an uncaught one ends the process
-with a crash report that omits the reason. Every crash report this app ever
-produced was the tap install raising — on a Bluetooth headset, which changes
-its format as the recording starts. The tap therefore takes no format of its
-own (`format: nil`), the converter is built from the buffers that arrive, and
-a refused install gets a fresh engine and one retry. `CLIO_RECORDER_STRESS`
-is how that is exercised.
+**Capture does not go through `AVAudioEngine`, and must not go back.**
+`InputCapture` opens the AUHAL unit directly with its output half switched
+off. The engine was behind every capture failure this app has had, and they
+were all the same fact seen from different sides: its input node and output
+node are one unit, so a recording depended on the *output* device.
+
+- A microphone at one sample rate and headphones at another would not start:
+  -10868, "Audio engine failed to start". It is the mismatch that fails, never
+  a particular rate, so plugging in headphones broke a microphone that worked
+  a second earlier.
+- Headphones changing format while a recording ran — a Bluetooth headset going
+  into call mode because *any* app opened its microphone — raised an
+  NSException in `AVAudioEngineGraph::InputAvailable`, on the engine's own IO
+  thread, with nothing of ours on the stack to catch it. Four crash reports in
+  ten minutes from the sweep on a built-in and a USB microphone, while
+  dictation was being used in another copy of the app on AirPods. One of them
+  was heap corruption instead.
+- It caches formats, so an engine kept between recordings went stale when the
+  hardware changed in between, and one pointed at a microphone stayed on it
+  when asked to follow the system default again — a start that succeeded, on
+  the wrong device.
+
+With the output off, none of that can happen: no output device is opened,
+every call returns a status, and a capture is made for one recording and
+thrown away. `ObjCException` is still in the tree and nothing in the app calls
+it any more.
+
+**The capture's render callback is a function at file scope**, for the reason
+the event tap's is, below. It runs on the IO thread and does three things:
+render, copy into a ring, signal. A worker thread turns the ring into blocks
+of 1024 frames — the size `MeterAnalyzer` is written for, whatever size the
+hardware delivers in — and everything that allocates happens there.
+
+**A capture cannot follow its device to a new format.** The unit does not
+resample input, so the format asked of it is the device's own rate, and when
+that moves (or the device goes away) the capture is replaced, not adjusted:
+`AudioRecorder.deviceChanged`. Opening some devices makes them announce a
+change that changed nothing, so the capture is asked `isStillValid` first —
+restarting on every notification cost the first words of a recording.
+
+**A start that does not throw is not a recording.** The stress pass only ever
+asked whether `start` threw, and the documentation said it checked that
+buffers arrived. The sweep now listens to each microphone and counts them,
+and the recorder does the same while it runs: four seconds with nothing
+delivered and the capture is rebuilt once, then reported.
+
+**Nothing opens a Bluetooth headset or an iPhone without being asked.**
+`AudioTransport.opensQuietly` is the rule: built-in and USB only. Opening a
+headset's microphone drops it into call mode, and opening an iPhone's makes
+the phone connect and say so — the sweep did both, forty times each, to
+someone who was working. The sweep skips them unless `CLIO_RECORDER_STRESS_ALL`
+is set, and the level in Settings shows a button for them instead of
+listening.
 
 **Never write the event tap callback as a closure inside `HotkeyManager`.** The
 manager is `@MainActor`, so a closure literal inherits main-actor isolation; as
@@ -220,7 +265,9 @@ Verified by something repeatable:
 
 - transcription, end to end, against the real model (`Integration`)
 - long recordings are not truncated (`LongAudio`, 60s, three windows)
-- every listed microphone actually records, each with a different level
+- every built-in and USB microphone starts, delivers buffers at the pace the
+  meter expects, and is the one that was asked for after switching between
+  them — the sweep, 40 cycles, run four times over without a failure
 - the update chain: signature verifies against the file GitHub serves, and a
   tampered copy is rejected
 - a quarantined download passes Gatekeeper
@@ -228,6 +275,13 @@ Verified by something repeatable:
 
 Not verified, and worth knowing:
 
+- **`InputCapture` on a Bluetooth headset, on an iPhone, and following the
+  system default when it is one of those.** The sweep leaves them out unless
+  told otherwise, and it has not been told otherwise since the capture was
+  rewritten. AirPods as the default input is how this app is actually used.
+- **the level in Settings ▸ Audio, on screen.** It builds and the monitor
+  behind it is the recorder the sweep exercises, but nobody has watched the
+  bar move, or confirmed the microphone is let go when the window closes.
 - **paste-back into other apps.** §5.7 asks for Terminal, Safari, Slack and a
   full-screen app. Nobody has done it. It is the highest-consequence untested
   path in the app.
@@ -243,3 +297,6 @@ Not verified, and worth knowing:
   the App Store Connect key.
 - The overlay's level meter and the menu bar mark are drawn separately and do
   not share code, though they share a design.
+- `HotkeyTests`' "Push to talk ends on the release of the chord that started
+  it" counts ten milliseconds against sixty on the main actor and fails about
+  half the time in a full `swift test`. It passes alone, every time.

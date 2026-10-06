@@ -54,17 +54,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Hammer the recorder against the configured microphone and quit.
-        // Not DEBUG-only: it has to run from the signed bundle, which is the
+        // Hammer the recorder against the machine's microphones and quit. Not
+        // DEBUG-only: it has to run from the signed bundle, which is the
         // only process allowed the microphone, and the bundle is a release
         // build.
+        //
+        // Each microphone in turn, not just the configured one: a fault that
+        // belongs to one device is invisible from another, and a run against
+        // the configured microphone alone was once clean on a machine where
+        // three inputs out of five could not record.
         if let count = ProcessInfo.processInfo.environment["CLIO_RECORDER_STRESS"].flatMap(Int.init) {
-            let device = coordinator.settingsStore.settings.inputDeviceUID
             Task { @MainActor in
-                let failures = await AudioRecorder.stress(cycles: count, deviceUID: device)
-                let report = failures.isEmpty
-                    ? "[recorder stress] \(count) cycles on \(device ?? "the default input"): no failures\n"
-                    : "[recorder stress] \(failures.count) of \(count) failed:\n" + failures.joined(separator: "\n") + "\n"
+                // CLIO_RECORDER_STRESS_ALL=1 adds the microphones that
+                // cannot be opened without somebody noticing: Bluetooth
+                // headsets, and an iPhone. Ask whoever is wearing them first.
+                let everything = ProcessInfo.processInfo
+                    .environment["CLIO_RECORDER_STRESS_ALL"] != nil
+                let (devices, skipped, failures, timings) =
+                    await AudioRecorder.sweep(cycles: count, everything: everything)
+                let swept = "\(count) cycles × \(devices.count) inputs"
+                    + (skipped.isEmpty ? "" : ", NOT opened: \(skipped.joined(separator: ", "))")
+                let outcome = failures.isEmpty
+                    ? "[recorder stress] \(swept): no failures\n"
+                    : "[recorder stress] \(swept), \(failures.count) failed:\n"
+                        + failures.joined(separator: "\n") + "\n"
+                let report = timings.map { "[recorder stress] \($0)\n" }.joined() + outcome
                 FileHandle.standardError.write(Data(report.utf8))
                 exit(failures.isEmpty ? 0 : 1)
             }

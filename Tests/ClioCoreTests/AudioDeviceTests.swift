@@ -100,34 +100,68 @@ struct AudioDeviceTests {
     // MARK: Routing
 
     /// The claim the whole feature rests on: choosing a microphone actually
-    /// points the engine at it. Verified by reading the property back off the
-    /// audio unit, not by trusting that the setter returned noErr.
-    @Test("Selecting a device really re-points the engine's input")
-    func selectionRepointsTheEngine() throws {
-        let inputs = AudioDevices.availableInputs()
+    /// opens that microphone. Set up for each one — not started, which
+    /// would need the permission a test run does not have — and asked what
+    /// it ended up on and in what format.
+    ///
+    /// Only the quiet ones. Setting up a capture for a Bluetooth headset or
+    /// an iPhone is enough to make it notice.
+    @Test("A capture opens on the microphone it was asked for")
+    func captureOpensOnTheChosenDevice() throws {
+        let inputs = AudioDevices.availableInputs().filter(\.transport.opensQuietly)
         try #require(!inputs.isEmpty)
 
         for device in inputs {
-            let engine = AVAudioEngine()
-            let input = engine.inputNode
-            let unit = try #require(input.audioUnit)
-
-            var requested = device.deviceID
-            let setStatus = AudioUnitSetProperty(
-                unit, kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global, 0, &requested,
-                UInt32(MemoryLayout<AudioDeviceID>.size))
-            #expect(setStatus == noErr)
-
-            var actual = AudioDeviceID(0)
-            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-            let getStatus = AudioUnitGetProperty(
-                unit, kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global, 0, &actual, &size)
-
-            #expect(getStatus == noErr)
-            #expect(actual == device.deviceID,
-                    "\(device.name) did not take: asked for \(device.deviceID), got \(actual)")
+            let capture = try InputCapture.open(deviceID: device.deviceID,
+                                                onBlock: { _ in },
+                                                onDeviceChange: {})
+            defer { capture.stop() }
+            #expect(capture.deviceID == device.deviceID)
+            #expect(capture.format.sampleRate > 0, "\(device.name) reported no sample rate")
+            // More than two channels is cut to the first, so never more.
+            #expect((1...2).contains(capture.format.channelCount))
         }
+    }
+
+    @Test("A device that does not exist is an error, not a crash")
+    func captureRefusesAnUnknownDevice() {
+        #expect(throws: InputCapture.Failure.self) {
+            _ = try InputCapture.open(deviceID: 0xFFFF_FFF0,
+                                      onBlock: { _ in }, onDeviceChange: {})
+        }
+    }
+
+    // MARK: Which microphones may be opened unasked
+
+    @Test("Only built-in and USB microphones open without anyone noticing")
+    func quietTransports() {
+        #expect(AudioTransport.builtIn.opensQuietly)
+        #expect(AudioTransport.usb.opensQuietly)
+        // A headset drops into call mode; a phone connects and says so.
+        #expect(!AudioTransport.bluetooth.opensQuietly)
+        #expect(!AudioTransport.continuityCamera.opensQuietly)
+        // And anything unrecognised is assumed to be noticed.
+        #expect(!AudioTransport.other.opensQuietly)
+        #expect(!AudioTransport.virtual.opensQuietly)
+        #expect(!AudioTransport.aggregate.opensQuietly)
+    }
+
+    @Test("Another process's private default device is not a microphone")
+    func processAggregatesAreNotListed() {
+        #expect(AudioDevices.isProcessDefaultAggregate(uid: "CADefaultDeviceAggregate-90828-0"))
+        #expect(!AudioDevices.isProcessDefaultAggregate(uid: "BuiltInMicrophoneDevice"))
+        #expect(!AudioDevices.availableInputs().contains {
+            $0.id.hasPrefix("CADefaultDeviceAggregate")
+        })
+    }
+
+    @Test("A stored choice of that private device means the system default")
+    func storedProcessAggregateIsDropped() throws {
+        let stored = Data(#"{"inputDeviceUID":"CADefaultDeviceAggregate-90527-0"}"#.utf8)
+        #expect(try JSONDecoder().decode(Settings.self, from: stored).inputDeviceUID == nil)
+
+        let real = Data(#"{"inputDeviceUID":"BuiltInMicrophoneDevice"}"#.utf8)
+        #expect(try JSONDecoder().decode(Settings.self, from: real).inputDeviceUID
+                == "BuiltInMicrophoneDevice")
     }
 }

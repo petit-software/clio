@@ -10,7 +10,12 @@ import ClioCore
 public final class AppCoordinator {
 
     public private(set) var state: DictationState = .idle {
-        didSet { overlay?.update(state: state, note: limitNote) }
+        didSet {
+            overlay?.update(state: state, note: limitNote)
+            // A dictation takes the microphone from the level in Settings,
+            // and gives it back.
+            updateLevelMonitor()
+        }
     }
     /// 0…1, driven by the recorder at ~30 Hz. The overlay's waveform.
     public private(set) var inputLevel: Float = 0 {
@@ -35,6 +40,8 @@ public final class AppCoordinator {
 
     private let hotkeys = HotkeyManager()
     private let recorder = AudioRecorder()
+    /// Nil in previews and tests, which must not open a microphone.
+    private let levelMonitor: InputLevelMonitor?
     private let feedback = FeedbackPlayer()
     private let engine: any TranscriptionEngine
     private var overlay: OverlayController?
@@ -69,12 +76,14 @@ public final class AppCoordinator {
                 audioDevices: AudioDeviceMonitor = AudioDeviceMonitor(),
                 history: HistoryStore? = nil,
                 updates: UpdateManager? = nil,
+                levelMonitor: InputLevelMonitor? = InputLevelMonitor(),
                 engine: any TranscriptionEngine = WhisperKitEngine()) {
         self.settingsStore = settingsStore
         self.permissions = permissions
         self.models = models
         self.audioDevices = audioDevices
         self.updates = updates
+        self.levelMonitor = levelMonitor
         self.history = history
             ?? HistoryStore(persistsToDisk: settingsStore.settings.keepHistoryOnDisk)
         self.engine = engine
@@ -128,6 +137,20 @@ public final class AppCoordinator {
             self?.fail(error.localizedDescription)
         }
 
+        levelMonitor?.onLevel = { [weak self] level in
+            guard let self else { return }
+            // Up at once, down over half a second: a bar that falls as fast
+            // as it rises flickers between words.
+            self.monitoredLevel = max(level, self.monitoredLevel - 0.06)
+        }
+        // A headset connecting moves the system default, and the level has
+        // to move with it — or stop, if the new one is not opened unasked.
+        audioDevices.onChange = { [weak self] in self?.updateLevelMonitor() }
+        levelMonitor?.onStatus = { [weak self] status in
+            self?.levelMonitorStatus = status
+            if status != .listening { self?.monitoredLevel = 0 }
+        }
+
         // So Esc abandons a dictation started from the menu too, not only one
         // the shortcut began.
         hotkeys.isSessionActive = { [weak self] in
@@ -161,6 +184,7 @@ public final class AppCoordinator {
         maxDurationTask?.cancel()
         resetTask?.cancel()
         recorder.cancel()
+        levelMonitor?.stop()
         hotkeys.stop()
         permissions.stopPolling()
         settingsStore.flush()
@@ -229,8 +253,13 @@ public final class AppCoordinator {
         // before it is.
         captureIsLive = false
         let recorder = self.recorder
+        let levelMonitor = self.levelMonitor
         captureStart = Task.detached(priority: .userInitiated) {
             do {
+                // If Settings was showing the level, it has been told to
+                // stop — setting the state above did that — and this waits
+                // for it to have let go. Nothing to wait for otherwise.
+                levelMonitor?.waitUntilSettled()
                 try recorder.start(maxSeconds: settings.maxRecordingSeconds,
                                    deviceUID: settings.inputDeviceUID)
                 return true
@@ -470,7 +499,11 @@ public final class AppCoordinator {
 
     /// Nil means "follow the system default".
     public func selectInputDevice(uid: String?) {
+        guard uid != settingsStore.settings.inputDeviceUID else { return }
         settingsStore.settings.inputDeviceUID = uid
+        // Permission to listen was for the microphone that was showing.
+        levelWasAskedFor = false
+        updateLevelMonitor()
     }
 
     public var selectedInputUID: String? {
@@ -487,6 +520,60 @@ public final class AppCoordinator {
     /// they are recording from something they are not.
     public var selectedInputIsMissing: Bool {
         audioDevices.isMissing(uid: selectedInputUID)
+    }
+
+    // MARK: Microphone level in Settings
+
+    /// 0…1 from the microphone while Settings is showing it and no dictation
+    /// is running.
+    public private(set) var monitoredLevel: Float = 0
+    public private(set) var levelMonitorStatus: InputLevelMonitor.Status = .off
+
+    /// What the bar in Settings draws: the dictation's own level while there
+    /// is one, since it has the microphone, and the monitor's otherwise.
+    public var displayedInputLevel: Float {
+        state == .recording ? inputLevel : monitoredLevel
+    }
+
+    private var levelIsOnShow = false
+    private var levelWasAskedFor = false
+
+    /// True when showing a level would mean opening a microphone its owner
+    /// notices — a Bluetooth headset drops into call mode, an iPhone connects
+    /// — so Settings offers a button instead of simply listening.
+    public var inputLevelNeedsAsking: Bool {
+        guard let device = effectiveInputDevice else { return false }
+        return !device.transport.opensQuietly && !levelWasAskedFor
+    }
+
+    /// The pane with the level bar came on screen, or left it.
+    public func setInputLevelOnShow(_ onShow: Bool) {
+        guard onShow != levelIsOnShow else { return }
+        levelIsOnShow = onShow
+        // Asked for once per look, not once for ever.
+        if !onShow { levelWasAskedFor = false }
+        updateLevelMonitor()
+    }
+
+    /// The button Settings shows in place of the bar for a microphone that
+    /// does not open quietly.
+    public func askForInputLevel() {
+        levelWasAskedFor = true
+        updateLevelMonitor()
+    }
+
+    private func updateLevelMonitor() {
+        guard let levelMonitor else { return }
+        let device = effectiveInputDevice
+        let mayListen = device.map { $0.transport.opensQuietly || levelWasAskedFor } ?? false
+        if let device, levelIsOnShow, mayListen, state != .recording,
+           permissions.microphone.isGranted {
+            // By name even when following the system default, so that the
+            // default moving to another microphone is a change of target.
+            levelMonitor.listen(to: device.id)
+        } else {
+            levelMonitor.stop()
+        }
     }
 
 }

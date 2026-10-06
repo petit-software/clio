@@ -130,6 +130,13 @@ public struct Settings: Codable, Equatable, Sendable {
         keepModelInMemory = read(.keepModelInMemory, defaults.keepModelInMemory)
 
         inputDeviceUID = readOptional(.inputDeviceUID, String.self)
+        // The picker once listed the private device CoreAudio makes for a
+        // process that follows the system default, and it could be chosen.
+        // It is named after a pid and gone when that process is, so a stored
+        // one means what it stood for: the system default.
+        if let uid = inputDeviceUID, AudioDevices.isProcessDefaultAggregate(uid: uid) {
+            inputDeviceUID = nil
+        }
         voiceActivityDetection = read(.voiceActivityDetection,
                                       defaults.voiceActivityDetection)
         vadSensitivity = read(.vadSensitivity, defaults.vadSensitivity)

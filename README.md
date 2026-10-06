@@ -98,7 +98,8 @@ ClioCore/
   Hotkey, HotkeyManager       CGEventTap, push-to-talk and toggle
   PermissionsCoordinator      mic + Accessibility, polled
   AudioDevices, …Monitor      CoreAudio enumeration, live device list
-  AudioRecorder               AVAudioEngine → 16 kHz mono Float32
+  AudioRecorder, InputCapture the microphone, opened directly → 16 kHz mono Float32
+  InputLevelMonitor           the level in Settings, outside a dictation
   VoiceActivityTrimmer        cuts silence off both ends
   ModelCatalog, …Manager      install, discover, delete, verify
   TranscriptionEngine         the protocol, plus a stub for tests

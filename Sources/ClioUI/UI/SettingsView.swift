@@ -404,11 +404,21 @@ private struct AudioTab: View {
                 }
 
                 LabeledContent("Level") {
-                    ProgressView(value: Double(coordinator.inputLevel))
-                        .frame(width: 160)
+                    if coordinator.inputLevelNeedsAsking {
+                        // Not opened just for being looked at: see
+                        // `AudioTransport.opensQuietly`.
+                        Button("Show Level") { coordinator.askForInputLevel() }
+                            .controlSize(.small)
+                    } else {
+                        InputLevelBar(coordinator: coordinator)
+                    }
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
+                    if case .failed(let reason) = coordinator.levelMonitorStatus {
+                        Label(reason, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
                     if coordinator.selectedInputIsMissing {
                         Label("That microphone is not connected. Clio will "
                               + "use the system default until it is back.",
@@ -472,6 +482,111 @@ private struct AudioTab: View {
             }
         }
         .formStyle(.grouped)
+        .background(OnScreenProbe { coordinator.setInputLevelOnShow($0) })
+    }
+}
+
+/// The microphone's level as a row of ticks, the way System Settings draws
+/// its own.
+///
+/// Ticks and not a `ProgressView`: a progress bar eases towards every new
+/// value, which at thirty values a second meant it was always still on its
+/// way to where the voice had been a moment ago. A tick is lit or it is not.
+///
+/// A view of its own so that only this redraws thirty times a second, and
+/// not the form around it.
+private struct InputLevelBar: View {
+    let coordinator: AppCoordinator
+
+    private static let ticks = 15
+
+    var body: some View {
+        let level = Double(coordinator.displayedInputLevel)
+        let lit = Int((level * Double(Self.ticks)).rounded())
+        HStack(spacing: 3) {
+            ForEach(0..<Self.ticks, id: \.self) { tick in
+                Capsule()
+                    .fill(tick < lit ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary))
+                    .frame(width: 7, height: 12)
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Microphone level")
+        .accessibilityValue("\(Int(level * 100)) percent")
+    }
+}
+
+/// Reports whether the view it sits behind can actually be seen.
+///
+/// `onAppear` and `onDisappear` are not enough to hang a live microphone on:
+/// closing the Settings window does not reliably send the second, and a
+/// microphone left open behind a closed window is the one thing this pane
+/// must never do. This asks AppKit instead — is the view in a window, and is
+/// any of that window on screen — and is told when either changes.
+private struct OnScreenProbe: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> Probe { Probe(onChange: onChange) }
+    func updateNSView(_ nsView: Probe, context: Context) { nsView.onChange = onChange }
+    static func dismantleNSView(_ nsView: Probe, coordinator: ()) { nsView.report(false) }
+
+    final class Probe: NSView {
+        var onChange: (Bool) -> Void
+        private var isOnScreen = false
+        private var observers: [NSObjectProtocol] = []
+
+        init(onChange: @escaping (Bool) -> Void) {
+            self.onChange = onChange
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("not used") }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            if let window {
+                for name in [NSWindow.didChangeOcclusionStateNotification,
+                             NSWindow.didBecomeKeyNotification,
+                             NSWindow.willCloseNotification] {
+                    observers.append(NotificationCenter.default.addObserver(
+                        forName: name, object: window, queue: .main
+                    ) { [weak self] note in
+                        let closing = note.name == NSWindow.willCloseNotification
+                        MainActor.assumeIsolated {
+                            self?.check(closing: closing)
+                        }
+                    })
+                }
+            }
+            check(closing: false)
+        }
+
+        override func viewDidHide() {
+            super.viewDidHide()
+            check(closing: false)
+        }
+
+        override func viewDidUnhide() {
+            super.viewDidUnhide()
+            check(closing: false)
+        }
+
+        private func check(closing: Bool) {
+            guard let window, !closing, !isHiddenOrHasHiddenAncestor else {
+                report(false)
+                return
+            }
+            report(window.isVisible && window.occlusionState.contains(.visible))
+        }
+
+        func report(_ onScreen: Bool) {
+            guard onScreen != isOnScreen else { return }
+            isOnScreen = onScreen
+            onChange(onScreen)
+        }
     }
 }
 

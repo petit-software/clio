@@ -16,6 +16,10 @@ public final class AudioDeviceMonitor {
     /// instead of making the user guess.
     public private(set) var systemDefault: AudioInputDevice?
 
+    /// Called after every refresh, for whoever has to act on a change rather
+    /// than redraw for it.
+    public var onChange: (() -> Void)?
+
     /// Held rather than tracked inline because a `@MainActor` class has a
     /// nonisolated `deinit`, which cannot touch this object's own properties.
     /// Giving the registrations their own lifetime keeps the teardown honest:
@@ -45,6 +49,7 @@ public final class AudioDeviceMonitor {
         guard !isSimulated else { return }
         inputs = AudioDevices.availableInputs()
         systemDefault = inputs.first { $0.isSystemDefault }
+        onChange?()
     }
 
     /// The device a given setting resolves to right now.
