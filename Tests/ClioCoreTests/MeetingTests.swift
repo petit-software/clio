@@ -237,6 +237,18 @@ struct MeetingRecordTests {
         #expect(read.lines.map(\.text) == ["Hello.", "Hi there, everyone.", "Bye now."])
     }
 
+    @Test("Notes with headings of their own read back whole")
+    func notesWithHeadings() throws {
+        var record = MeetingRecord(title: "Sync")
+        record.notes = "## Before the call\n- one\n\n## Follow-ups\n- [ ] two"
+        record.summary = "### Topic\n- point"
+        record.add(line(.me, 1, "Hello."))
+        let read = try #require(MeetingMarkdown.parse(MeetingMarkdown.render(record)))
+        #expect(read.notes == record.notes)
+        #expect(read.summary == record.summary)
+        #expect(read.lines.count == 1)
+    }
+
     @Test("A note written by hand, with no front matter, still reads as a meeting")
     func readsHandWritten() throws {
         let date = Date(timeIntervalSince1970: 1_700_000_000)

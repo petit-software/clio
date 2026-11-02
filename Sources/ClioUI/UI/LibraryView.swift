@@ -305,6 +305,12 @@ struct MeetingDocumentView: View {
     private func load() {
         record = library.record(at: url)
         if record?.summary == nil { pane = .notes }
+        #if DEBUG
+        if let name = ProcessInfo.processInfo.environment["CLIO_MEETING_PANE"],
+           let chosen = MeetingView.Pane.allCases.first(where: { $0.rawValue.lowercased() == name }) {
+            pane = chosen
+        }
+        #endif
     }
 
     private func document(_ record: MeetingRecord) -> some View {
@@ -342,11 +348,9 @@ struct MeetingDocumentView: View {
             Group {
                 switch pane {
                 case .notes:
-                    TextEditor(text: binding(\.notes))
-                        .font(.system(size: 14))
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 23)
-                        .padding(.vertical, 12)
+                    MarkdownEditor(text: binding(\.notes),
+                                   placeholder: "Notes, in Markdown.")
+                        .padding(.horizontal, 8)
                 case .summary:
                     ScrollView {
                         SummaryText(markdown: record.summary ?? "")

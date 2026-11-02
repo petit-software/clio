@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || env["CLIO_INTRO_SHOW"] != nil || env["CLIO_SETTINGS_SHOW"] != nil
             || env["CLIO_MENU_SHOW"] != nil || env["CLIO_MEETING_SHOW"] != nil
             || env["CLIO_OFFER_SHOW"] != nil || env["CLIO_LIBRARY_SHOW"] != nil
+            || env["CLIO_MARKDOWN_CHECK"] != nil
         #else
         return false
         #endif
@@ -121,6 +122,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             coordinator.showSimulatedMeeting(which)
             return
+        }
+        // Every Markdown editing rule, through a real text view; then quit.
+        if ProcessInfo.processInfo.environment["CLIO_MARKDOWN_CHECK"] != nil {
+            NSApp.setActivationPolicy(.accessory)
+            let results = MarkdownEditorCheck.run()
+            exit(results.contains { $0.hasPrefix("FAIL") } ? 1 : 0)
         }
         // The library window on sample meetings; "live" adds a recording.
         if let which = ProcessInfo.processInfo.environment["CLIO_LIBRARY_SHOW"] {

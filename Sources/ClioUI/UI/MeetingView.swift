@@ -20,9 +20,6 @@ struct MeetingView: View {
     @State private var notes = ""
     @State private var notesSave: Task<Void, Never>?
     @State private var titleSave: Task<Void, Never>?
-    /// The notes have the keyboard while a meeting runs: what is typed during
-    /// a call is a note, and the title should not be the first thing to go.
-    @FocusState private var notesFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -65,12 +62,6 @@ struct MeetingView: View {
         .onAppear {
             title = meeting.record.title
             notes = meeting.record.notes
-            if meeting.isActive {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(100))
-                    notesFocused = true
-                }
-            }
             #if DEBUG
             if let name = ProcessInfo.processInfo.environment["CLIO_MEETING_PANE"],
                let chosen = Pane.allCases.first(where: { $0.rawValue.lowercased() == name }) {
@@ -226,22 +217,9 @@ struct MeetingView: View {
     // MARK: Panes
 
     private var notesPane: some View {
-        TextEditor(text: $notes)
-            .focused($notesFocused)
-            .font(.system(size: 14))
-            .scrollContentBackground(.hidden)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 10)
-            .overlay(alignment: .topLeading) {
-                if notes.isEmpty {
-                    Text("Your notes. They guide the summary.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .allowsHitTesting(false)
-                }
-            }
+        MarkdownEditor(text: $notes,
+                       placeholder: "Your notes, in Markdown. They guide the summary.",
+                       focusOnAppear: meeting.isActive)
             // Saved a beat after typing stops, not on every key.
             .onChange(of: notes) { _, new in
                 notesSave?.cancel()

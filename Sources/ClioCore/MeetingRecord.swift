@@ -264,9 +264,14 @@ public enum MeetingMarkdown {
                 title = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
                 continue
             }
+            // Only Clio's own sections. Notes are Markdown and have "## "
+            // headings of their own, which belong to the notes.
             if line.hasPrefix("## ") {
-                section = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces).lowercased()
-                continue
+                let name = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces).lowercased()
+                if sectionNames.contains(name) {
+                    section = name
+                    continue
+                }
             }
             if section == nil, line.hasPrefix("**Attendees:**") {
                 attendees = line.dropFirst("**Attendees:**".count)
@@ -301,6 +306,8 @@ public enum MeetingMarkdown {
         record.lines = transcript
         return record
     }
+
+    static let sectionNames: Set<String> = ["notes", "summary", "transcript"]
 
     private static func block(_ lines: [String]?) -> String {
         (lines ?? []).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
