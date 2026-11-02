@@ -17,6 +17,19 @@ public final class OverlayModel {
     /// Set by the panel's tracking area, not by SwiftUI's `.onHover`.
     public var isHovering = false
 
+    /// Hovering a recording swaps the record dot for a microphone and a
+    /// chevron, which opens the microphone menu. Only while recording: once
+    /// the words are in, which microphone they came from is settled.
+    public var showsMicrophonePicker: Bool {
+        isHovering && isInteractive && !isPreview && state == .recording
+    }
+
+    /// Where that microphone is drawn, in the hosting view's top-left
+    /// coordinates, so a click on it opens the menu instead of cancelling.
+    /// Ignored by observation: it is written from layout, and nothing draws
+    /// from it.
+    @ObservationIgnored public var microphoneButtonFrame: CGRect = .zero
+
     /// How long the current recording has been running, and the cap it is
     /// heading for. Shown because the recording stops at that cap whether or
     /// not the user has finished a sentence, and being cut off mid-thought
@@ -111,6 +124,12 @@ public final class OverlayModel {
 @MainActor
 final class OverlayHostingView: NSHostingView<OverlayView> {
     var onCancel: (() -> Void)?
+    var microphoneMenu: (() -> NSMenu?)?
+    /// Hover goes through the controller, which has to fit the window
+    /// before the pill widens for the microphone picker.
+    var onHover: ((Bool) -> Void)?
+    /// The menu while it is open, so the end of the recording can close it.
+    private weak var openMenu: NSMenu?
     private var trackingArea: NSTrackingArea?
     private let model: OverlayModel
 
@@ -138,19 +157,53 @@ final class OverlayHostingView: NSHostingView<OverlayView> {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        model.isHovering = true
+        onHover?(true)
         if model.isCancellableByClick { NSCursor.pointingHand.set() }
     }
 
     override func mouseExited(with event: NSEvent) {
-        model.isHovering = false
+        onHover?(false)
         NSCursor.arrow.set()
     }
 
     override func mouseDown(with event: NSEvent) {
+        if model.showsMicrophonePicker, isOnMicrophone(event) {
+            showMicrophoneMenu()
+            return
+        }
         guard model.isCancellableByClick else { return }
         NSCursor.arrow.set()
         onCancel?()
+    }
+
+    /// A little generous: the glyph is small, and a click that just misses
+    /// it would cancel the dictation instead.
+    private func isOnMicrophone(_ event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        let fromTop = isFlipped ? point : CGPoint(x: point.x, y: bounds.height - point.y)
+        return model.microphoneButtonFrame.insetBy(dx: -6, dy: -6).contains(fromTop)
+    }
+
+    /// Popped up from the panel, which stays non-activating throughout: a
+    /// menu opens and its item fires without Clio becoming the active app,
+    /// so the frontmost app — where the paste is going — is left alone.
+    private func showMicrophoneMenu() {
+        guard let menu = microphoneMenu?() else { return }
+        NSCursor.arrow.set()
+        let frame = model.microphoneButtonFrame
+        let below = frame.maxY + 4
+        let anchor = NSPoint(x: frame.minX, y: isFlipped ? below : bounds.height - below)
+        openMenu = menu
+        // Blocks until the menu closes. AppKit moves it on screen if the
+        // pill is at the bottom edge.
+        menu.popUp(positioning: nil, at: anchor, in: self)
+        openMenu = nil
+    }
+
+    /// A menu left open past the recording would switch the microphone of
+    /// a dictation that is already over.
+    func closeMenu() {
+        openMenu?.cancelTracking()
     }
 }
 
@@ -187,9 +240,13 @@ public final class OverlayController {
         contentSize(for: model.state, note: model.note)
     }
 
-    private func contentSize(for state: DictationState, note: String?) -> NSSize {
+    private func contentSize(for state: DictationState, note: String?,
+                             hovering: Bool? = nil) -> NSSize {
         measuringModel.state = state
         measuringModel.note = note
+        // Hovering a recording widens the pill for the microphone picker.
+        measuringModel.isHovering = hovering ?? model.isHovering
+        measuringModel.isInteractive = model.isInteractive
         measuringModel.size = model.size
         measuringModel.surface = model.surface
         measuringModel.isPreview = model.isPreview
@@ -203,6 +260,8 @@ public final class OverlayController {
     }
 
     /// Called when the user clicks the pill to abandon a transcription.
+    /// Builds the microphone menu the pill pops up; see the hosting view.
+    var microphoneMenu: (() -> NSMenu?)?
     var onCancel: (() -> Void)?
 
     /// Where the panel currently sits, for tooling that needs to capture it.
@@ -244,6 +303,7 @@ public final class OverlayController {
 
         previewTask?.cancel()
         model.surface = surface
+        applyAppearance()
         model.size = size
         model.isPreview = true
         model.state = .idle
@@ -276,6 +336,7 @@ public final class OverlayController {
     /// screen, since a bigger pill in a window that has not grown is clipped.
     public func apply(surface: PillSurface, size: PillSize) {
         model.surface = surface
+        applyAppearance()
         model.size = size
         resize()
     }
@@ -346,6 +407,7 @@ public final class OverlayController {
             // update and the bounds change is animated with the state.
             hostingView?.layoutSubtreeIfNeeded()
         }
+        if state != .recording { hostingView?.closeMenu() }
         model.state = state
         model.note = note
         if state == .recording { model.progress.elapsed = 0 }
@@ -421,6 +483,7 @@ public final class OverlayController {
         settleTask = nil
         resultTask?.cancel()
         resultTask = nil
+        hostingView?.closeMenu()
         model.isShown = false
         model.isHovering = false
         // Ordered out only once the pill has faded. If show() lands in the
@@ -465,8 +528,12 @@ public final class OverlayController {
         let host = OverlayHostingView(model: model)
         host.frame = NSRect(origin: .zero, size: contentSize)
         host.onCancel = { [weak self] in self?.onCancel?() }
+        host.microphoneMenu = { [weak self] in self?.microphoneMenu?() }
+        host.onHover = { [weak self] in self?.setHovering($0) }
         hostingView = host
         panel.contentView = host
+        panel.appearance = model.surface.style.followsSystemAppearance
+            ? nil : NSAppearance(named: .darkAqua)
         return panel
     }
 
@@ -494,6 +561,35 @@ public final class OverlayController {
                 self.setFrame(self.contentSize)
             }
         }
+    }
+
+    /// The pointer arrived or left. Entering a recording widens the pill for
+    /// the microphone picker, so it goes the way a state change does: the
+    /// window is fitted and committed first, and only then is the pill told
+    /// — otherwise a centred pill lurches and grows from its left edge. On
+    /// the way out the pill narrows first and the window follows once it has.
+    func setHovering(_ hovering: Bool) {
+        guard model.isHovering != hovering else { return }
+        if hovering, let panel, panel.isVisible {
+            let size = contentSize(for: model.state, note: model.note, hovering: true)
+            if size.width > panel.frame.width || size.height > panel.frame.height {
+                shrinkTask?.cancel()
+                shrinkTask = nil
+                setFrame(size)
+                hostingView?.layoutSubtreeIfNeeded()
+            }
+        }
+        model.isHovering = hovering
+        resize()
+    }
+
+    /// Set on the panel, not only in SwiftUI: glass takes its look from the
+    /// window's appearance, so a SwiftUI colour scheme alone gave dark text
+    /// on light glass. Nil follows the system.
+    private func applyAppearance() {
+        panel?.appearance = model.surface.style.followsSystemAppearance
+            ? nil : NSAppearance(named: .darkAqua)
+        measuringView.appearance = panel?.appearance
     }
 
     private func setFrame(_ size: NSSize) {

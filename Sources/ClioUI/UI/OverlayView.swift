@@ -59,13 +59,16 @@ struct OverlayView: View {
 
     private var isDark: Bool { scheme == .dark }
     private var pillFill: Color { isDark ? Self.darkFill : Self.lightFill }
+    private var style: PillStyle { model.surface.style }
     private var glassTint: Color {
-        isDark ? Color.black.opacity(0.82) : Color.white.opacity(0.84)
+        isDark ? Color.black.opacity(style.glassTintDark)
+               : Color.white.opacity(style.glassTintLight)
     }
     /// A hairline, which is what separates the surface from a bright backdrop
     /// once the fill is translucent.
     private var outline: Color {
-        isDark ? Color.white.opacity(0.24) : Color.black.opacity(0.42)
+        isDark ? Color.white.opacity(style.outlineDark)
+               : Color.black.opacity(style.outlineLight)
     }
     private var ambientShadow: Color {
         isDark ? Color.black.opacity(0.34) : Color.black.opacity(0.08)
@@ -86,6 +89,9 @@ struct OverlayView: View {
             trailing
         }
         .frame(height: h)
+        .onPreferenceChange(MicrophoneFrameKey.self) { frame in
+            model.microphoneButtonFrame = frame
+        }
         // The entrance. The capsule begins as a circle at its own centre and
         // springs open to fit; on the way out it closes again. The content
         // keeps its size and stays centred in the stack, overflowing the
@@ -142,7 +148,9 @@ struct OverlayView: View {
         // A size change is deliberately NOT animated: the window is fitted to
         // the new size at once, and a pill still shrinking inside a window
         // that has already shrunk gets clipped on the way.
-        .animation(.easeOut(duration: 0.12), value: model.isHovering)
+        // Hover widens a recording for the microphone picker: eased like a
+        // change of state, a little quicker, since the pointer is waiting.
+        .animation(.smooth(duration: 0.28), value: model.isHovering)
         // In and out, from the centre. The shape springs open a little past
         // its size and settles; it closes without bounce, because the next
         // thing the user is looking at is their own text.
@@ -219,6 +227,16 @@ struct OverlayView: View {
     /// rather than being clipped at the ends while it is still growing.
     /// A plain ease, barely scaled: a result is the end of something, and a
     /// bounce there read as excitement about it.
+    /// The record dot and the microphone picker trading places on hover.
+    /// Each grows or shrinks about its own centre as it fades — nothing
+    /// slides in from a side. The incoming one waits a moment, so the slot
+    /// has started to widen before it appears in it.
+    private static let hoverSwap: AnyTransition = .asymmetric(
+        insertion: .opacity.combined(with: .scale(scale: 0.5))
+            .animation(.smooth(duration: 0.24).delay(0.06)),
+        removal: .opacity.combined(with: .scale(scale: 0.5))
+            .animation(.easeIn(duration: 0.12)))
+
     private static let swap: AnyTransition = .asymmetric(
         insertion: .opacity.combined(with: .scale(scale: 0.96))
             .animation(.easeOut(duration: 0.28).delay(0.18)),
@@ -250,15 +268,34 @@ struct OverlayView: View {
             // the two together read as a lurch.
             Color.clear.frame(width: h * 0.31, height: 0)
         case .recording:
-            Circle()
-                .fill(Self.recordDot)
-                .frame(width: h * 0.21, height: h * 0.21)
-                // A touch in from the slot's centre, where the meter's first
-                // bar expects it.
-                .offset(x: 3)
+            // Hovered, the dot gives its slot to the microphone picker, and
+            // the slot widens to hold it. Each fades and scales where it
+            // sits; the widening is the pill's, from its anchored edge or
+            // its middle like any other change of width.
+            ZStack {
+                if model.showsMicrophonePicker && !isMeasuring {
+                    MicrophoneGlyph(height: h, colour: ink)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear.preference(key: MicrophoneFrameKey.self,
+                                                       value: proxy.frame(in: .global))
+                            }
+                        }
+                        .transition(Self.hoverSwap)
+                } else {
+                    Circle()
+                        .fill(Self.recordDot)
+                        .frame(width: h * 0.21, height: h * 0.21)
+                        // A touch in from the slot's centre, where the
+                        // meter's first bar expects it.
+                        .offset(x: 3)
+                        .transition(Self.hoverSwap)
+                }
+            }
                 .modifier(Arrival(shown: shown, after: Beat.leading, from: 0.2))
                 .transition(Self.swap)
-                .frame(width: h * 0.29, height: h * 0.29)
+                .frame(width: model.showsMicrophonePicker ? h * 0.5 : h * 0.29,
+                       height: h * 0.29)
                 .padding(.leading, h * 0.31)
                 .padding(.trailing, h * 0.26)
         }
@@ -308,7 +345,6 @@ struct OverlayView: View {
         if model.isCancellableByClick && !model.isPreview {
             CloseButton(diameter: h * 0.27,
                         fill: closeGrey,
-                        glyph: pillFill,
                         emphasised: model.isHovering)
                 .modifier(Arrival(shown: shown, after: Beat.trailing, from: 0.3))
                 .transition(Self.swap)
@@ -367,6 +403,37 @@ private struct Arrival: ViewModifier {
 /// window the pill would go dark and the label would disappear. Keeping it
 /// biased light means the design holds over any backdrop, which is the whole
 /// difficulty of a panel that floats above other applications.
+/// The microphone and a chevron: "this is the input, and it can change."
+/// Wider than the slot it sits in, deliberately — it overflows into the
+/// padding around the slot rather than widening the pill.
+private struct MicrophoneGlyph: View {
+    let height: CGFloat
+    let colour: Color
+
+    var body: some View {
+        HStack(spacing: height * 0.03) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: height * 0.25, weight: .semibold))
+            // Light grey: the microphone is the thing, the chevron only says
+            // it opens. A fraction of the ink, so it follows the appearance.
+            Image(systemName: "chevron.down")
+                .font(.system(size: height * 0.13, weight: .bold))
+                .foregroundStyle(colour.opacity(0.38))
+        }
+        .foregroundStyle(colour)
+        .fixedSize()
+        .accessibilityLabel("Choose microphone")
+    }
+}
+
+private struct MicrophoneFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 /// The pill's surface and its hairline. The shadows are NOT here — they are
 /// applied outside the capsule clip, because anything drawn in a background
 /// gets clipped with it and a shadow lives entirely outside its own shape.
@@ -390,7 +457,8 @@ private struct PillBackground: View {
                     .background(surface.fallbackMaterial, in: shape)
             }
         }
-        .overlay(shape.strokeBorder(outline, lineWidth: 0.5))
+        .overlay(shape.strokeBorder(outline,
+                                    lineWidth: CGFloat(surface.style.outlineWidth)))
     }
 
     @available(macOS 26.0, *)
@@ -450,20 +518,22 @@ private struct ActivityRing: View {
 ///
 /// Always visible while something is cancellable — the design does not hide it
 /// behind a hover, and a control you cannot see is one nobody uses.
+///
+/// One symbol in one colour, so the cross is cut out of the disc and shows
+/// the pill through it — never a white of its own that sat wrong on glass,
+/// and on a dark pill.
 private struct CloseButton: View {
     let diameter: CGFloat
     let fill: Color
-    let glyph: Color
     let emphasised: Bool
 
     var body: some View {
-        ZStack {
-            Circle().fill(emphasised ? fill.opacity(1) : fill.opacity(0.85))
-            Image(systemName: "xmark")
-                .font(.system(size: diameter * 0.5, weight: .bold))
-                .foregroundStyle(glyph)
-        }
-        .frame(width: diameter, height: diameter)
+        Image(systemName: "xmark.circle.fill")
+            .resizable()
+            .scaledToFit()
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(emphasised ? fill.opacity(1) : fill.opacity(0.85))
+            .frame(width: diameter, height: diameter)
         .scaleEffect(emphasised ? 1.12 : 1)
     }
 }

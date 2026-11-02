@@ -293,6 +293,19 @@ public final class AudioRecorder: @unchecked Sendable {
         throw RecorderError.captureFailed(refusal?.localizedDescription ?? "no reason given")
     }
 
+    /// Move a recording in progress to another microphone, keeping what was
+    /// recorded so far — the same replacement a device going away gets.
+    /// Not recording, it only sets what the next `start` would have been
+    /// told anyway. Blocks while the new device opens, so not on the main
+    /// actor.
+    public func switchDevice(uid: String?) {
+        captureLock.lock()
+        defer { captureLock.unlock() }
+        guard isRecording, uid != currentDeviceUID else { return }
+        currentDeviceUID = uid
+        replaceCapture()
+    }
+
     /// The device changed its format, or went away, while recording.
     ///
     /// A capture is set up for one format and cannot follow the device to

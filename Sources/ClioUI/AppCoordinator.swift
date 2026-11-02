@@ -122,6 +122,7 @@ public final class AppCoordinator {
         overlay = OverlayController()
         // Clicking the pill while it is transcribing abandons the run.
         overlay?.onCancel = { [weak self] in self?.cancel() }
+        overlay?.microphoneMenu = { [weak self] in self?.microphoneMenu?() }
 
         recorder.onBands = { [weak self] bands in
             self?.overlay?.model.bands = bands
@@ -200,8 +201,10 @@ public final class AppCoordinator {
         overlay?.apply(surface: Self.pillSurface(settings), size: settings.pillSize)
     }
 
+    /// The pill's look is fixed — see PillSurface — so this is the same
+    /// whatever the settings say. Kept as the one place it is asked for.
     private static func pillSurface(_ settings: ClioCore.Settings) -> PillSurface {
-        PillSurface(opacity: settings.pillOpacity, isClear: settings.pillClearGlass)
+        PillSurface()
     }
 
     public var isHotkeyRunning: Bool { hotkeys.isRunning }
@@ -504,7 +507,19 @@ public final class AppCoordinator {
         // Permission to listen was for the microphone that was showing.
         levelWasAskedFor = false
         updateLevelMonitor()
+        // Chosen mid-dictation — from the pill, usually — so the words
+        // still to come are from the microphone just picked. Off the main
+        // actor: opening a device takes up to half a second, longer for a
+        // headset, and the pill must keep drawing meanwhile.
+        if state == .recording {
+            let recorder = recorder
+            Task.detached { recorder.switchDevice(uid: uid) }
+        }
     }
+
+    /// The microphone menu, as the menu bar draws it. Set by whoever owns
+    /// the menu bar, so the pill offers the very same list.
+    public var microphoneMenu: (() -> NSMenu)?
 
     public var selectedInputUID: String? {
         settingsStore.settings.inputDeviceUID

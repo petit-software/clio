@@ -28,6 +28,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         self.openSetup = openSetup
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
+        coordinator.microphoneMenu = { [weak self] in self?.makeMicrophoneMenu() ?? NSMenu() }
         menu.delegate = self
         menu.autoenablesItems = false
         // Status bar menus follow the system appearance, not the app's.
@@ -182,6 +183,12 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
     /// against the current choice, "System Default" first and named so the
     /// user can see what it currently means.
     private func microphoneItem() -> NSMenuItem {
+        let title = coordinator.selectedInputIsMissing ? "Microphone ⚠" : "Microphone"
+        return Self.submenu(title, makeMicrophoneMenu())
+    }
+
+    /// The picker on its own, which the pill pops up too.
+    func makeMicrophoneMenu() -> NSMenu {
         let submenu = NSMenu(title: "Microphone")
         submenu.autoenablesItems = false
 
@@ -212,9 +219,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
                                  accessibilityDescription: "Not connected")
             submenu.addItem(gone)
         }
-
-        let title = coordinator.selectedInputIsMissing ? "Microphone ⚠" : "Microphone"
-        return Self.submenu(title, submenu)
+        return submenu
     }
 
     private var defaultTitle: String {

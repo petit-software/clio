@@ -56,17 +56,10 @@ public struct Settings: Codable, Equatable, Sendable {
 
     // Feedback
     public var overlayPosition: OverlayPosition = .bottomCenter
-    /// How solid the pill's surface is, 0…1.
-    ///
-    /// 0 is bare glass, taking all of its colour from whatever is behind it;
-    /// 1 is the flat surface the design was drawn as. The default is the
-    /// "Frosted" preset: the backdrop stays a suggestion rather than something
-    /// you read through the pill, which is what keeps the label legible over a
-    /// busy desktop.
-    public var pillOpacity: Double = 0.45
-    /// Swap the frosted glass for the far more transparent clear variant.
-    /// A different effect, not merely less of the same one.
-    public var pillClearGlass: Bool = false
+    // The pill's surface — opacity, clear glass, tint, hairline — is not a
+    // setting: see PillSurface and PillStyle. Files written while it was
+    // still carry pillOpacity, pillClearGlass and pillStyle, which decoding
+    // skips like any key it does not know.
     /// How big the pill is drawn. Every dimension in it is a fraction of one
     /// height, so this scales the whole thing — dot, meter, text, ✕ — at once.
     public var pillSize: PillSize = .regular
@@ -155,10 +148,6 @@ public struct Settings: Codable, Equatable, Sendable {
                                      defaults.capitalizeFirstLetter)
 
         overlayPosition = read(.overlayPosition, defaults.overlayPosition)
-        // Clamped on the way in: a value outside 0…1 from a hand-edited file
-        // would render an invisible or fully opaque pill with no way back.
-        pillOpacity = min(1, max(0, read(.pillOpacity, defaults.pillOpacity)))
-        pillClearGlass = read(.pillClearGlass, defaults.pillClearGlass)
         pillSize = read(.pillSize, defaults.pillSize)
         playSoundOnStart = read(.playSoundOnStart, defaults.playSoundOnStart)
         playSoundOnStop = read(.playSoundOnStop, defaults.playSoundOnStop)

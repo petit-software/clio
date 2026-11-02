@@ -186,6 +186,10 @@ public enum OverlayDump {
         rows.append(("recording", model {
             $0.state = .recording; $0.level = 0.75; $0.captureIsLive = true
         }))
+        rows.append(("recording-hover", model {
+            $0.state = .recording; $0.level = 0.75; $0.captureIsLive = true
+            $0.isHovering = true
+        }))
         rows.append(("recording-quiet", model {
             $0.state = .recording; $0.level = 0.1; $0.captureIsLive = true
         }))

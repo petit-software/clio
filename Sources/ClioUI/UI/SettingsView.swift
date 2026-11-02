@@ -736,38 +736,6 @@ private struct FeedbackTab: View {
                     }
                 }
                 .pickerStyle(.segmented)
-
-                LabeledContent("Translucency") {
-                    HStack(spacing: 8) {
-                        // Reversed: the slider runs from see-through to solid,
-                        // which is the direction the label describes.
-                        Slider(value: Binding(
-                            get: { coordinator.settingsStore.settings.pillOpacity },
-                            set: {
-                                coordinator.settingsStore.settings.pillOpacity = $0
-                                coordinator.applySettings()
-                            }), in: 0...1)
-                        .frame(width: 140)
-                        Text("\(Int(coordinator.settingsStore.settings.pillOpacity * 100))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 34, alignment: .trailing)
-                    }
-                }
-                Toggle("Clear glass", isOn: Binding(
-                    get: { coordinator.settingsStore.settings.pillClearGlass },
-                    set: {
-                        coordinator.settingsStore.settings.pillClearGlass = $0
-                        coordinator.applySettings()
-                    }))
-            } footer: {
-                Text("How solid the pill is. At the low end it is nearly bare "
-                     + "glass and takes its colour from whatever is behind it — "
-                     + "readable over a plain desktop, less so over a busy one. "
-                     + "Clear glass drops the frosting as well, which is a "
-                     + "different effect rather than simply less of this one.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
             }
 
             Section {

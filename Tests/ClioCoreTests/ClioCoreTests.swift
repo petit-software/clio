@@ -242,3 +242,17 @@ func storeStillQuarantinesGarbage() throws {
     #expect(FileManager.default.fileExists(
         atPath: url.appendingPathExtension("corrupt").path))
 }
+
+// MARK: - Pill style
+
+@Test("A settings file from when the pill's look was a setting still loads")
+func retiredPillKeysAreSkipped() throws {
+    var expected = Settings()
+    expected.pillSize = .large
+    let json = """
+    {"pillOpacity": 1, "pillClearGlass": true, "pillSize": "large",
+     "pillStyle": {"adaptive": true, "glassTintDark": 0.5}}
+    """
+    let decoded = try JSONDecoder().decode(Settings.self, from: Data(json.utf8))
+    #expect(decoded == expected)
+}
