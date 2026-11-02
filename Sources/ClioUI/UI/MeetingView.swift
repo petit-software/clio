@@ -20,49 +20,60 @@ struct MeetingView: View {
     @State private var notes = ""
     @State private var notesSave: Task<Void, Never>?
     @State private var titleSave: Task<Void, Never>?
+    private static let end = "end"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+        // One page that scrolls under the window's glass toolbar; Stop
+        // floats over it on a glass bar of its own.
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                        .padding(.horizontal, 28)
+                        .padding(.top, 12)
+                        .padding(.bottom, 18)
 
-            if let warning {
-                warningBanner(warning)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
-            }
+                    if let warning {
+                        warningBanner(warning)
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 18)
+                    }
 
-            Picker("", selection: $pane) {
-                ForEach(panes) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
+                    switch pane {
+                    case .notes: notesPane
+                    case .transcript: transcriptPane
+                    case .summary: summaryPane
+                    }
 
-            Divider()
-
-            Group {
-                switch pane {
-                case .notes: notesPane
-                case .transcript: transcriptPane
-                case .summary: summaryPane
+                    // Room at the end, so the last line clears the bar.
+                    Color.clear.frame(height: 90).id(Self.end)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Room at the end, so the last line can scroll clear of the bar.
-            .safeAreaPadding(.bottom, 64)
-            .overlay(alignment: .bottom) {
-                actionBar
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 14)
+            .softTopEdge()
+            // The newest line, as it arrives, while the transcript is showing.
+            .onChange(of: meeting.record.lines.count) { _, _ in
+                guard pane == .transcript else { return }
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.end, anchor: .bottom) }
             }
         }
+        .overlay(alignment: .bottom) {
+            actionBar
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+        }
         .frame(minWidth: 420, minHeight: 420)
-        // Top right, always — where a saved meeting's and a dictation's are.
         .toolbar {
+            // The view switcher, centred in the toolbar.
+            ToolbarItem(placement: .principal) {
+                Picker("Show", selection: $pane) {
+                    ForEach(panes) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            // Top right, always — where a saved meeting's and a dictation's are.
             TrailingToolbarActions {
                 Button {
                     NSPasteboard.general.clearContents()
@@ -108,7 +119,7 @@ struct MeetingView: View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("Meeting", text: $title)
                 .textFieldStyle(.plain)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 26, weight: .bold))
                 .onSubmit { meeting.setTitle(title) }
                 // Saved as typed, a beat later, and on leaving — not only
                 // on Return, which nobody presses in a title.
@@ -246,7 +257,8 @@ struct MeetingView: View {
     private var notesPane: some View {
         MarkdownEditor(text: $notes,
                        placeholder: "Your notes, in Markdown. They guide the summary.",
-                       focusOnAppear: meeting.isActive)
+                       focusOnAppear: meeting.isActive, minHeight: 320)
+            .padding(.horizontal, 8)
             // Saved a beat after typing stops, not on every key.
             .onChange(of: notes) { _, new in
                 notesSave?.cancel()
@@ -264,21 +276,19 @@ struct MeetingView: View {
     }
 
     private var summaryPane: some View {
-        ScrollView {
-            Group {
-                if let summary = meeting.record.summary {
-                    SummaryText(markdown: summary)
-                } else {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Writing the summary on this Mac…")
-                            .foregroundStyle(.secondary)
-                    }
+        Group {
+            if let summary = meeting.record.summary {
+                SummaryText(markdown: summary)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Writing the summary on this Mac…")
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Footer

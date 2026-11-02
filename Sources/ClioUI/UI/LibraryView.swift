@@ -43,6 +43,9 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
         window.toolbarStyle = .unified
+        // No line under the toolbar: it is glass over the document, and the
+        // soft scroll edge is where the two meet.
+        window.titlebarSeparatorStyle = .none
         let host = NSHostingView(rootView: LibraryView(coordinator: coordinator))
         host.sceneBridgingOptions = [.toolbars, .title]
         window.contentView = host
@@ -95,17 +98,20 @@ struct LibraryView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $coordinator.librarySelection) {
+        // No `selection:` — the list would draw its own, in the accent
+        // colour, whatever tint it is given. Each row draws a light one
+        // instead (`selectable`), and ↑/↓ are handled below.
+        List {
             if let meeting = liveMeeting {
                 Section("Now") {
-                    LiveRow(meeting: meeting).tag(LibrarySelection.live)
+                    selectable(.live) { LiveRow(meeting: meeting) }
                 }
             }
 
             ForEach(groups) { group in
                 Section(group.title) {
                     ForEach(group.files) { file in
-                        MeetingRow(file: file).tag(LibrarySelection.meeting(file.url))
+                        selectable(.meeting(file.url)) { MeetingRow(file: file) }
                             .contextMenu { meetingMenu(file.url) }
                     }
                 }
@@ -114,7 +120,7 @@ struct LibraryView: View {
             if !dictations.isEmpty {
                 Section("Dictations") {
                     ForEach(dictations) { entry in
-                        DictationRow(entry: entry).tag(LibrarySelection.dictation(entry.id))
+                        selectable(.dictation(entry.id)) { DictationRow(entry: entry) }
                             .contextMenu {
                                 Button("Copy", systemImage: "square.fill.on.square.fill") {
                                     TextInjector.copy(entry.text)
@@ -128,6 +134,10 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.downArrow) { step(1) }
+        .onKeyPress(.upArrow) { step(-1) }
         .overlay {
             if library?.hasLoaded == true, groups.isEmpty, liveMeeting == nil, dictations.isEmpty {
                 ContentUnavailableView {
@@ -153,6 +163,44 @@ struct LibraryView: View {
                 .padding(12)
             }
         }
+    }
+
+    /// A row that selects itself on a click, with a light highlight when it
+    /// is the one showing — not the accent: the sidebar is for finding a
+    /// note, and the note is what should stand out.
+    private func selectable<Row: View>(_ tag: LibrarySelection,
+                                       @ViewBuilder row: () -> Row) -> some View {
+        let selected = coordinator.librarySelection == tag
+        return row()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selected ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+                                   : .clear))
+            .contentShape(Rectangle())
+            .onTapGesture { coordinator.librarySelection = tag }
+            // The highlight reaches the list's edges; the text lines up
+            // under the section headings.
+            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// Everything selectable, top to bottom, for ↑ and ↓.
+    private var order: [LibrarySelection] {
+        (liveMeeting == nil ? [] : [.live])
+            + groups.flatMap { $0.files.map { .meeting($0.url) } }
+            + dictations.map { .dictation($0.id) }
+    }
+
+    private func step(_ by: Int) -> KeyPress.Result {
+        let order = order
+        guard !order.isEmpty else { return .ignored }
+        let current = coordinator.librarySelection.flatMap { order.firstIndex(of: $0) }
+        let next = current.map { min(max($0 + by, 0), order.count - 1) } ?? 0
+        coordinator.librarySelection = order[next]
+        return .handled
     }
 
     private var groups: [MeetingLibrary.Group] {
@@ -342,59 +390,65 @@ struct MeetingDocumentView: View {
         #endif
     }
 
+    /// The meeting as one page that scrolls under the window's glass
+    /// toolbar: what it was, then the pane picked in the toolbar.
     private func document(_ record: MeetingRecord) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                TextField("Meeting", text: binding(\.title))
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 22, weight: .semibold))
-                Text(Self.when(record))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                if !record.attendees.isEmpty {
-                    Text(record.attendees
-                        .map { $0.declined ? "\($0.name) (declined)" : $0.name }
-                        .joined(separator: ", "))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("Meeting", text: binding(\.title))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 26, weight: .bold))
+                    Text(Self.when(record))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                    if !record.attendees.isEmpty {
+                        Text(record.attendees
+                            .map { $0.declined ? "\($0.name) (declined)" : $0.name }
+                            .joined(separator: ", "))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
                 }
-            }
-            .padding(.horizontal, 28)
-            .padding(.top, 20)
-            .padding(.bottom, 14)
+                .padding(.horizontal, 28)
+                .padding(.top, 12)
+                .padding(.bottom, 22)
 
-            Picker("", selection: $pane) {
-                ForEach(panes(record)) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 28)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            Group {
                 switch pane {
                 case .notes:
-                    MarkdownEditor(text: binding(\.notes),
-                                   placeholder: "Notes, in Markdown.")
+                    MarkdownEditor(text: binding(\.notes), placeholder: "Notes, in Markdown.",
+                                   minHeight: 320)
                         .padding(.horizontal, 8)
                 case .summary:
-                    ScrollView {
-                        SummaryText(markdown: record.summary ?? "")
-                            .padding(.horizontal, 28)
-                            .padding(.vertical, 18)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                    SummaryText(markdown: record.summary ?? "")
+                        .padding(.horizontal, 28)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 case .transcript:
                     TranscriptList(lines: record.lines, isLive: false)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 40)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // Top right, always — the same place for a meeting and a dictation.
+        .softTopEdge()
+        #if DEBUG
+        // For the tools: open scrolled to the end, so the toolbar has the
+        // document passing under it to be judged against.
+        .defaultScrollAnchor(ProcessInfo.processInfo.environment["CLIO_LIBRARY_SCROLLED"] != nil
+                             ? .bottom : nil)
+        #endif
         .toolbar {
+            // The view switcher, centred in the toolbar.
+            ToolbarItem(placement: .principal) {
+                Picker("Show", selection: $pane) {
+                    ForEach(panes(record)) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            // Top right, always — the same place for a meeting and a dictation.
             TrailingToolbarActions {
                 Button {
                     NSPasteboard.general.clearContents()
@@ -470,18 +524,20 @@ private struct DictationView: View {
     let remove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(entry.date.formatted(date: .complete, time: .shortened))
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            ScrollView {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(entry.date.formatted(date: .complete, time: .shortened))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
                 Text(entry.text)
                     .font(.system(size: 16))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 12)
         }
-        .padding(28)
+        .softTopEdge()
         // Top right, as a meeting's are.
         .toolbar {
             TrailingToolbarActions {
@@ -501,43 +557,35 @@ private struct DictationView: View {
 
 // MARK: - Shared
 
-/// What was said, in turns. Live, it follows the newest line.
+/// What was said, in turns. No scroll of its own: it is part of the
+/// document's one scroll, under the toolbar.
 struct TranscriptList: View {
     let lines: [MeetingLine]
     let isLive: Bool
 
     var body: some View {
         let paragraphs = MeetingMarkdown.paragraphs(lines)
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if paragraphs.isEmpty {
-                        Text(isLive ? "Listening. Lines appear a few seconds after they are said."
-                                    : "Nothing was transcribed.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(paragraphs) { line in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(line.speaker.label) · \(line.timestamp)")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(line.speaker == .me ? Color.accentColor : .secondary)
-                            Text(line.text)
-                                .font(.system(size: 13))
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .id(line.id)
-                    }
-                }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 18)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        LazyVStack(alignment: .leading, spacing: 12) {
+            if paragraphs.isEmpty {
+                Text(isLive ? "Listening. Lines appear a few seconds after they are said."
+                            : "Nothing was transcribed.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
             }
-            .onChange(of: paragraphs.last?.id) { _, last in
-                guard isLive, let last else { return }
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
+            ForEach(paragraphs) { line in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(line.speaker.label) · \(line.timestamp)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(line.speaker == .me ? Color.accentColor : .secondary)
+                    Text(line.text)
+                        .font(.system(size: 13))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .id(line.id)
             }
         }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

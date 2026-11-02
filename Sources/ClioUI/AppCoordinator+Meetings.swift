@@ -323,7 +323,11 @@ extension AppCoordinator {
                 lines: [(.others, "Okay, I think everyone's here. Let's start with the beta."),
                         (.me, "The build is ready. I'd like to send it to testers on Thursday."),
                         (.others, "Thursday works. Do we have the release notes?"),
-                        (.me, "Not yet, I'll write them tomorrow morning.")])
+                        (.me, "Not yet, I'll write them tomorrow morning.")]
+                    + (0..<14).flatMap { round -> [(MeetingSpeaker, String)] in
+                        [(.others, "Point \(round + 1): the pricing table needs one more pass before it goes out, and design wants to try the darker variant."),
+                         (.me, "Agreed on point \(round + 1). I'll check the numbers again and send them round this afternoon.")]
+                    })
         sample("1:1 with Ana", hoursAgo: 5, minutes: 25, people: ["Ana Ruiz"],
                 notes: "", summary: "### Hiring\n- Two onsite interviews next week.",
                 lines: [(.others, "How are the interviews going?"), (.me, "Two onsites next week.")])

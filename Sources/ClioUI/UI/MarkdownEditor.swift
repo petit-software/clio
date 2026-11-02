@@ -20,13 +20,15 @@ struct MarkdownEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.drawsBackground = false
-        scrollView.autohidesScrollers = true
+    /// Never shorter than this, so there is always somewhere to click.
+    var minHeight: CGFloat = 240
 
-        let textView = MarkdownTextView()
+    // No scroll view of its own: the editor is as tall as its text and lives
+    // inside the document's one scroll, which is what slides under the
+    // window's glass toolbar. A scroll inside a scroll would leave nothing
+    // passing under the toolbar, and scroll at cross purposes.
+    func makeNSView(context: Context) -> MarkdownTextView {
+        let textView = MarkdownTextView(frame: .zero)
         textView.delegate = context.coordinator
         textView.textStorage?.delegate = context.coordinator
         textView.isRichText = false
@@ -35,34 +37,40 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
-        textView.textContainerInset = NSSize(width: 20, height: 14)
+        textView.textContainerInset = NSSize(width: 20, height: 6)
         textView.font = MarkdownStyle.body
         textView.typingAttributes = MarkdownStyle.base
         textView.placeholder = placeholder
-        textView.isVerticallyResizable = true
+        textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.replaceAllText(with: text)
         MarkdownStyle.apply(to: textView.textStorage!)
-
-        scrollView.documentView = textView
         if focusOnAppear {
             DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         }
-        return scrollView
+        return textView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ textView: MarkdownTextView, context: Context) {
         context.coordinator.text = $text
-        guard let textView = scrollView.documentView as? MarkdownTextView,
-              textView.string != text else { return }
+        guard textView.string != text else { return }
         // Changed from outside — another window, a reload. Keep the caret
         // where it was as far as the new text allows.
         let selection = textView.selectedRange()
         textView.replaceAllText(with: text)
         let length = (text as NSString).length
         textView.setSelectedRange(NSRange(location: min(selection.location, length), length: 0))
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView textView: MarkdownTextView,
+                      context: Context) -> CGSize? {
+        // Only the width it is given. Asked for its ideal size, SwiftUI
+        // proposes an infinite width; echoed back, the editor claimed all of
+        // it, the split view shut the sidebar to make room, and the text was
+        // laid out on a line no window could show.
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 480
+        return CGSize(width: width, height: max(minHeight, textView.height(forWidth: width)))
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
@@ -73,6 +81,8 @@ struct MarkdownEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
+            // A new line makes it taller; SwiftUI asks for the size again.
+            textView.invalidateIntrinsicContentSize()
             textView.needsDisplay = true
         }
 
@@ -98,6 +108,23 @@ final class MarkdownTextView: NSTextView {
     /// with indexes that no longer fit.
     private let ownUndoManager = UndoManager()
     override var undoManager: UndoManager? { ownUndoManager }
+
+    /// How tall the text is at `width`, insets included.
+    func height(forWidth width: CGFloat) -> CGFloat {
+        guard let layoutManager, let textContainer else { return 0 }
+        let lineWidth = max(1, width - 2 * textContainerInset.width)
+        if textContainer.containerSize.width != lineWidth {
+            textContainer.containerSize = NSSize(width: lineWidth,
+                                                 height: .greatestFiniteMagnitude)
+        }
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer).height
+        return ceil(used + 2 * textContainerInset.height)
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: height(forWidth: bounds.width))
+    }
 
     /// Replaces all of the text from outside — a reload, another note — and
     /// forgets the edits that were made to what it replaces.
