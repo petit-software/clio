@@ -15,6 +15,9 @@ public final class AppCoordinator {
             // A dictation takes the microphone from the level in Settings,
             // and gives it back.
             updateLevelMonitor()
+            // Words dictated into a text field during a call are not part
+            // of the meeting.
+            meeting?.isMicrophoneSuppressed = state == .recording
         }
     }
     /// 0…1, driven by the recorder at ~30 Hz. The overlay's waveform.
@@ -34,6 +37,18 @@ public final class AppCoordinator {
     public let models: ModelManager
     public let history: HistoryStore
     public let audioDevices: AudioDeviceMonitor
+    public let calendar: MeetingCalendar
+
+    /// The meeting being recorded, or the last one, until another starts.
+    public internal(set) var meeting: MeetingSession?
+    /// Why the last attempt to start a meeting did not, for the menu.
+    public internal(set) var meetingProblem: String?
+    var meetingWindow: MeetingWindowController?
+    /// The call the meeting belongs to, so it can stop when the call does.
+    var meetingCallApp: CallApp?
+    var callWatch = CallWatch()
+    var callWatchTask: Task<Void, Never>?
+    var meetingOffer: MeetingOfferController?
     /// Nil in previews and tests: starting a real updater would schedule
     /// network checks from a preview canvas.
     public let updates: UpdateManager?
@@ -43,7 +58,8 @@ public final class AppCoordinator {
     /// Nil in previews and tests, which must not open a microphone.
     private let levelMonitor: InputLevelMonitor?
     private let feedback = FeedbackPlayer()
-    private let engine: any TranscriptionEngine
+    /// The engine, shared with meetings one job at a time — dictation first.
+    let engine: TranscriptionQueue
     private var overlay: OverlayController?
 
     private var resetTask: Task<Void, Never>?
@@ -77,16 +93,18 @@ public final class AppCoordinator {
                 history: HistoryStore? = nil,
                 updates: UpdateManager? = nil,
                 levelMonitor: InputLevelMonitor? = InputLevelMonitor(),
+                calendar: MeetingCalendar? = nil,
                 engine: any TranscriptionEngine = WhisperKitEngine()) {
         self.settingsStore = settingsStore
         self.permissions = permissions
         self.models = models
         self.audioDevices = audioDevices
+        self.calendar = calendar ?? MeetingCalendar()
         self.updates = updates
         self.levelMonitor = levelMonitor
         self.history = history
             ?? HistoryStore(persistsToDisk: settingsStore.settings.keepHistoryOnDisk)
-        self.engine = engine
+        self.engine = TranscriptionQueue(engine)
     }
 
     /// The model transcription will use. Nil means nothing is installed.
@@ -118,6 +136,7 @@ public final class AppCoordinator {
 
     public func start() {
         try? AppPaths.ensureDirectories()
+        watchForCalls()
 
         overlay = OverlayController()
         // Clicking the pill while it is transcribing abandons the run.
@@ -188,6 +207,10 @@ public final class AppCoordinator {
         levelMonitor?.stop()
         hotkeys.stop()
         permissions.stopPolling()
+        // Quitting mid-meeting keeps what was transcribed; the chunks still
+        // in flight are lost, which beats holding the quit up for them.
+        callWatchTask?.cancel()
+        meeting?.abandon()
         settingsStore.flush()
     }
 
@@ -356,9 +379,10 @@ public final class AppCoordinator {
                     translateToEnglish: settings.translateToEnglish,
                     initialPrompt: TranscriptFormatter.initialPrompt(
                         from: settings.customVocabulary))
-                try await engine.load(model: model)
                 let transcript = try await engine.transcribe(samples: samples,
-                                                             options: options)
+                                                             options: options,
+                                                             model: model,
+                                                             priority: .dictation)
                 guard !Task.isCancelled else { return }
                 await self?.deliver(transcript, token: token)
             } catch is CancellationError {

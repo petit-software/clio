@@ -14,6 +14,12 @@
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
 	<!--
+	  The calendar, read to name meeting notes after the event they belong
+	  to. The hardened runtime refuses EventKit without it.
+	-->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+	<!--
 	  Deliberately NOT here: com.apple.security.automation.apple-events. Clio
 	  sends no Apple Events. It pastes with a synthesized CGEvent and opens
 	  System Settings through LaunchServices, neither of which is scripting.

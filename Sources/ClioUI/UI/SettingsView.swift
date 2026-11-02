@@ -11,24 +11,45 @@ public struct SettingsView: View {
 
     public init(coordinator: AppCoordinator) { self.coordinator = coordinator }
 
+    /// The tab showing. Starts on General, or — for the CLIO_SETTINGS_SHOW
+    /// tool — the one CLIO_SETTINGS_TAB names.
+    @State private var tab: String = {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CLIO_SETTINGS_TAB"] ?? "general"
+        #else
+        "general"
+        #endif
+    }()
+
     public var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralTab(coordinator: coordinator)
                 .tabItem { Label { Text("General") } icon: { SettingsIcon.general } }
+                .tag("general")
             ModelTab(coordinator: coordinator)
                 .tabItem { Label { Text("Model") } icon: { SettingsIcon.model } }
+                .tag("model")
             AudioTab(coordinator: coordinator)
                 .tabItem { Label { Text("Audio") } icon: { SettingsIcon.audio } }
+                .tag("audio")
             TranscriptionTab(coordinator: coordinator)
                 .tabItem { Label { Text("Transcription") } icon: { SettingsIcon.transcription } }
+                .tag("transcription")
             OutputTab(coordinator: coordinator)
                 .tabItem { Label { Text("Output") } icon: { SettingsIcon.output } }
+                .tag("output")
+            MeetingsTab(coordinator: coordinator)
+                .tabItem { Label { Text("Meetings") } icon: { SettingsIcon.meetings } }
+                .tag("meetings")
             FeedbackTab(coordinator: coordinator)
                 .tabItem { Label { Text("Feedback") } icon: { SettingsIcon.feedback } }
+                .tag("feedback")
             AboutTab(coordinator: coordinator)
                 .tabItem { Label { Text("About") } icon: { SettingsIcon.about } }
+                .tag("about")
         }
-        .frame(width: 480, height: 400)
+        // Wide enough for eight tabs in one row.
+        .frame(width: 560, height: 420)
         .floatingWindow()
     }
 }
@@ -698,6 +719,92 @@ private struct OutputTab: View {
 }
 
 // MARK: - Feedback
+
+// MARK: - Meetings
+
+private struct MeetingsTab: View {
+    @Bindable var coordinator: AppCoordinator
+
+    private var settings: ClioCore.Settings { coordinator.settingsStore.settings }
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Save notes to") {
+                    HStack(spacing: 6) {
+                        Text(folderName)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                        Button("Choose…", action: chooseFolder)
+                    }
+                }
+                if settings.meetingsFolderPath != nil {
+                    Button("Use Documents ▸ Clio Meetings") {
+                        coordinator.settingsStore.settings.meetingsFolderPath = nil
+                    }
+                }
+                Toggle("Write a summary when the meeting ends", isOn: Binding(
+                    get: { settings.meetingSummaries },
+                    set: { coordinator.settingsStore.settings.meetingSummaries = $0 }))
+                    .disabled(!MeetingSummarizer.isAvailable)
+                if !MeetingSummarizer.isAvailable {
+                    Text("Summaries are written by Apple Intelligence on this Mac, "
+                         + "which needs macOS 26 with Apple Intelligence turned on.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Toggle("Offer to take notes when a call starts", isOn: Binding(
+                    get: { settings.meetingDetection },
+                    set: { coordinator.settingsStore.settings.meetingDetection = $0 }))
+            } footer: {
+                Text("Each meeting is one Markdown file: your notes, the summary and "
+                     + "the transcript. Your side is marked Me; the call is Others.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Access") {
+                LabeledContent("Calendar") {
+                    switch coordinator.calendar.access {
+                    case .granted:
+                        Text("Allowed").foregroundStyle(.secondary)
+                    case .notDetermined:
+                        Button("Allow") { Task { await coordinator.calendar.requestAccess() } }
+                    case .denied:
+                        Button("Open Privacy Settings") { coordinator.calendar.openPrivacySettings() }
+                    }
+                }
+                LabeledContent("Call audio") {
+                    Button("Open Privacy Settings") { MeetingView.openSystemAudioSettings() }
+                }
+                Text("The calendar names each meeting and lists who was invited. "
+                     + "Call audio is what lets Clio hear the other side; macOS asks "
+                     + "the first time a meeting starts.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var folderName: String {
+        let url = MeetingMarkdown.folder(customPath: settings.meetingsFolderPath)
+        return (url.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.directoryURL = MeetingMarkdown.folder(customPath: settings.meetingsFolderPath)
+        if panel.runModal() == .OK, let url = panel.url {
+            coordinator.settingsStore.settings.meetingsFolderPath = url.path
+        }
+    }
+}
 
 private struct FeedbackTab: View {
     @Bindable var coordinator: AppCoordinator

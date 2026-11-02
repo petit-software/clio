@@ -81,6 +81,7 @@ enum Preview {
             audioDevices: AudioDeviceMonitor(simulating: devices),
             history: history,
             levelMonitor: nil,
+            calendar: MeetingCalendar(simulating: []),
             engine: StubTranscriptionEngine())
     }
 

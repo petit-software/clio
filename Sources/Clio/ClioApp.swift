@@ -35,7 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let env = ProcessInfo.processInfo.environment
         return env["CLIO_OVERLAY_DUMP"] != nil || env["CLIO_OVERLAY_SHOW"] != nil
             || env["CLIO_INTRO_SHOW"] != nil || env["CLIO_SETTINGS_SHOW"] != nil
-            || env["CLIO_MENU_SHOW"] != nil
+            || env["CLIO_MENU_SHOW"] != nil || env["CLIO_MEETING_SHOW"] != nil
+            || env["CLIO_OFFER_SHOW"] != nil
         #else
         return false
         #endif
@@ -84,7 +85,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        // Listen to system audio through the meeting tap and quit. Not
+        // DEBUG-only, for the reason the stress is not: the permission is
+        // the signed bundle's.
+        if let seconds = ProcessInfo.processInfo.environment["CLIO_SYSTEM_AUDIO_TEST"]
+            .flatMap(Double.init) {
+            let out = ProcessInfo.processInfo.environment["CLIO_SYSTEM_AUDIO_OUT"]
+                .map { URL(fileURLWithPath: $0) }
+            Task { @MainActor in
+                let report = await SystemAudioRecorder.check(seconds: seconds, writingTo: out)
+                FileHandle.standardError.write(Data((report + "\n").utf8))
+                exit(report.contains("heard sound: yes") ? 0 : 1)
+            }
+            return
+        }
+        // A real meeting, recorded and transcribed, then quit.
+        if let seconds = ProcessInfo.processInfo.environment["CLIO_MEETING_TEST"]
+            .flatMap(Double.init) {
+            Task { @MainActor in
+                let report = await coordinator.runMeetingCheck(seconds: seconds)
+                FileHandle.standardError.write(Data((report + "\n").utf8))
+                exit(report.contains("FAILED") ? 1 : 0)
+            }
+            return
+        }
         #if DEBUG
+        // The meeting window, filled with a meeting that never happened, in
+        // the state named: recording, finishing, finished, silent.
+        if let which = ProcessInfo.processInfo.environment["CLIO_MEETING_SHOW"] {
+            NSApp.setActivationPolicy(.accessory)
+            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+            coordinator.showSimulatedMeeting(which)
+            return
+        }
+        // The card offered when a call starts, top right.
+        if ProcessInfo.processInfo.environment["CLIO_OFFER_SHOW"] != nil {
+            NSApp.setActivationPolicy(.accessory)
+            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+            coordinator.showSimulatedOffer()
+            return
+        }
         // Render the overlay states and quit, without starting the app proper.
         if let directory = ProcessInfo.processInfo.environment["CLIO_OVERLAY_DUMP"] {
             OverlayDump.write(to: URL(fileURLWithPath: directory))

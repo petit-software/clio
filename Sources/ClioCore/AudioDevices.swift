@@ -149,6 +149,23 @@ public enum AudioDevices {
         return status == noErr && deviceID != kAudioObjectUnknown ? deviceID : nil
     }
 
+    /// Where the Mac's sound is going. The meeting tap is clocked by it.
+    static func defaultOutputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID)
+        return status == noErr && deviceID != kAudioObjectUnknown ? deviceID : nil
+    }
+
+    static func uid(of deviceID: AudioDeviceID) -> String? {
+        string(deviceID, kAudioDevicePropertyDeviceUID)
+    }
+
     static func allDeviceIDs() -> [AudioDeviceID] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,

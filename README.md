@@ -10,6 +10,13 @@ A menu bar app: no Dock icon, no window. Hold the shortcut, a small pill shows
 the level while you talk, and on release the transcript is pasted into the
 frontmost app. Models are downloaded once and run on the Apple Neural Engine.
 
+It also takes meeting notes. Start them from the menu — named after the
+calendar event that is on — or accept the offer Clio makes when a call app
+opens its microphone. Your microphone is "Me" and the call's audio is
+"Others", transcribed as the meeting goes into one Markdown file per meeting
+in `~/Documents/Clio Meetings`, with your own notes and, on macOS 26 with
+Apple Intelligence, a summary written on this Mac.
+
 Requires macOS 14+. Design notes in
 [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-spec.md);
 [`AGENTS.md`](AGENTS.md) is the orientation for working on it — how the pieces
@@ -24,13 +31,14 @@ Working end to end, signed, notarized and updating itself through Sparkle.
 | Dictation | hotkey → record → transcribe → paste, with silence trimming |
 | Models | catalog, download, SHA-256 verified, shared-cache discovery |
 | Input | microphone picker, live device list, Bluetooth warning |
+| Meetings | mic + system audio (process tap), calendar (EventKit), live transcript, Markdown, on-device summary |
 | Distribution | Developer ID signed, notarized, stapled DMG, Sparkle updates |
 
 ## Build
 
 ```sh
 swift build              # library + executable
-swift test               # 74 tests, no network
+swift test               # 165 tests, no network
 ./scripts/build-app.sh   # Clio.app, signed with your Developer ID
 open Clio.app
 ```

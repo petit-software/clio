@@ -182,6 +182,9 @@ func settingsSurviveAddedFields() throws {
     #expect(settings.keepHistoryOnDisk == false)
     #expect(settings.activeModelID == nil)
     #expect(settings.inputDeviceUID == nil)
+    #expect(settings.meetingsFolderPath == nil)
+    #expect(settings.meetingSummaries == true)
+    #expect(settings.meetingDetection == true)
 }
 
 @Test("An empty object decodes to defaults rather than throwing")

@@ -1,0 +1,239 @@
+import Foundation
+
+/// Which side of the call a line came from. The two streams are recorded
+/// separately, so this is known for free: the microphone is the person at
+/// this Mac, the system audio is everyone else.
+public enum MeetingSpeaker: String, Codable, Sendable {
+    case me
+    case others
+
+    public var label: String {
+        switch self {
+        case .me: return "Me"
+        case .others: return "Others"
+        }
+    }
+}
+
+/// One transcribed chunk of speech.
+public struct MeetingLine: Codable, Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var speaker: MeetingSpeaker
+    /// Seconds from the start of the meeting.
+    public var start: TimeInterval
+    public var end: TimeInterval
+    public var text: String
+
+    public init(id: UUID = UUID(), speaker: MeetingSpeaker,
+                start: TimeInterval, end: TimeInterval, text: String) {
+        self.id = id
+        self.speaker = speaker
+        self.start = start
+        self.end = end
+        self.text = text
+    }
+
+    /// "04:07", or "1:04:07" past the hour.
+    public var timestamp: String { Self.timestamp(start) }
+
+    public static func timestamp(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        let hours = total / 3600, minutes = total % 3600 / 60, secs = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
+            : String(format: "%02d:%02d", minutes, secs)
+    }
+}
+
+public struct MeetingAttendee: Codable, Sendable, Equatable, Hashable {
+    public var name: String
+    public var declined: Bool
+
+    public init(name: String, declined: Bool = false) {
+        self.name = name
+        self.declined = declined
+    }
+}
+
+/// Everything about one meeting: what it was, who was there, what was said,
+/// and what the user wrote.
+public struct MeetingRecord: Sendable, Equatable {
+    public var title: String
+    public var startDate: Date
+    public var endDate: Date?
+    public var attendees: [MeetingAttendee] = []
+    public var notes = ""
+    public var summary: String?
+    public var joinURL: URL?
+    /// Ordered by start time, whichever stream finished transcribing first.
+    public private(set) var lines: [MeetingLine] = []
+
+    public init(title: String, startDate: Date = Date()) {
+        self.title = title
+        self.startDate = startDate
+    }
+
+    /// Adds a line in time order, unless it is the other side's words heard
+    /// a second time through the microphone.
+    ///
+    /// On speakers rather than headphones the microphone hears the call as
+    /// well as the user, and every line the others say would come back as
+    /// "Me". Each stream is transcribed as it arrives, in either order, so
+    /// the check runs both ways: a "Me" line that repeats an "Others" line
+    /// already here is not added, and an "Others" line removes the "Me"
+    /// lines that turn out to have been its echo.
+    @discardableResult
+    public mutating func add(_ line: MeetingLine) -> Bool {
+        let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        var line = line
+        line.text = text
+
+        switch line.speaker {
+        case .me:
+            if lines.contains(where: { $0.speaker == .others && Self.isEcho(line, of: $0) }) {
+                return false
+            }
+        case .others:
+            lines.removeAll { $0.speaker == .me && Self.isEcho($0, of: line) }
+        }
+
+        let index = lines.firstIndex { $0.start > line.start } ?? lines.endIndex
+        lines.insert(line, at: index)
+        return true
+    }
+
+    /// Whether `mine` is mostly the words of `theirs`, said at about the
+    /// same time. Words, not characters: the two transcriptions of one
+    /// sentence differ in punctuation and the odd word, never in most words.
+    static func isEcho(_ mine: MeetingLine, of theirs: MeetingLine) -> Bool {
+        let slack: TimeInterval = 3
+        guard mine.start < theirs.end + slack, theirs.start < mine.end + slack else {
+            return false
+        }
+        let myWords = words(mine.text)
+        guard myWords.count >= 3 else { return false }
+        var theirCounts: [String: Int] = [:]
+        for word in words(theirs.text) { theirCounts[word, default: 0] += 1 }
+        var shared = 0
+        for word in myWords where (theirCounts[word] ?? 0) > 0 {
+            theirCounts[word]! -= 1
+            shared += 1
+        }
+        return Double(shared) / Double(myWords.count) >= 0.6
+    }
+
+    static func words(_ text: String) -> [String] {
+        text.lowercased()
+            .split { !$0.isLetter && !$0.isNumber && $0 != "'" }
+            .map(String.init)
+    }
+
+    /// The transcript as plain lines, for the summary and for copying.
+    public var transcriptText: String {
+        MeetingMarkdown.paragraphs(lines)
+            .map { "[\($0.timestamp)] \($0.speaker.label): \($0.text)" }
+            .joined(separator: "\n")
+    }
+}
+
+/// Reads and writes nothing but the one Markdown file per meeting — the
+/// file is the meeting, in a folder the user can open with anything.
+public enum MeetingMarkdown {
+
+    /// `~/Documents/Clio Meetings`, unless Settings names another folder.
+    public static func folder(customPath: String?) -> URL {
+        if let customPath, !customPath.isEmpty {
+            return URL(fileURLWithPath: (customPath as NSString).expandingTildeInPath,
+                       isDirectory: true)
+        }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documents.appendingPathComponent("Clio Meetings", isDirectory: true)
+    }
+
+    /// "2026-11-02 14.00 Weekly sync.md". Sorts by date in Finder, and the
+    /// time keeps two meetings with one name apart.
+    public static func fileName(for record: MeetingRecord) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH.mm"
+        let unsafe = CharacterSet(charactersIn: "/\\:?%*|\"<>").union(.newlines)
+        let title = record.title.components(separatedBy: unsafe).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        let name = "\(formatter.string(from: record.startDate)) \(title.isEmpty ? "Meeting" : title)"
+        return String(name.prefix(120)) + ".md"
+    }
+
+    public static func render(_ record: MeetingRecord) -> String {
+        var out: [String] = ["# \(record.title)", ""]
+
+        let day = DateFormatter()
+        day.dateStyle = .medium
+        day.timeStyle = .short
+        let time = DateFormatter()
+        time.timeStyle = .short
+        if let end = record.endDate {
+            out.append("**Date:** \(day.string(from: record.startDate)) – \(time.string(from: end))  ")
+        } else {
+            out.append("**Date:** \(day.string(from: record.startDate)) (in progress)  ")
+        }
+        if !record.attendees.isEmpty {
+            let names = record.attendees.map { $0.declined ? "\($0.name) (declined)" : $0.name }
+            out.append("**Attendees:** \(names.joined(separator: ", "))  ")
+        }
+        if let url = record.joinURL {
+            out.append("**Link:** <\(url.absoluteString)>  ")
+        }
+        out.append("")
+
+        let notes = record.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        out += ["## Notes", "", notes.isEmpty ? "*No notes.*" : notes, ""]
+
+        if let summary = record.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !summary.isEmpty {
+            out += ["## Summary", "", summary, ""]
+        }
+
+        out += ["## Transcript", ""]
+        let paragraphs = paragraphs(record.lines)
+        if paragraphs.isEmpty {
+            out.append("*Nothing transcribed yet.*")
+        } else {
+            for line in paragraphs {
+                out += ["**[\(line.timestamp)] \(line.speaker.label):** \(line.text)", ""]
+            }
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// Writes the record, atomically, replacing the file it was written to
+    /// last time. Returns where it went.
+    @discardableResult
+    public static func write(_ record: MeetingRecord, to folder: URL,
+                             replacing previous: URL? = nil) throws -> URL {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(fileName(for: record))
+        try Data(render(record).utf8).write(to: url, options: .atomic)
+        // Renamed: the title changed since the last write.
+        if let previous, previous.standardizedFileURL != url.standardizedFileURL {
+            try? FileManager.default.removeItem(at: previous)
+        }
+        return url
+    }
+
+    /// Consecutive lines from one side, close together, read as one
+    /// paragraph: a person's turn, not the chunk boundaries inside it.
+    public static func paragraphs(_ lines: [MeetingLine]) -> [MeetingLine] {
+        var result: [MeetingLine] = []
+        for line in lines {
+            if let last = result.last, last.speaker == line.speaker,
+               line.start - last.end < 8 {
+                result[result.count - 1].text += " " + line.text
+                result[result.count - 1].end = max(last.end, line.end)
+            } else {
+                result.append(line)
+            }
+        }
+        return result
+    }
+}

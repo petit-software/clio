@@ -72,6 +72,14 @@ public struct Settings: Codable, Equatable, Sendable {
     /// keeping a log of it on disk is opt-in.
     public var keepHistoryOnDisk: Bool = false
 
+    // Meetings
+    /// Where meeting notes are written. Nil is `~/Documents/Clio Meetings`.
+    public var meetingsFolderPath: String? = nil
+    /// Write a summary when a meeting ends, where macOS has a model for it.
+    public var meetingSummaries: Bool = true
+    /// Offer to take notes when a call starts during a calendar event.
+    public var meetingDetection: Bool = true
+
     public init() {}
 
     /// Every chord that starts a dictation, primary first.
@@ -156,6 +164,10 @@ public struct Settings: Codable, Equatable, Sendable {
         keepTranscriptOnClipboard = read(.keepTranscriptOnClipboard,
                                          defaults.keepTranscriptOnClipboard)
         keepHistoryOnDisk = read(.keepHistoryOnDisk, defaults.keepHistoryOnDisk)
+
+        meetingsFolderPath = readOptional(.meetingsFolderPath, String.self)
+        meetingSummaries = read(.meetingSummaries, defaults.meetingSummaries)
+        meetingDetection = read(.meetingDetection, defaults.meetingDetection)
     }
 }
 

@@ -143,6 +143,9 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        addMeetingItems(to: menu)
+
+        menu.addItem(.separator())
         menu.addItem(microphoneItem())
         menu.addItem(.separator())
 
@@ -159,6 +162,61 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         // Readable, not pressable.
         menu.addItem(Self.disabled(Self.versionLine))
+    }
+
+    /// Meeting notes: the calendar's event by name when there is one, so
+    /// the note is called what the meeting is called; Stop while one runs.
+    private func addMeetingItems(to menu: NSMenu) {
+        let coordinator = coordinator
+        if let meeting = coordinator.meeting, meeting.isActive {
+            menu.addItem(item("Meeting Notes — \(meeting.record.title)") {
+                coordinator.showMeetingWindow()
+            })
+            menu.addItem(item("Stop Meeting Notes") { coordinator.stopMeeting() })
+            return
+        }
+
+        coordinator.calendar.refresh()
+        let current = coordinator.calendar.current
+        if let current {
+            menu.addItem(item("Take Notes for “\(Self.short(current.title))”") {
+                coordinator.startMeeting(event: current)
+            })
+            if current.joinURL != nil {
+                menu.addItem(item("Join “\(Self.short(current.title))” and Take Notes") {
+                    coordinator.startMeeting(event: current, join: true)
+                })
+            }
+        } else {
+            menu.addItem(item("Take Meeting Notes") { coordinator.startMeeting() })
+        }
+
+        let later = coordinator.calendar.upcoming.filter { $0.id != current?.id }
+        if !later.isEmpty {
+            let submenu = NSMenu(title: "Later Today")
+            submenu.autoenablesItems = false
+            let time = DateFormatter()
+            time.timeStyle = .short
+            for event in later {
+                let title = "\(time.string(from: event.start))  \(Self.short(event.title))"
+                submenu.addItem(item(title) {
+                    coordinator.startMeeting(event: event, join: event.joinURL != nil)
+                })
+            }
+            menu.addItem(Self.submenu("Later Today", submenu))
+        }
+
+        if coordinator.meeting != nil {
+            menu.addItem(item("Show Last Meeting Notes") { coordinator.showMeetingWindow() })
+        }
+        menu.addItem(item("Open Meetings Folder") { coordinator.revealMeetingsFolder() })
+        if let problem = coordinator.meetingProblem {
+            menu.addItem(Self.disabled(problem))
+        }
+    }
+
+    private static func short(_ title: String) -> String {
+        title.count > 40 ? String(title.prefix(39)) + "…" : title
     }
 
     /// The first row: the name, the shortcut beside it in grey the way a

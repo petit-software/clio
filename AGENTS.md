@@ -26,10 +26,25 @@ One dictation, end to end, with the file that owns each step.
 
 Every state is cancellable. Esc, or clicking the pill, at any point.
 
+## The meeting
+
+One meeting, end to end.
+
+| | | |
+|---|---|---|
+| 1 | started from the menu (named after the calendar's current event), or from the offer when a call app opens its mic | `ClioUI/AppCoordinator+Meetings`, `ClioCore/CallDetection` |
+| 2 | calendar asked for the first time a meeting starts, never at launch | `ClioCore/MeetingCalendar` (EventKit) |
+| 3 | mic streams through `AudioRecorder.onSamples` ("Me"); system audio through a process tap ("Others") | `AudioRecorder`, `ClioCore/SystemAudioCapture` |
+| 4 | each stream cut at its pauses, chunks ≤ 25 s, stamped with when they were said | `ClioCore/SpeechSegmenter`, `MeetingSession.StreamFeed` |
+| 5 | transcribed one at a time behind any dictation | `ClioCore/TranscriptionQueue` |
+| 6 | added in time order, echo of the call in the mic dropped, Markdown rewritten | `ClioCore/MeetingRecord` |
+| 7 | stop: drain, then a summary by Apple's on-device model (macOS 26) | `MeetingSession.stop`, `ClioCore/MeetingSummarizer` |
+| 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
+
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 133 tests live here.
+  without standing up an app. All 165 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -39,7 +54,7 @@ Every state is cancellable. Esc, or clicking the pill, at any point.
 
 ```sh
 swift build
-swift test                                  # 133 tests, 16 suites, no network
+swift test                                  # 165 tests, 22 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -72,6 +87,12 @@ CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio      # start/stop 40 times 
 CLIO_RECORDER_STRESS_ALL=1 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio   # the same, on Bluetooth headsets and iPhones too — ask whoever is wearing them first
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
+CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a given tab
+CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, finishing, finished
+CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
+CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
+CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
+CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
 ```
 
 `CLIO_METER_DUMP` exists because the meter was twice shipped without being
@@ -206,6 +227,32 @@ windows using the timestamps it emits. Suppressing them silently drops
 everything after the first window: measured 154 characters against 993 on the
 same minute of speech.
 
+**System audio is a process tap, not ScreenCaptureKit.** ScreenCaptureKit
+records a display to get at its sound, so it needs Screen Recording; a tap
+needs only system-audio recording (`NSAudioCaptureUsageDescription`). The tap
+is wired into a private aggregate device clocked by the current output, as
+Apple's recipe does it, so when the output changes the capture is rebuilt
+(`SystemAudioRecorder.outputDeviceChanged`).
+
+**The tap sends nothing while nothing plays.** Measured: 0 s of samples in a
+silent 10 s, and as long as the speech when `say` ran. A stream's sample count
+is not its clock, so `StreamFeed` compares it with the wall clock and tells
+the segmenter about any gap (`SpeechSegmenter.skip`) — without that, every
+quiet stretch pulled the next "Others" line earlier. A refused permission
+does not throw either; it is silence, which is why the window's warning is
+worded "if others are talking".
+
+**One WhisperKit pipeline, two callers.** The engine is an actor, but actors
+re-enter at every `await` and `transcribe` awaits throughout: a dictation
+during a meeting would have run on the pipeline alongside a chunk. Everything
+goes through `TranscriptionQueue`, dictation first. Loading too — switching
+models mid-chunk pulls the model out from under it.
+
+**Meetings stream; they do not buffer.** A meeting starts its `AudioRecorder`
+with `maxSeconds: 0` and takes samples from `onSamples`. The dictation buffer
+is preallocated for the whole recording, which for a two-hour call is half a
+gigabyte.
+
 **Microphones are stored by CoreAudio UID, never `AudioDeviceID`.** The numeric
 id is reassigned on replug.
 
@@ -282,6 +329,12 @@ Verified by something repeatable:
   tampered copy is rejected
 - a quarantined download passes Gatekeeper
 - startup latency, measured per phase
+- system audio through the process tap, on built-in speakers
+  (`CLIO_SYSTEM_AUDIO_TEST`), and a whole meeting — both streams, the queue,
+  WhisperKit, the Markdown and an Apple Intelligence summary
+  (`CLIO_MEETING_TEST`, `say` through the speakers)
+- segmenting, echo removal, the queue's order, calendar matching, call
+  detection decisions: `MeetingTests`
 
 Not verified, and worth knowing:
 
@@ -297,6 +350,15 @@ Not verified, and worth knowing:
   path in the app.
 - **Sparkle actually installing an update.** Every link has been checked
   individually; the whole chain has never been watched run.
+- **meetings on a real call.** The tap has heard `say`, not Zoom or a browser
+  call; the offer and the auto-stop have only been tested as decisions, not
+  watched against an app opening and closing its microphone; and the tap has
+  not been run with headphones or AirPods as the output, where the aggregate
+  is rebuilt on every change.
+- **the calendar prompt and EventKit reading real events.** Matching is
+  tested on values; nobody has granted access and seen a meeting named.
+- **a refused system-audio permission.** Assumed to deliver silence, as it
+  does for a tap with nothing playing; not seen.
 - **the UI has no tests.** `ClioUI` is a library the test target could import,
   but nothing does yet. Previews cover the states; no assertions do.
 

@@ -42,6 +42,16 @@ public final class AudioRecorder: @unchecked Sendable {
     /// Called on the main actor if capture dies mid-recording.
     @MainActor public var onFailure: ((Error) -> Void)?
 
+    /// Each stretch of 16 kHz mono samples as soon as it is converted, on
+    /// the capture's worker thread. A meeting streams through this rather
+    /// than keeping hours of audio in the buffer: it starts the recorder
+    /// with `maxSeconds: 0`, so nothing is kept and `stop` returns nothing.
+    public var onSamples: (@Sendable ([Float]) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return samplesHandler }
+        set { lock.lock(); samplesHandler = newValue; lock.unlock() }
+    }
+    private var samplesHandler: (@Sendable ([Float]) -> Void)?
+
     /// The microphone, while a recording is running. Made for one recording
     /// and thrown away after it, so nothing about the hardware is remembered
     /// from one to the next. Only ever touched under `captureLock`.
@@ -597,7 +607,10 @@ public final class AudioRecorder: @unchecked Sendable {
         currentRMS = rms
         currentBands = bands
         bufferCount += 1
+        let handler = samplesHandler
         lock.unlock()
+
+        handler?(Array(UnsafeBufferPointer(start: samples, count: count)))
     }
 
     // MARK: Level metering
