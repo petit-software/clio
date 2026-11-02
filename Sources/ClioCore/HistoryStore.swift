@@ -67,6 +67,12 @@ public final class HistoryStore {
         if persistsToDisk { save() }
     }
 
+    /// Forgets one dictation, on disk too if history is kept there.
+    public func remove(id: UUID) {
+        entries.removeAll { $0.id == id }
+        if persistsToDisk { save() }
+    }
+
     public func clear() {
         entries = []
         if persistsToDisk { save() } else { deleteFile() }

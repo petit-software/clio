@@ -126,6 +126,16 @@ extension AppCoordinator {
         libraryWindow?.show(coordinator: self)
     }
 
+    /// Forgets one dictation, and leaves the library on nothing if it was
+    /// the one showing.
+    public func removeDictation(id: UUID) {
+        history.remove(id: id)
+        #if DEBUG
+        libraryDictationsOverride?.removeAll { $0.id == id }
+        #endif
+        if librarySelection == .dictation(id) { librarySelection = nil }
+    }
+
     /// Settings moved the notes folder.
     public func meetingsFolderChanged() {
         library?.setFolder(MeetingMarkdown.folder(customPath: settingsStore.settings.meetingsFolderPath))
@@ -341,6 +351,8 @@ extension AppCoordinator {
                                    text: "Sure. I think it should stay at nine dollars."))
             meeting = MeetingSession.simulated(record: record, phase: .recording)
             librarySelection = .live
+        } else if which == "dictation", let first = libraryDictationsOverride?.first {
+            librarySelection = .dictation(first.id)
         } else {
             librarySelection = nil
             Task { @MainActor in

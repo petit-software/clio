@@ -34,6 +34,19 @@ extension View {
     }
 }
 
+extension View {
+    /// Content scrolling under the toolbar fades into it rather than being
+    /// cut off at a line — the soft edge macOS 26 draws. Nothing before it.
+    @ViewBuilder
+    func softTopEdge() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+}
+
 /// Pieces of glass close together, so they blend and morph as one — what
 /// `GlassEffectContainer` is for. Nothing before macOS 26.
 struct GlassGroup<Content: View>: View {
@@ -46,5 +59,20 @@ struct GlassGroup<Content: View>: View {
         } else {
             content
         }
+    }
+}
+
+/// A document's actions, top right of the window — the same spot whether a
+/// meeting or a dictation is showing. A flexible space pushes them there:
+/// on macOS a placement alone puts them at the leading edge, next to the
+/// sidebar.
+struct TrailingToolbarActions<Content: View>: ToolbarContent {
+    @ViewBuilder var content: Content
+
+    var body: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.flexible)
+        }
+        ToolbarItemGroup(placement: .automatic) { content }
     }
 }

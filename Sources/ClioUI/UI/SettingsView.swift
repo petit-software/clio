@@ -48,6 +48,7 @@ public struct SettingsView: View {
                 .tabItem { Label { Text("About") } icon: { SettingsIcon.about } }
                 .tag("about")
         }
+        .softTopEdge()
         // Wide enough for eight tabs in one row.
         .frame(width: 560, height: 420)
         .floatingWindow()

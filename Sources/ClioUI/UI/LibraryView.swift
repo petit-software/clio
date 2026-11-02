@@ -76,6 +76,7 @@ struct LibraryView: View {
             detail
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
+        .softTopEdge()
         // A meeting that has just finished is a file now; follow it there.
         .onChange(of: coordinator.meeting?.phase) { _, phase in
             guard phase == .finished else { return }
@@ -114,6 +115,14 @@ struct LibraryView: View {
                 Section("Dictations") {
                     ForEach(dictations) { entry in
                         DictationRow(entry: entry).tag(LibrarySelection.dictation(entry.id))
+                            .contextMenu {
+                                Button("Copy", systemImage: "square.fill.on.square.fill") {
+                                    TextInjector.copy(entry.text)
+                                }
+                                Button("Remove", systemImage: "minus.circle.fill", role: .destructive) {
+                                    coordinator.removeDictation(id: entry.id)
+                                }
+                            }
                     }
                 }
             }
@@ -162,10 +171,12 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func meetingMenu(_ url: URL) -> some View {
-        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-        Button("Open in Default App") { NSWorkspace.shared.open(url) }
+        Button("Show in Finder", systemImage: "folder.fill") {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+        Button("Open in Default App", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
         Divider()
-        Button("Move to Trash", role: .destructive) {
+        Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
             try? library?.trash(url)
             if coordinator.librarySelection == .meeting(url) { coordinator.librarySelection = nil }
         }
@@ -190,7 +201,9 @@ struct LibraryView: View {
             }
         case .dictation(let id):
             if let entry = coordinator.libraryDictations.first(where: { $0.id == id }) {
-                DictationView(entry: entry)
+                DictationView(entry: entry) {
+                    coordinator.removeDictation(id: id)
+                }
             } else {
                 nothingSelected
             }
@@ -380,20 +393,21 @@ struct MeetingDocumentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // Top right, always — the same place for a meeting and a dictation.
         .toolbar {
-            ToolbarItemGroup {
+            TrailingToolbarActions {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(MeetingMarkdown.render(record), forType: .string)
-                } label: { Label("Copy as Markdown", systemImage: "doc.on.doc") }
+                } label: { Label("Copy as Markdown", systemImage: "square.fill.on.square.fill") }
                     .help("Copy the whole meeting as Markdown")
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
-                } label: { Label("Show in Finder", systemImage: "folder") }
+                } label: { Label("Show in Finder", systemImage: "folder.fill") }
                     .help("Show in Finder")
                 Button(role: .destructive) {
                     confirmingTrash = true
-                } label: { Label("Move to Trash", systemImage: "trash") }
+                } label: { Label("Move to Trash", systemImage: "minus.circle.fill") }
                     .help("Move to Trash")
             }
         }
@@ -453,6 +467,7 @@ struct MeetingDocumentView: View {
 
 private struct DictationView: View {
     let entry: TranscriptEntry
+    let remove: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -465,14 +480,22 @@ private struct DictationView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack {
-                Spacer()
-                Button("Copy", systemImage: "doc.on.doc") { TextInjector.copy(entry.text) }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .glassButton()
-            }
         }
         .padding(28)
+        // Top right, as a meeting's are.
+        .toolbar {
+            TrailingToolbarActions {
+                Button {
+                    TextInjector.copy(entry.text)
+                } label: { Label("Copy", systemImage: "square.fill.on.square.fill") }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .help("Copy the dictation")
+                Button(role: .destructive, action: remove) {
+                    Label("Remove", systemImage: "minus.circle.fill")
+                }
+                .help("Remove it from the history")
+            }
+        }
     }
 }
 

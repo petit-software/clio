@@ -61,6 +61,22 @@ struct MeetingView: View {
             }
         }
         .frame(minWidth: 420, minHeight: 420)
+        // Top right, always — where a saved meeting's and a dictation's are.
+        .toolbar {
+            TrailingToolbarActions {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
+                } label: { Label("Copy Transcript", systemImage: "square.fill.on.square.fill") }
+                    .help("Copy the transcript")
+                    .disabled(meeting.record.lines.isEmpty)
+                Button {
+                    if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                } label: { Label("Show in Finder", systemImage: "folder.fill") }
+                    .help("Show in Finder")
+                    .disabled(meeting.fileURL == nil)
+            }
+        }
         .onAppear {
             title = meeting.record.title
             notes = meeting.record.notes
@@ -272,22 +288,6 @@ struct MeetingView: View {
     private var actionBar: some View {
         GlassGroup(spacing: 10) {
             HStack(spacing: 10) {
-                if let url = meeting.fileURL {
-                    Button("Show in Finder", systemImage: "folder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("Show in Finder")
-                    .glassButton()
-                    Button("Copy Transcript", systemImage: "doc.on.doc") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("Copy the transcript")
-                    .disabled(meeting.record.lines.isEmpty)
-                    .glassButton()
-                }
                 Spacer()
                 if meeting.isActive {
                     Button("Stop Recording", systemImage: "stop.fill") {

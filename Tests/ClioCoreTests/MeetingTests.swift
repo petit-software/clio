@@ -739,3 +739,16 @@ struct MeetingLibraryTests {
         #expect(groups.count == 4)
     }
 }
+
+@MainActor
+@Test("One dictation can be removed from the history, and the rest stay in order")
+func removeDictation() {
+    let store = HistoryStore(fileURL: FileManager.default.temporaryDirectory
+        .appendingPathComponent("clio-history-\(UUID().uuidString).json"))
+    store.add("first")
+    store.add("second")
+    store.add("third")
+    let middle = store.entries[1].id
+    store.remove(id: middle)
+    #expect(store.entries.map(\.text) == ["third", "first"])
+}
