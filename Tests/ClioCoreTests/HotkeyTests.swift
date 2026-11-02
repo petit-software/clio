@@ -47,17 +47,124 @@ func pushToTalkPairsPressAndRelease() async throws {
                               secondary: Hotkey(keyCode: nil, modifierFlags: fn.rawValue))
     m.holdThreshold = 0.01
 
-    m.process(type: .flagsChanged, keyCode: 0, flags: fn, isRepeat: false)
+    m.process(type: .keyDown, keyCode: semicolon, flags: control, isRepeat: false)
     try await Task.sleep(for: .milliseconds(60))
     #expect(events() == [.begin])
 
-    // The other chord going up and down meanwhile is not a release.
-    m.process(type: .keyDown, keyCode: semicolon, flags: [.control, .function], isRepeat: false)
-    m.process(type: .keyUp, keyCode: semicolon, flags: [.control, .function], isRepeat: false)
+    // The other chord going down and up meanwhile is not a release. (Held
+    // the other way round — fn first, then a key — is fn used as a
+    // modifier, which cancels; see below.)
+    m.process(type: .flagsChanged, keyCode: 0, flags: [.control, .function], isRepeat: false)
+    m.process(type: .flagsChanged, keyCode: 0, flags: control, isRepeat: false)
     #expect(events() == [.begin])
 
+    m.process(type: .keyUp, keyCode: semicolon, flags: control, isRepeat: false)
+    #expect(events() == [.begin, .end])
+}
+
+// MARK: - A modifier-only chord used as a modifier
+
+private let rightArrow = UInt16(kVK_RightArrow)
+private let tab = UInt16(kVK_Tab)
+private let ctrlShift: NSEvent.ModifierFlags = [.control, .shift]
+
+/// The shape that was dictating by accident: push to talk, `fn` and `⌃⇧`.
+@MainActor
+private func modifierOnlyManager(mode: HotkeyMode = .pushToTalk)
+    -> (HotkeyManager, () -> [HotkeyEvent]) {
+    let (m, events) = manager(mode: mode,
+                              secondary: Hotkey(keyCode: nil, modifierFlags: ctrlShift.rawValue))
+    m.hotkey = Hotkey(keyCode: nil, modifierFlags: fn.rawValue)
+    m.holdThreshold = 0.05
+    return (m, events)
+}
+
+@MainActor
+@Test("fn with an arrow is End, not a dictation")
+func fnArrowDoesNotDictate() async throws {
+    let (m, events) = modifierOnlyManager()
+    m.process(type: .flagsChanged, keyCode: 0, flags: fn, isRepeat: false)
+    m.process(type: .keyDown, keyCode: rightArrow, flags: [.function, .numericPad], isRepeat: false)
+    m.process(type: .keyUp, keyCode: rightArrow, flags: [.function, .numericPad], isRepeat: false)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(events() == [])
+    m.process(type: .flagsChanged, keyCode: 0, flags: [], isRepeat: false)
+    #expect(events() == [])
+}
+
+@MainActor
+@Test("A key pressed after the hold threshold cancels the dictation it began")
+func lateKeyCancels() async throws {
+    let (m, events) = modifierOnlyManager()
+    m.process(type: .flagsChanged, keyCode: 0, flags: fn, isRepeat: false)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(events() == [.begin])
+    m.process(type: .keyDown, keyCode: rightArrow, flags: [.function, .numericPad], isRepeat: false)
+    #expect(events() == [.begin, .cancel])
+    // Letting go afterwards transcribes nothing.
+    m.process(type: .keyUp, keyCode: rightArrow, flags: [.function, .numericPad], isRepeat: false)
+    m.process(type: .flagsChanged, keyCode: 0, flags: [], isRepeat: false)
+    #expect(events() == [.begin, .cancel])
+}
+
+@MainActor
+@Test("⌃⇧Tab through tabs is not a dictation")
+func ctrlShiftTabDoesNotDictate() async throws {
+    let (m, events) = modifierOnlyManager()
+    m.process(type: .flagsChanged, keyCode: 0, flags: control, isRepeat: false)
+    m.process(type: .flagsChanged, keyCode: 0, flags: ctrlShift, isRepeat: false)
+    for _ in 0..<3 {
+        try await Task.sleep(for: .milliseconds(30))
+        m.process(type: .keyDown, keyCode: tab, flags: ctrlShift, isRepeat: false)
+        m.process(type: .keyUp, keyCode: tab, flags: ctrlShift, isRepeat: false)
+    }
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(events() == [])
+}
+
+@MainActor
+@Test("Another modifier joining, as in ⌃⇧⌘4, cancels rather than transcribes")
+func addedModifierCancels() async throws {
+    let (m, events) = modifierOnlyManager()
+    m.process(type: .flagsChanged, keyCode: 0, flags: ctrlShift, isRepeat: false)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(events() == [.begin])
+    m.process(type: .flagsChanged, keyCode: 0, flags: [.control, .shift, .command], isRepeat: false)
+    #expect(events() == [.begin, .cancel])
+}
+
+@MainActor
+@Test("A spent chord stays spent until every modifier is up")
+func spentChordNeedsAFreshPress() async throws {
+    let (m, events) = modifierOnlyManager()
+    // fn →, then ⇧ joins and leaves: back to plain fn, but not pressed anew.
+    m.process(type: .flagsChanged, keyCode: 0, flags: fn, isRepeat: false)
+    m.process(type: .keyDown, keyCode: rightArrow, flags: [.function, .numericPad], isRepeat: false)
+    m.process(type: .keyUp, keyCode: rightArrow, flags: [.function, .numericPad], isRepeat: false)
+    m.process(type: .flagsChanged, keyCode: 0, flags: [.function, .shift], isRepeat: false)
+    m.process(type: .flagsChanged, keyCode: 0, flags: fn, isRepeat: false)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(events() == [])
+
+    // Everything up, then fn alone: a real dictation.
+    m.process(type: .flagsChanged, keyCode: 0, flags: [], isRepeat: false)
+    m.process(type: .flagsChanged, keyCode: 0, flags: fn, isRepeat: false)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(events() == [.begin])
     m.process(type: .flagsChanged, keyCode: 0, flags: [], isRepeat: false)
     #expect(events() == [.begin, .end])
+}
+
+@MainActor
+@Test("In toggle mode, a key while the chord is held undoes the start")
+func toggleKeyCancels() {
+    let (m, events) = modifierOnlyManager(mode: .toggle)
+    m.process(type: .flagsChanged, keyCode: 0, flags: fn, isRepeat: false)
+    #expect(events() == [.begin])
+    m.process(type: .keyDown, keyCode: rightArrow, flags: [.function, .numericPad], isRepeat: false)
+    #expect(events() == [.begin, .cancel])
+    m.process(type: .flagsChanged, keyCode: 0, flags: [], isRepeat: false)
+    #expect(events() == [.begin, .cancel])
 }
 
 @MainActor

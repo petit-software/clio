@@ -91,6 +91,11 @@ public final class HotkeyManager {
     /// which is the only thing keeping it true.
     private var keysDown: Set<UInt16> = []
     private var isChordDown: Bool { heldHotkey != nil }
+    /// A modifier-only chord was used as a modifier — a key went down while
+    /// it was held, or another modifier joined it. None can fire again until
+    /// every modifier is up, so `fn ⇧ →` lifting ⇧ back to plain `fn` is not
+    /// a fresh press.
+    private var modifierChordSpent = false
     private var holdTask: Task<Void, Never>?
     private var trustPollTimer: Timer?
 
@@ -166,6 +171,7 @@ public final class HotkeyManager {
         eventTap = nil
         heldHotkey = nil
         keysDown = []
+        modifierChordSpent = false
         isActive = false
     }
 
@@ -238,7 +244,25 @@ public final class HotkeyManager {
             return
         }
 
+        if type == .flagsChanged,
+           flags.intersection(Self.chordModifiers).isEmpty {
+            modifierChordSpent = false
+        }
+
         if let held = heldHotkey {
+            // `fn →`, `⌃⇧Tab`, `⌃⇧⌘4`: the modifiers were held for a
+            // shortcut, not for dictation. Matching only ever looked at the
+            // modifiers, so holding them past the threshold while pressing
+            // something else began a recording nobody asked for — and push to
+            // talk kept it going for as long as they were held.
+            if held.isModifierOnly, usedAsModifier(held, type: type, flags: flags) {
+                heldHotkey = nil
+                modifierChordSpent = true
+                holdTask?.cancel()
+                holdTask = nil
+                if isActive { cancelSession() }
+                return
+            }
             // Only the chord that was pressed can be released. The other one
             // going down meanwhile is ignored, not a second session.
             guard held.matchesRelease(type: type, keyCode: keyCode, flags: flags)
@@ -250,11 +274,33 @@ public final class HotkeyManager {
 
         guard type != .keyDown || !isRepeat else { return }
         guard let pressed = hotkeys.first(where: {
-            $0.matchesPress(type: type, keyCode: keyCode, flags: flags,
-                            heldKeys: keysDown)
+            !(modifierChordSpent && $0.isModifierOnly)
+                && $0.matchesPress(type: type, keyCode: keyCode, flags: flags,
+                                   heldKeys: keysDown)
         }) else { return }
         heldHotkey = pressed
         chordPressed()
+    }
+
+    /// The modifiers a chord can be made of. Caps Lock and the keypad bit are
+    /// state, not keys being held.
+    private static let chordModifiers: NSEvent.ModifierFlags =
+        [.control, .option, .shift, .command, .function]
+
+    /// Is this event a sign that a held modifier-only chord is part of some
+    /// other shortcut? Any key going down — repeats included, since a key
+    /// held from before the chord counts too — or another modifier joining.
+    /// Modifiers going *up* are a release, which `matchesRelease` handles.
+    private func usedAsModifier(_ held: Hotkey,
+                                type: HotkeyEventType,
+                                flags: NSEvent.ModifierFlags) -> Bool {
+        switch type {
+        case .keyDown: return true
+        case .keyUp: return false
+        case .flagsChanged:
+            return !flags.intersection(Self.chordModifiers)
+                .subtracting(held.modifiers).isEmpty
+        }
     }
 
     // MARK: Semantics
