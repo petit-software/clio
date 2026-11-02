@@ -66,6 +66,7 @@ CLIO_OVERLAY_SHOW=sequence CLIO_OVERLAY_POSITION=bottomLeft swift run Clio   # a
 CLIO_ICON_DUMP=/tmp/icons swift test --filter IconDumpTests
 CLIO_INTRO_SHOW=1 swift run Clio                          # the intro card, alone, on screen
 CLIO_INTRO_SHOW=setup swift run Clio                      # straight to its setup step
+CLIO_INTRO_SHOW=downloading swift run Clio                # setup mid-download, simulated (also: waiting — all granted, model still coming)
 CLIO_METER_DUMP=/tmp/meter CLIO_METER_VOICE=voice.wav swift test --filter MeterDumpTests  # the meter's bars for a recording: filmstrip, traces, numbers
 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio      # start/stop 40 times in a hurry on each built-in and USB input, then listen to it, then switch between them; from the bundle, not swift run
 CLIO_RECORDER_STRESS_ALL=1 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio   # the same, on Bluetooth headsets and iPhones too — ask whoever is wearing them first
@@ -240,6 +241,14 @@ nothing while it faded and clipped the last word.
 takes about 150 ms, and a "Pasting" label for that long read as a flicker
 between "Transcribing" and "Copied", never as a word. The menu bar still says
 "Pasting…".
+
+**The intro's main button is not `.glassProminent`.** Given a label that
+sets its own height, that style drew a rounded rectangle whatever border shape
+it was told, and AppKit's blue focus ring with it, which
+`.focusEffectDisabled` does not reach. `IntroProminentButtonStyle` is an ink
+capsule with glass over it, and the card draws its own ring — 2pt, 4pt out —
+on whichever of its buttons has focus. The main button takes focus whenever a
+step appears; the ✕ only when tabbed to.
 
 **The overlay tool modes do not start Sparkle.** From a bare `swift run`
 binary its first-launch permission alert is modal, blocks the main actor, and

@@ -105,6 +105,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
                 NSApp.appearance = NSAppearance(named: .darkAqua)
             }
+            // `downloading` and `waiting` are the setup step mid-download,
+            // on a simulated coordinator: this Mac has a model already.
+            if which == "downloading" || which == "waiting" {
+                intro.showSimulated(which) { NSApp.terminate(nil) }
+                return
+            }
             intro.show(coordinator: coordinator,
                        startingAt: which == "setup" ? .setup : .welcome) {
                 NSApp.terminate(nil)

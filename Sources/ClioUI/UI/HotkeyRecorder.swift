@@ -20,7 +20,7 @@ struct HotkeyRecorder: View {
     enum Style {
         /// A standard button in a Settings form, with a ✕ to reset.
         case settings
-        /// One of the intro card's ink capsules, on the setup step.
+        /// A glass capsule on the intro card's checklist.
         case intro
     }
 
@@ -51,8 +51,14 @@ struct HotkeyRecorder: View {
                         Text(label).frame(minWidth: 120)
                     }
                 case .intro:
-                    // Styled by the row it sits in.
-                    Button(label, action: toggle)
+                    // The capsule is the row's (a glass button); the label's
+                    // size is this, to match the checklist it sits in.
+                    Button(action: toggle) {
+                        Text(label)
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 4)
+                            .frame(minHeight: 24)
+                    }
                 }
                 if style == .settings, hotkey != nil, hotkey != fallback, !isRecording {
                     Button {

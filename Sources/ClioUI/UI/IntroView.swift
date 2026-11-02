@@ -5,35 +5,49 @@ import ClioCore
 public enum IntroStep: Sendable {
     /// What Clio is, in one breath, and a Get Started button.
     case welcome
-    /// The two permissions and the first model. Replaces the old onboarding
-    /// window (§7): same asks, on the same card as the welcome.
+    /// The two permissions, the speech model and the shortcut, as one
+    /// checklist with one button that always does the next thing.
     case setup
 }
 
 /// The first thing a new user sees: a welcome, then setup, on one card.
 ///
-/// Draws its own surface with 32pt corners. The window it lives in is
-/// borderless and transparent (`IntroWindowController`), so the rounded card
-/// IS the window: the corners are real, the shadow follows them, and there is
-/// no title bar to argue with the artwork. Both steps share the one card, so
-/// moving between them changes nothing about the window.
+/// The card is Fino's Access popup in Clio's words — the same glass sheet,
+/// type, checklist and single full-width button — so the two apps start the
+/// same way. Its materials are in `IntroSurface.swift`.
+///
+/// Draws its own surface. The window it lives in is borderless and
+/// transparent (`IntroWindowController`), so the rounded card IS the window:
+/// the corners are real, the shadow follows them, and there is no title bar
+/// to argue with the artwork. Both steps share the one card, so moving
+/// between them changes nothing about the window.
 struct IntroView: View {
     @Bindable var coordinator: AppCoordinator
     let dismiss: () -> Void
+    /// Whether the setup step starts the speech model downloading as soon as
+    /// it appears. Off in previews, whose model managers are simulated.
+    let startsDownload: Bool
 
     @State private var step: IntroStep
     @State private var hasEntered = false
+    @FocusState private var focus: IntroFocus?
+    @Environment(\.colorScheme) private var colorScheme
 
     init(coordinator: AppCoordinator,
          startingAt step: IntroStep = .welcome,
+         startsDownload: Bool = true,
          dismiss: @escaping () -> Void) {
         self.coordinator = coordinator
         self.dismiss = dismiss
+        self.startsDownload = startsDownload
         _step = State(initialValue: step)
     }
 
     static let cornerRadius: CGFloat = 32
-    static let size = CGSize(width: 420, height: 480)
+    static let cardSize = CGSize(width: 420, height: 480)
+    /// The window: the card and a point either side of it, where the hairline
+    /// outside the card's edge is drawn.
+    static let size = CGSize(width: cardSize.width + 2, height: cardSize.height + 2)
 
     /// How the card arrives: a fade with a little growth, 0.92 → 1. Each
     /// element on it then does the same, one step behind the last, so the
@@ -53,39 +67,52 @@ struct IntroView: View {
         ZStack {
             switch step {
             case .welcome:
-                WelcomeStep {
+                WelcomeStep(palette: palette, focus: $focus) {
                     withAnimation(Self.entrance) { step = .setup }
                 }
                 .transition(.leaving)
             case .setup:
-                SetupStep(coordinator: coordinator, dismiss: dismiss)
+                SetupStep(coordinator: coordinator,
+                          palette: palette,
+                          focus: $focus,
+                          startsDownload: startsDownload,
+                          dismiss: dismiss)
                     .transition(.leaving)
             }
         }
-        .padding(.horizontal, 25)
-        .padding(.vertical, 36)
-        .frame(width: Self.size.width, height: Self.size.height)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .clipShape(shape)
-        // A hairline at the edge so the card still has one against a
-        // background the same colour as itself. Overlaid, not stroked on
-        // the clip, so it sits half inside and is not shaved off.
-        .overlay(shape.strokeBorder(.separator, lineWidth: 0.5))
+        .padding(16)
+        .frame(width: Self.cardSize.width, height: Self.cardSize.height)
+        .background(IntroSurface(palette: palette))
+        .overlay(alignment: .topLeading) {
+            IntroCloseButton(palette: palette, focus: $focus, action: dismiss)
+                .padding(12)
+        }
+        .padding(1)
         .entering(hasEntered, step: 0)
         // A plain assignment, not `withAnimation`: each element carries its
         // own delayed copy of the animation, and one animation wrapped around
         // the change would apply to all of them at once.
         .onAppear { hasEntered = true }
+        // The main button, not the ✕ that comes first in the view tree, is
+        // what has focus when a step appears. A beat late: on the first
+        // appearance the window is not key yet, and on a step change the
+        // new button is not in the tree until the transition has begun.
+        .task(id: step) {
+            try? await Task.sleep(for: .milliseconds(60))
+            focus = .main
+        }
     }
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+    private var palette: IntroPalette {
+        IntroPalette(colorScheme: colorScheme)
     }
 }
 
 // MARK: - Welcome
 
 private struct WelcomeStep: View {
+    let palette: IntroPalette
+    var focus: FocusState<IntroFocus?>.Binding
     let getStarted: () -> Void
     @State private var hasEntered = false
 
@@ -128,9 +155,10 @@ private struct WelcomeStep: View {
 
             Spacer(minLength: 0)
 
-            VStack(spacing: 10) {
+            VStack(spacing: 12) {
                 Text("Welcome to Clio")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
                     .entering(hasEntered, step: 2)
                 // Two sentences, one per line: each fits the card's width on
                 // its own, and the break keeps them from re-wrapping into
@@ -139,18 +167,18 @@ private struct WelcomeStep: View {
                      + "Works in Slack, Gmail and any other site or app.")
                     .font(.system(size: 15))
                     .lineSpacing(2.5)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.secondaryText)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .entering(hasEntered, step: 3)
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 32)
 
-            Button("Get Started", action: getStarted)
-                .buttonStyle(IntroButtonStyle())
-                .keyboardShortcut(.defaultAction)
+            IntroMainButton(title: "Get Started", palette: palette, focus: focus,
+                            action: getStarted)
                 .entering(hasEntered, step: 4)
         }
+        .padding(.bottom, 8)
         .onAppear { hasEntered = true }
         // Cancelled with the view, so the loop stops the moment the step
         // changes or the card closes.
@@ -223,149 +251,104 @@ private struct WelcomeStep: View {
 
 // MARK: - Setup
 
-/// Microphone first because it prompts inline; Accessibility second because
-/// it cannot be granted programmatically — the user has to visit System
-/// Settings, and the only honest thing to do is deep-link there and wait.
-/// The model third, because it is the one that takes a while, and the
-/// download keeps going if the card is dismissed. The shortcut last: it has
-/// a default, so it is the one row that is already done, and it is what the
-/// user reaches for the moment the card closes.
+/// Everything Clio cannot work without, as a live checklist, and one button
+/// that does the first thing still missing.
+///
+/// The speech model is on the list because without one the app records and
+/// then has nothing to hand the recording to. It is also the one thing that
+/// takes a while, so it starts downloading the moment this step appears and
+/// arrives while the permissions are being granted; the button reaches it
+/// last and waits for it. The download carries on if the card is closed.
+///
+/// Microphone before Accessibility because it prompts inline; Accessibility
+/// cannot be granted programmatically — the user has to visit System
+/// Settings, and the only honest thing to do is send them there and watch.
+/// The shortcut last: it has a default, so it is the one row already done,
+/// and it is what the user reaches for the moment the card closes.
 private struct SetupStep: View {
     @Bindable var coordinator: AppCoordinator
+    let palette: IntroPalette
+    var focus: FocusState<IntroFocus?>.Binding
+    let startsDownload: Bool
     let dismiss: () -> Void
     @State private var hasEntered = false
 
-    /// The model offered here. Small enough to arrive while the user is still
-    /// reading, multilingual, and enough to prove the loop works; Settings ▸
-    /// Model has the rest.
+    /// The model fetched here. Small enough to arrive while the user is still
+    /// granting permissions, multilingual, and enough to prove the loop
+    /// works; Settings ▸ Model has the rest.
     static let modelID = "openai_whisper-small_216MB"
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text("Set up Clio")
-                .font(.system(size: 26, weight: .bold))
-                .entering(hasEntered, step: 1)
+        VStack(spacing: 24) {
+            VStack(spacing: 24) {
+                Text("Clio needs a few\nthings to work")
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 12)
+                    .entering(hasEntered, step: 1)
 
-            VStack(alignment: .leading, spacing: 16) {
-                microphoneRow.entering(hasEntered, step: 2)
-                accessibilityRow.entering(hasEntered, step: 3)
-                modelRow.entering(hasEntered, step: 4)
-                shortcutRow.entering(hasEntered, step: 5)
+                VStack(alignment: .leading, spacing: 10) {
+                    microphoneRow.entering(hasEntered, step: 2)
+                    accessibilityRow.entering(hasEntered, step: 3)
+                    modelRow.entering(hasEntered, step: 4)
+                    shortcutRow.entering(hasEntered, step: 5)
+                }
+                .padding(.horizontal, 32)
+
+                explanation
+                    .padding(.horizontal, 32)
+                    .entering(hasEntered, step: 6)
             }
-            .padding(.top, 28)
+            .padding(.top, 48)
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 0)
 
-            // Grey while there is still something to do: skipping is allowed,
-            // but it should not look like the thing to press.
-            Button(allDone ? "Start Dictating" : "Skip for now", action: dismiss)
-                .buttonStyle(IntroButtonStyle(prominence: allDone ? .primary : .secondary))
-                .keyboardShortcut(.defaultAction)
-                .entering(hasEntered, step: 6)
+            IntroMainButton(title: next.title(permissions), palette: palette, focus: focus,
+                            isWaiting: next == .waitingForModel, action: advance)
+                .animation(.easeOut(duration: 0.18), value: next)
+                .entering(hasEntered, step: 7)
         }
-        // Further in from the sides than the welcome: rows of text read
-        // better with a margin, and the welcome's long line needs the width.
-        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
         .onAppear {
             hasEntered = true
             permissions.beginPolling()
             models.refreshInstalled()
+            if startsDownload { startDownloadIfNeeded() }
         }
     }
 
     private var permissions: PermissionsCoordinator { coordinator.permissions }
     private var models: ModelManager { coordinator.models }
 
-    private var allDone: Bool { permissions.allGranted && modelInstalled }
-
     // MARK: Rows
 
     private var microphoneRow: some View {
-        SetupRow(number: 1,
-                 title: "Microphone",
-                 detail: "So Clio can hear you.",
-                 done: permissions.microphone.isGranted) {
-            // Once macOS has recorded a denial it ignores the API request, so
-            // a denied state goes straight to System Settings. So does a
-            // process that cannot ask — see canRequestMicrophone.
-            // One word on every permission button. Where it has to go via
-            // System Settings the tooltip says so; the row's width does not.
-            if permissions.microphone == .notDetermined,
-               PermissionsCoordinator.canRequestMicrophone {
-                Button("Grant") { Task { await permissions.requestMicrophone() } }
-            } else {
-                Button("Grant", action: permissions.openMicrophoneSettings)
-                    .help("Opens System Settings ▸ Privacy ▸ Microphone")
-            }
+        ChecklistRow(title: "Microphone",
+                     mark: permissions.microphone.isGranted ? .done : .todo,
+                     palette: palette) {
+            status(permissions.microphone.isGranted ? "Granted" : "Not granted")
         }
     }
 
     private var accessibilityRow: some View {
-        SetupRow(number: 2,
-                 title: "Accessibility",
-                 detail: "Lets Clio paste for you.",
-                 done: permissions.accessibility.isGranted) {
-            Button("Grant") {
-                permissions.accessibility == .notDetermined
-                    ? permissions.requestAccessibility()
-                    : permissions.openAccessibilitySettings()
-            }
-            .help("Opens System Settings ▸ Privacy ▸ Accessibility")
+        ChecklistRow(title: "Accessibility",
+                     mark: permissions.accessibility.isGranted ? .done : .todo,
+                     palette: palette) {
+            status(permissions.accessibility.isGranted ? "Granted" : "Not granted")
         }
     }
 
     private var modelRow: some View {
-        SetupRow(number: 3,
-                 title: modelTitle,
-                 detail: modelDetail,
-                 done: modelInstalled,
-                 progress: model.flatMap { models.downloads[$0.id] },
-                 failure: model.flatMap { models.failures[$0.id] }) {
-            // A glyph rather than a capsule: this row's action is the one that
-            // turns into a progress bar, and a word-button beside a bar reads
-            // as two things where the arrow reads as one.
-            if let model {
-                if models.isDownloading(model.id) {
-                    iconButton("minus.circle.fill", "Cancel the download", .secondary) {
-                        models.cancel(model.id)
-                    }
-                } else {
-                    iconButton("arrow.down.circle.fill",
-                               models.failures[model.id] == nil
-                                   ? "Download \(model.displayName)"
-                                   : "Try the download again",
-                               .primary) {
-                        models.download(model)
-                    }
-                }
-            }
+        ChecklistRow(title: "Speech model", mark: modelMark, palette: palette) {
+            status(modelStatus)
         }
-    }
-
-    private func iconButton(_ symbol: String,
-                            _ description: String,
-                            _ tint: Color,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 24))
-                .foregroundStyle(tint)
-                // Sized to the compact capsule beside it, so the rows' right
-                // edges line up.
-                .frame(height: 31)
-        }
-        .buttonStyle(.borderless)
-        .help(description)
-        .accessibilityLabel(description)
+        .help(modelHelp)
     }
 
     private var shortcutRow: some View {
-        SetupRow(number: 4,
-                 title: "Shortcut",
-                 detail: shortcutDetail,
-                 done: true,
-                 keepsAction: true,
-                 placement: .below) {
+        ChecklistRow(title: "Shortcut", mark: .done, palette: palette) {
             HotkeyRecorder(
                 style: .intro,
                 coordinator: coordinator,
@@ -374,13 +357,106 @@ private struct SetupStep: View {
                     set: { coordinator.settingsStore.settings.hotkey = $0 ?? .defaultHotkey }),
                 other: coordinator.settingsStore.settings.secondaryHotkey,
                 fallback: .defaultHotkey)
+                .foregroundStyle(palette.primaryText)
+                .introGlassButton(.utility, palette: palette)
+                .help(shortcutHelp)
         }
     }
 
-    private var shortcutDetail: String {
+    private func status(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(palette.secondaryText)
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .animation(.easeOut(duration: 0.18), value: text)
+    }
+
+    /// What each thing is for, in one paragraph — or, once the download has
+    /// failed, why the model row is orange and what to do about it.
+    @ViewBuilder
+    private var explanation: some View {
+        if let failure = modelFailure {
+            Text("The speech model did not download: \(failure) "
+                 + "Try again, or choose another in Settings ▸ Model.")
+                .font(.system(size: 13))
+                .foregroundStyle(.orange)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text("The microphone lets Clio hear you, and Accessibility lets it "
+                 + "paste the words where you are typing. The speech model "
+                 + "turns your voice into text on this Mac, so nothing you say "
+                 + "leaves it.")
+                .font(.system(size: 13))
+                .foregroundStyle(palette.secondaryText)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var shortcutHelp: String {
         let mode = coordinator.settingsStore.settings.hotkeyMode
         return (mode == .pushToTalk ? "Hold to dictate." : "Press to dictate.")
              + " Click to change."
+    }
+
+    // MARK: The button
+
+    /// The first thing still missing, which is what the button does.
+    enum Next: Equatable {
+        case microphone, accessibility, download, retryDownload, waitingForModel, done
+
+        @MainActor
+        func title(_ permissions: PermissionsCoordinator) -> String {
+            switch self {
+            case .microphone:
+                return permissions.microphone == .notDetermined
+                    && PermissionsCoordinator.canRequestMicrophone
+                    ? "Allow Microphone" : "Open Microphone Settings"
+            case .accessibility:
+                return permissions.accessibility == .notDetermined
+                    ? "Allow Accessibility" : "Open Accessibility Settings"
+            case .download: return "Download Speech Model"
+            case .retryDownload: return "Try the Download Again"
+            case .waitingForModel: return "Downloading Speech Model…"
+            case .done: return "Start Dictating"
+            }
+        }
+    }
+
+    private var next: Next {
+        if !permissions.microphone.isGranted { return .microphone }
+        if !permissions.accessibility.isGranted { return .accessibility }
+        if modelInstalled { return .done }
+        if modelDownload != nil { return .waitingForModel }
+        if modelFailure != nil { return .retryDownload }
+        return .download
+    }
+
+    private func advance() {
+        switch next {
+        case .microphone:
+            // Once macOS has recorded a denial it ignores the API request, so
+            // a denied state goes straight to System Settings. So does a
+            // process that cannot ask — see canRequestMicrophone.
+            if permissions.microphone == .notDetermined,
+               PermissionsCoordinator.canRequestMicrophone {
+                Task { await permissions.requestMicrophone() }
+            } else {
+                permissions.openMicrophoneSettings()
+            }
+        case .accessibility:
+            permissions.accessibility == .notDetermined
+                ? permissions.requestAccessibility()
+                : permissions.openAccessibilitySettings()
+        case .download, .retryDownload:
+            if let model { models.download(model) }
+        case .waitingForModel:
+            break
+        case .done:
+            dismiss()
+        }
     }
 
     // MARK: Model
@@ -393,15 +469,53 @@ private struct SetupStep: View {
     /// already on disk should not be told to download a smaller one.
     private var modelInstalled: Bool { coordinator.activeModel != nil }
 
-    private var modelTitle: String {
+    /// The download the row follows: ours, or — if one was started from
+    /// Settings ▸ Model instead — that one, so the card never starts a
+    /// second model downloading beside it.
+    private var modelDownload: DownloadProgress? {
+        models.downloads[Self.modelID] ?? models.downloads.values.first
+    }
+
+    private var modelFailure: String? {
+        guard !modelInstalled, modelDownload == nil else { return nil }
+        return models.failures[Self.modelID]
+    }
+
+    private var modelMark: ChecklistMark {
+        if modelInstalled { return .done }
+        if let progress = modelDownload { return .progress(progress.fraction) }
+        if modelFailure != nil { return .failed }
+        return .todo
+    }
+
+    private var modelStatus: String {
+        if modelInstalled { return "Installed" }
+        if let progress = modelDownload {
+            guard progress.totalBytes > 0 else { return "Starting…" }
+            return "\(Int((progress.fraction * 100).rounded(.down)))%"
+        }
+        if modelFailure != nil { return "Failed" }
+        return model.map { Self.format($0.approximateBytes) } ?? "Not installed"
+    }
+
+    private var modelHelp: String {
         if let active = coordinator.activeModel { return active.displayName }
+        if let progress = modelDownload, progress.totalBytes > 0 {
+            return "\(Self.format(progress.receivedBytes)) of \(Self.format(progress.totalBytes))"
+        }
         return model?.displayName ?? "Speech model"
     }
 
-    private var modelDetail: String {
-        if modelInstalled { return "Installed and ready." }
-        guard let model else { return "Runs on this Mac." }
-        return "\(Self.format(model.approximateBytes)), runs on this Mac."
+    /// Starts the model the moment setup appears, so it downloads while the
+    /// permissions are being granted. Not when one is installed, already on
+    /// its way, or has just failed — a failure waits for the button, rather
+    /// than retrying every time the card is reopened.
+    private func startDownloadIfNeeded() {
+        guard !modelInstalled,
+              models.downloads.isEmpty,
+              models.failures[Self.modelID] == nil,
+              let model else { return }
+        models.download(model)
     }
 
     static func format(_ bytes: Int64) -> String {
@@ -411,156 +525,81 @@ private struct SetupStep: View {
     }
 }
 
-/// One thing to do: a numbered badge that becomes a tick, what it is and
-/// why, and the one button that moves it along. The button disappears once
-/// the row is done; the tick says it all. `keepsAction` is the exception.
-private struct SetupRow<Action: View>: View {
-    let number: Int
-    let title: String
-    let detail: String
-    let done: Bool
-    /// The shortcut row: done from the start, because it has a default, but
-    /// the button stays so the default can be changed.
-    var keepsAction = false
-    /// Where the action sits. Trailing is the norm; the shortcut recorder
-    /// goes under its text, because the chord it shows can be three keys
-    /// wide and would push the description into a corner.
-    var placement: Placement = .trailing
-    var progress: DownloadProgress? = nil
+private enum ChecklistMark: Equatable {
+    case todo
+    case done
+    case failed
+    /// A download on its way; the circle fills as it goes.
+    case progress(Double)
+}
 
-    enum Placement { case trailing, below }
-    var failure: String? = nil
-    @ViewBuilder let action: () -> Action
+/// One thing Clio needs: a mark that turns green when it is in place, what it
+/// is, and its state on the right.
+private struct ChecklistRow<Trailing: View>: View {
+    let title: String
+    let mark: ChecklistMark
+    let palette: IntroPalette
+    @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(done ? Color.green : Color.secondary.opacity(0.15))
-                    .frame(width: 24, height: 24)
-                if done {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                } else {
-                    Text("\(number)")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-            }
-            .animation(.easeOut(duration: 0.2), value: done)
+        HStack(spacing: 10) {
+            markView
+                .frame(width: 20, height: 20)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                // While a download runs the bar IS the description: the size
-                // it quoted is now the denominator underneath the bar.
-                if let progress {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: progress.fraction)
-                            .padding(.top, 4)
-                        Text(progressLabel(progress))
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                } else {
-                    Text(detail)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let failure {
-                    Text(failure)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if showsAction, placement == .below {
-                    action()
-                        .buttonStyle(IntroButtonStyle(size: .compact, prominence: .secondary))
-                        .padding(.top, 6)
-                }
-            }
+            Text(title)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(palette.primaryText)
 
             Spacer(minLength: 8)
 
-            if showsAction, placement == .trailing {
-                action()
-                    .buttonStyle(IntroButtonStyle(size: .compact))
+            trailing()
+        }
+        .frame(minHeight: 22)
+        .animation(.easeOut(duration: 0.18), value: mark)
+    }
+
+    @ViewBuilder
+    private var markView: some View {
+        if case .progress(let fraction) = mark {
+            // The `circle` symbol, drawn by hand so it can fill. Sized and
+            // weighted to sit where the symbol does.
+            ZStack {
+                Circle()
+                    .stroke(palette.secondaryText, lineWidth: 1.5)
+                Circle()
+                    .trim(from: 0, to: max(0.04, fraction))
+                    .stroke(palette.primaryText,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.25), value: fraction)
             }
+            .frame(width: 15, height: 15)
+        } else {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(symbolColor)
+                .contentTransition(.symbolEffect(.replace))
         }
     }
 
-    private var showsAction: Bool { !done || keepsAction }
+    private var symbol: String {
+        switch mark {
+        case .done: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.circle.fill"
+        case .todo, .progress: return "circle"
+        }
+    }
 
-    private func progressLabel(_ progress: DownloadProgress) -> String {
-        guard progress.totalBytes > 0 else { return "Starting…" }
-        let percent = Int((progress.fraction * 100).rounded(.down))
-        return "\(percent)% · \(SetupStep.format(progress.receivedBytes)) of "
-             + "\(SetupStep.format(progress.totalBytes))"
+    private var symbolColor: Color {
+        switch mark {
+        case .done: return Color(nsColor: .systemGreen)
+        case .failed: return .orange
+        case .todo, .progress: return palette.secondaryText
+        }
     }
 }
 
 // MARK: - Shared
-
-/// The intro's buttons: a capsule sized to its label, in the appearance's own
-/// ink — black on light, white on dark — with the label in the opposite.
-/// Always the strongest thing on the card without taking a colour of its own.
-///
-/// Its own style because `.borderedProminent` fixes the height from the
-/// control size — the largest is 28pt tall — and padding added to its label
-/// is ignored. This one is what the label's padding says it is.
-struct IntroButtonStyle: ButtonStyle {
-    enum Size {
-        /// The card's one main button: 15pt above and below, 17pt either side.
-        case regular
-        /// A row's button, beside two lines of text.
-        case compact
-    }
-
-    enum Prominence {
-        /// Ink: black on light, white on dark.
-        case primary
-        /// A quiet grey, for the way out.
-        case secondary
-    }
-
-    var size: Size = .regular
-    var prominence: Prominence = .primary
-
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.isEnabled) private var isEnabled
-
-    private var fill: Color {
-        switch prominence {
-        case .primary: return colorScheme == .dark ? .white : .black
-        case .secondary: return .secondary.opacity(0.15)
-        }
-    }
-
-    private var ink: Color {
-        switch prominence {
-        case .primary: return colorScheme == .dark ? .black : .white
-        case .secondary: return .primary
-        }
-    }
-
-    func makeBody(configuration: Configuration) -> some View {
-        let shape = Capsule()
-        configuration.label
-            .font(.system(size: size == .regular ? 15 : 13, weight: .semibold))
-            .foregroundStyle(ink)
-            .padding(.vertical, size == .regular ? 15 : 7)
-            .padding(.horizontal, size == .regular ? 17 : 12)
-            .background(shape.fill(fill))
-            // Dimmed rather than brightened when pressed: there is nowhere
-            // brighter than white, or darker than black, to go.
-            .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.5)
-            .contentShape(shape)
-    }
-}
 
 private extension View {
     /// The intro's entrance, applied to one element: hidden and slightly
@@ -599,45 +638,49 @@ private func onGround<Content: View>(_ content: Content) -> some View {
         .background(Color(nsColor: .underPageBackgroundColor))
 }
 
+private func card(_ coordinator: AppCoordinator, _ step: IntroStep = .setup) -> some View {
+    onGround(IntroView(coordinator: coordinator, startingAt: step, startsDownload: false) {})
+}
+
 #Preview("Welcome") {
-    onGround(IntroView(coordinator: Preview.coordinator()) {})
+    card(Preview.coordinator(), .welcome)
 }
 
 #Preview("Welcome — dark") {
-    onGround(IntroView(coordinator: Preview.coordinator()) {})
+    card(Preview.coordinator(), .welcome)
         .preferredColorScheme(.dark)
 }
 
 #Preview("Setup — nothing granted") {
-    onGround(IntroView(
-        coordinator: Preview.coordinator(
-            microphone: .notDetermined, accessibility: .notDetermined, installed: []),
-        startingAt: .setup) {})
+    card(Preview.coordinator(microphone: .notDetermined, accessibility: .notDetermined,
+                             installed: []))
 }
 
 #Preview("Setup — downloading") {
-    onGround(IntroView(coordinator: Preview.freshCoordinator, startingAt: .setup) {})
+    card(Preview.freshCoordinator)
+}
+
+#Preview("Setup — granted, still downloading") {
+    card(Preview.coordinator(installed: [],
+                             downloads: [SetupStep.modelID: Preview.downloadInFlight]))
 }
 
 /// Denied is not the same as not-yet-asked: macOS ignores the API request once
 /// it has recorded a denial, so these rows must offer System Settings instead.
 #Preview("Setup — denied, download failed") {
-    onGround(IntroView(
-        coordinator: Preview.coordinator(
-            microphone: .denied, accessibility: .denied, installed: [],
-            failures: [SetupStep.modelID: "The network connection was lost."]),
-        startingAt: .setup) {})
+    card(Preview.coordinator(
+        microphone: .denied, accessibility: .denied, installed: [],
+        failures: [SetupStep.modelID: "The network connection was lost."]))
 }
 
 #Preview("Setup — all set") {
-    onGround(IntroView(coordinator: Preview.coordinator(), startingAt: .setup) {})
+    card(Preview.coordinator())
 }
 
 #Preview("Setup — dark") {
-    onGround(IntroView(
-        coordinator: Preview.coordinator(microphone: .granted, accessibility: .notDetermined,
-                                         installed: []),
-        startingAt: .setup) {})
+    card(Preview.coordinator(microphone: .granted, accessibility: .notDetermined,
+                             installed: [],
+                             downloads: [SetupStep.modelID: Preview.downloadInFlight]))
         .preferredColorScheme(.dark)
 }
 #endif

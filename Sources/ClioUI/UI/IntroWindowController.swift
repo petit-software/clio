@@ -22,6 +22,7 @@ public final class IntroWindowController {
     /// `onClose` runs after any of them.
     public func show(coordinator: AppCoordinator,
                      startingAt step: IntroStep = .welcome,
+                     startsDownload: Bool = true,
                      onClose: @escaping () -> Void = {}) {
         if let window {
             NSApp.activate(ignoringOtherApps: true)
@@ -46,13 +47,34 @@ public final class IntroWindowController {
         }
         window.onCancel = close
         window.contentView = NSHostingView(
-            rootView: IntroView(coordinator: coordinator, startingAt: step, dismiss: close))
+            rootView: IntroView(coordinator: coordinator, startingAt: step,
+                                startsDownload: startsDownload, dismiss: close))
         window.center()
 
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
+
+    #if DEBUG
+    /// The setup step on a simulated coordinator, for the `CLIO_INTRO_SHOW`
+    /// tool: states this Mac is not in, on screen, where the glass can be
+    /// judged. `downloading` has Accessibility still to grant;
+    /// `downloaded-wait` has everything granted and the model still coming.
+    public func showSimulated(_ name: String, onClose: @escaping () -> Void) {
+        let inFlight = ["openai_whisper-small_216MB": Preview.downloadInFlight]
+        let coordinator: AppCoordinator
+        switch name {
+        case "waiting":
+            coordinator = Preview.coordinator(installed: [], downloads: inFlight)
+        default:
+            coordinator = Preview.coordinator(accessibility: .notDetermined,
+                                              installed: [], downloads: inFlight)
+        }
+        show(coordinator: coordinator, startingAt: .setup, startsDownload: false,
+             onClose: onClose)
+    }
+    #endif
 
     public func close() {
         window?.close()
