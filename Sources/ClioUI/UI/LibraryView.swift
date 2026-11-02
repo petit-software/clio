@@ -282,6 +282,10 @@ struct MeetingDocumentView: View {
     @State private var pane: MeetingView.Pane = .summary
     @State private var save: Task<Void, Never>?
     @State private var confirmingTrash = false
+    /// Whether anything was edited since the last save. Only then is the
+    /// file written: viewing a meeting must not rewrite it, and leaving one
+    /// that was just trashed must not bring it back.
+    @State private var isDirty = false
 
     init(url: URL, library: MeetingLibrary, selection: Binding<LibrarySelection?>) {
         self.library = library
@@ -304,6 +308,8 @@ struct MeetingDocumentView: View {
         .confirmationDialog("Move “\(record?.title ?? "this meeting")” to the Trash?",
                             isPresented: $confirmingTrash) {
             Button("Move to Trash", role: .destructive) {
+                save?.cancel()
+                isDirty = false
                 try? library.trash(url)
                 selection = nil
             }
@@ -402,7 +408,9 @@ struct MeetingDocumentView: View {
         Binding(
             get: { record?[keyPath: keyPath] ?? "" },
             set: { value in
+                guard record?[keyPath: keyPath] != value else { return }
                 record?[keyPath: keyPath] = value
+                isDirty = true
                 save?.cancel()
                 save = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(800))
@@ -415,7 +423,11 @@ struct MeetingDocumentView: View {
     private func flush() {
         save?.cancel()
         save = nil
-        guard var record else { return }
+        // Not edited, or gone — trashed from the sidebar while open, or
+        // deleted in Finder: nothing to write, and nothing to bring back.
+        guard isDirty, var record,
+              FileManager.default.fileExists(atPath: url.path) else { return }
+        isDirty = false
         let title = record.title.trimmingCharacters(in: .whitespacesAndNewlines)
         record.title = title.isEmpty ? "Meeting" : title
         guard let written = try? library.save(record, at: url), written != url else { return }

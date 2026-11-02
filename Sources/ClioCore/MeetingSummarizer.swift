@@ -58,6 +58,25 @@ public enum MeetingSummarizer {
         return nil
     }
 
+    /// How much of the user's notes goes in. They are the guide — what
+    /// mattered — so they lead the prompt, but long ones are cut: written
+    /// out in full they pushed the prompt past the model's context, and the
+    /// summary was dropped without a word on exactly the meetings where the
+    /// user had written most.
+    static let notesLimit = 2_000
+
+    /// The last prompt: the notes, capped, then the material, capped — so it
+    /// always fits, however much was written or said.
+    static func finalPrompt(notes: String, material: String, label: String) -> String {
+        let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        var block = ""
+        if !notes.isEmpty {
+            let kept = notes.count > notesLimit ? String(notes.prefix(notesLimit)) + "…" : notes
+            block = "Notes written during the meeting:\n\(kept)\n\n"
+        }
+        return "\(block)\(label):\n\(String(material.prefix(pieceLimit)))"
+    }
+
     /// Splits text into pieces at line breaks, none over `limit`.
     static func pieces(of text: String, limit: Int = pieceLimit) -> [String] {
         var pieces: [String] = []
@@ -77,13 +96,10 @@ public enum MeetingSummarizer {
     #if canImport(FoundationModels)
     @available(macOS 26.0, *)
     private static func summarizeWithSystemModel(_ record: MeetingRecord) async -> String? {
-        let notes = record.notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notesBlock = notes.isEmpty ? "" : "Notes written during the meeting:\n\(notes)\n\n"
-
         var material = record.transcriptText
         var label = "Transcript"
         // Map, then reduce again if the bullets are still too long.
-        for _ in 0..<3 where material.count > pieceLimit - notesBlock.count {
+        for _ in 0..<3 where material.count > pieceLimit {
             var bullets: [String] = []
             for piece in pieces(of: material) {
                 if let answer = await respond(instructions: pieceInstructions, prompt: piece) {
@@ -95,7 +111,7 @@ public enum MeetingSummarizer {
             label = "Bullet points from the transcript"
         }
 
-        let prompt = "\(notesBlock)\(label):\n\(String(material.prefix(pieceLimit)))"
+        let prompt = finalPrompt(notes: record.notes, material: material, label: label)
         return await respond(instructions: finalInstructions, prompt: prompt)
     }
 

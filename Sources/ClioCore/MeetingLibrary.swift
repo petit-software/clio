@@ -32,6 +32,13 @@ public final class MeetingLibrary {
 
     private var watcher: DispatchSourceFileSystemObject?
     private var pendingReload: Task<Void, Never>?
+    /// What each file held when it was last read, by its modification date.
+    /// A live meeting rewrites its own file after every line, and the
+    /// watcher fires for each: without this, every one of them re-read and
+    /// re-parsed the whole folder.
+    private var cache: ScanCache = [:]
+
+    typealias ScanCache = [URL: (modified: Date, file: MeetingFile?)]
 
     public init(folder: URL) {
         self.folder = folder
@@ -46,19 +53,23 @@ public final class MeetingLibrary {
         watcher?.cancel()
         watcher = nil
         files = []
+        cache = [:]
         reload()
         watch()
     }
 
     /// Reads the folder again, off the main actor.
     public func reload() {
-        let folder = folder
+        let folder = folder, cache = cache
         Task { @MainActor in
-            let scanned = await Task.detached(priority: .userInitiated) {
-                Self.scan(folder)
-            }.value
+            let result: (files: [MeetingFile], cache: ScanCache) =
+                await Task.detached(priority: .userInitiated) {
+                    Self.scan(folder, cache: cache)
+                }.value
+            let (scanned, updated) = result
             guard folder == self.folder else { return }
             files = scanned
+            self.cache = updated
             hasLoaded = true
         }
     }
@@ -130,13 +141,30 @@ public final class MeetingLibrary {
     // MARK: Reading the folder
 
     nonisolated static func scan(_ folder: URL) -> [MeetingFile] {
+        scan(folder, cache: [:]).files
+    }
+
+    /// Reads only what changed since `cache` was made: a file whose
+    /// modification date is the one remembered is not opened again.
+    nonisolated static func scan(_ folder: URL, cache: ScanCache)
+        -> (files: [MeetingFile], cache: ScanCache) {
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles])) ?? []
-        return urls
-            .filter { $0.pathExtension.lowercased() == "md" }
-            .compactMap(file(at:))
-            .sorted { $0.start > $1.start }
+        var updated: ScanCache = [:]
+        var files: [MeetingFile] = []
+        for url in urls where url.pathExtension.lowercased() == "md" {
+            let modified = fileDate(url)
+            let file: MeetingFile?
+            if let known = cache[url], known.modified == modified {
+                file = known.file
+            } else {
+                file = self.file(at: url)
+            }
+            updated[url] = (modified, file)
+            if let file { files.append(file) }
+        }
+        return (files.sorted { $0.start > $1.start }, updated)
     }
 
     nonisolated static func file(at url: URL) -> MeetingFile? {

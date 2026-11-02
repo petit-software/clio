@@ -218,7 +218,7 @@ public enum MeetingMarkdown {
     public static func write(_ record: MeetingRecord, to folder: URL,
                              replacing previous: URL? = nil) throws -> URL {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent(fileName(for: record))
+        let url = availableURL(in: folder, for: fileName(for: record), keeping: previous)
         try Data(render(record).utf8).write(to: url, options: .atomic)
         // Renamed: the title changed since the last write.
         if let previous, previous.standardizedFileURL != url.standardizedFileURL {
@@ -326,6 +326,24 @@ public enum MeetingMarkdown {
         let seconds = parts.reduce(0) { $0 * 60 + $1 }
         let speaker: MeetingSpeaker = label.lowercased() == "me" ? .me : .others
         return MeetingLine(speaker: speaker, start: seconds, end: seconds, text: text)
+    }
+
+    /// `name` in `folder`, or "name 2", "name 3"… if another meeting has
+    /// it. Two meetings with one title in one minute — the same untitled
+    /// meeting started twice — would otherwise share a file, the second
+    /// writing over the first. `previous` is this meeting's own file, which
+    /// it may always write again.
+    static func availableURL(in folder: URL, for name: String, keeping previous: URL?) -> URL {
+        let stem = (name as NSString).deletingPathExtension
+        let own = previous?.standardizedFileURL
+        var candidate = folder.appendingPathComponent(name)
+        var number = 2
+        while candidate.standardizedFileURL != own,
+              FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(stem) \(number).md")
+            number += 1
+        }
+        return candidate
     }
 
     /// Consecutive lines from one side, close together, read as one

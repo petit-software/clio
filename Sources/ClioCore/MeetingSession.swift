@@ -10,6 +10,13 @@ public protocol MeetingAudioSource: AnyObject, Sendable {
     func stop()
     /// Whether anything but silence has arrived.
     var hasHeardSound: Bool { get }
+    /// Whether it is capturing now. A source can stop on its own — the call
+    /// audio, when the output changed and could not be picked up again.
+    var isCapturing: Bool { get }
+}
+
+extension MeetingAudioSource {
+    public var isCapturing: Bool { true }
 }
 
 extension SystemAudioRecorder: MeetingAudioSource {}
@@ -71,6 +78,11 @@ public final class MeetingSession {
     /// Where the Markdown is. Nil until the first write.
     public private(set) var fileURL: URL?
     public private(set) var saveProblem: String?
+    /// Set once chunks keep failing to transcribe — the model gone or
+    /// broken — so a meeting cannot end empty without a word. Cleared by the
+    /// next chunk that works.
+    public private(set) var transcriptionProblem: String?
+    private var failedInARow = 0
     /// Chunks cut but not yet transcribed: how far behind the transcript is.
     public private(set) var pendingChunks = 0
     public let startedAt: Date
@@ -81,6 +93,12 @@ public final class MeetingSession {
         get { micFeed.isSuppressed }
         set { micFeed.isSuppressed = newValue }
     }
+
+    /// The model to transcribe the next chunk with — the one dictation uses
+    /// now. Nil keeps the one the meeting started with. Without it a model
+    /// changed in Settings mid-meeting was loaded for every dictation and
+    /// unloaded for every chunk, seconds each way.
+    public var currentModel: (() -> InstalledModel?)?
 
     /// Run after the last chunk is in, to write the summary. Nil skips it.
     public var summarize: ((MeetingRecord) async -> String?)?
@@ -175,6 +193,14 @@ public final class MeetingSession {
         let micResult: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
             Result { try microphone.start() }
         }.value
+        // Stop may have been pressed while the hardware woke: `stop` has run
+        // and the feeds are closed. Whatever opened since is let go again —
+        // otherwise the window says "recording" over a live microphone whose
+        // every sample is thrown away.
+        guard phase == .starting else {
+            await Task.detached { microphone.stop() }.value
+            return
+        }
         if case .failure(let error) = micResult {
             phase = .failed(error.localizedDescription)
             return
@@ -183,6 +209,13 @@ public final class MeetingSession {
         let systemResult: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
             Result { try systemRecorder.start() }
         }.value
+        guard phase == .starting else {
+            await Task.detached {
+                microphone.stop()
+                systemRecorder.stop()
+            }.value
+            return
+        }
         switch systemResult {
         case .success: systemAudio = .listening
         case .failure(let error): systemAudio = .unavailable(error.localizedDescription)
@@ -269,16 +302,28 @@ public final class MeetingSession {
     private func transcribe(_ chunk: SpeechChunk, from speaker: MeetingSpeaker) {
         let id = UUID()
         pendingChunks += 1
-        let queue = queue, model = model, options = options
+        let queue = queue, model = currentModel?() ?? model, options = options
         transcriptions[id] = Task { [weak self] in
             let text: String
+            var failure: Error?
             do {
                 text = try await queue.transcribe(samples: chunk.samples, options: options,
                                                   model: model, priority: .meeting).text
             } catch {
                 text = ""
+                failure = error
             }
             guard let self else { return }
+            if let failure, !(failure is CancellationError) {
+                self.failedInARow += 1
+                if self.failedInARow >= 2 {
+                    self.transcriptionProblem = "Speech is not being transcribed: "
+                        + failure.localizedDescription
+                }
+            } else {
+                self.failedInARow = 0
+                self.transcriptionProblem = nil
+            }
             self.pendingChunks -= 1
             self.transcriptions[id] = nil
             let cleaned = Self.clean(text)
@@ -316,18 +361,24 @@ public final class MeetingSession {
 
     // MARK: Is the call coming through?
 
-    /// A refused system-audio permission is not an error: the tap runs and
-    /// delivers silence. Twenty seconds of nothing at all, while the meeting
-    /// is on, is worth a word in the window.
+    /// For the whole meeting, what the call audio is doing. A refused
+    /// permission is not an error — the tap runs and delivers silence — so
+    /// twenty seconds of nothing at all is worth a word in the window; and
+    /// a capture that went away with the output, and could not be picked up
+    /// again, is said as it is rather than left saying "listening".
     private func watchSystemAudio() {
         guard systemAudio == .listening else { return }
         silenceCheck = Task { [weak self] in
             try? await Task.sleep(for: .seconds(20))
             while !Task.isCancelled {
                 guard let self, self.isActive else { return }
-                let heard = self.systemRecorder.hasHeardSound
-                self.systemAudio = heard ? .listening : .silent
-                if heard { return }
+                if !self.systemRecorder.isCapturing {
+                    self.systemAudio = .unavailable(
+                        "The call's audio was lost when the sound output changed. "
+                        + "It is picked up again when the output changes back.")
+                } else {
+                    self.systemAudio = self.systemRecorder.hasHeardSound ? .listening : .silent
+                }
                 try? await Task.sleep(for: .seconds(5))
             }
         }

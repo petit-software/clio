@@ -42,8 +42,10 @@ final class SystemAudioCapture: @unchecked Sendable {
     private let tapID: AudioObjectID
     private let aggregateID: AudioDeviceID
     private var procID: AudioDeviceIOProcID?
-    /// The tap's own rate.
+    /// The tap's own rate and layout.
     private let sampleRate: Double
+    private let tapChannels: Int
+    private let tapInterleaved: Bool
 
     private let onSamples: @Sendable ([Float]) -> Void
 
@@ -104,16 +106,19 @@ final class SystemAudioCapture: @unchecked Sendable {
                 throw Failure(step: "reading the tap's format", status: -1)
             }
 
+            // The tap and nothing else. With the output device as a
+            // sub-device — the recipe this started from — a headset's own
+            // microphone came in as input streams ahead of the tap's, mixed
+            // into "Others", and running the aggregate opened it: a
+            // Bluetooth headset dropped into call mode, which nothing here
+            // may do unasked.
+            _ = outputUID
             let aggregate: [String: Any] = [
                 kAudioAggregateDeviceNameKey: "Clio Meeting",
                 kAudioAggregateDeviceUIDKey: "com.bartbak.clio.meeting.\(UUID().uuidString)",
-                kAudioAggregateDeviceMainSubDeviceKey: outputUID,
                 kAudioAggregateDeviceIsPrivateKey: true,
                 kAudioAggregateDeviceIsStackedKey: false,
                 kAudioAggregateDeviceTapAutoStartKey: true,
-                kAudioAggregateDeviceSubDeviceListKey: [
-                    [kAudioSubDeviceUIDKey: outputUID],
-                ],
                 kAudioAggregateDeviceTapListKey: [
                     [kAudioSubTapDriftCompensationKey: true,
                      kAudioSubTapUIDKey: description.uuid.uuidString],
@@ -126,6 +131,8 @@ final class SystemAudioCapture: @unchecked Sendable {
             return SystemAudioCapture(tapID: tapID, aggregateID: aggregateID,
                                       outputDeviceID: output,
                                       outputSampleRate: nominalSampleRate(of: output),
+                                      tapChannels: Int(max(format.mChannelsPerFrame, 1)),
+                                      tapInterleaved: format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0,
                                       sampleRate: format.mSampleRate,
                                       onSamples: onSamples)
         } catch {
@@ -135,12 +142,15 @@ final class SystemAudioCapture: @unchecked Sendable {
     }
 
     private init(tapID: AudioObjectID, aggregateID: AudioDeviceID,
-                 outputDeviceID: AudioDeviceID, outputSampleRate: Double, sampleRate: Double,
+                 outputDeviceID: AudioDeviceID, outputSampleRate: Double,
+                 tapChannels: Int, tapInterleaved: Bool, sampleRate: Double,
                  onSamples: @escaping @Sendable ([Float]) -> Void) {
         self.tapID = tapID
         self.aggregateID = aggregateID
         self.outputDeviceID = outputDeviceID
         self.outputSampleRate = outputSampleRate
+        self.tapChannels = tapChannels
+        self.tapInterleaved = tapInterleaved
         self.sampleRate = sampleRate
         self.onSamples = onSamples
         ringCapacity = max(Int(sampleRate) * 2, 8 * Self.blockFrames)
@@ -260,8 +270,13 @@ final class SystemAudioCapture: @unchecked Sendable {
     /// Mix whatever arrived to mono and copy it into the ring. Realtime: no
     /// allocation, the lock held only for the copy.
     fileprivate func io(_ input: UnsafePointer<AudioBufferList>) {
-        let buffers = UnsafeMutableAudioBufferListPointer(
-            UnsafeMutablePointer(mutating: input))
+        let all = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
+        // Only the tap's own streams, which an aggregate lists last: one
+        // interleaved buffer, or a buffer per channel. Anything before them
+        // belongs to some other device and is not the call.
+        let tapBuffers = tapInterleaved ? 1 : tapChannels
+        guard all.count >= tapBuffers else { return }
+        let buffers = Array(all.suffix(tapBuffers))
         guard let first = buffers.first, let firstData = first.mData else { return }
 
         let channelsInFirst = Int(max(first.mNumberChannels, 1))
@@ -409,6 +424,9 @@ public final class SystemAudioRecorder: @unchecked Sendable {
 
     private let lock = NSLock()
     private var capture: AnyObject?
+    /// Between `start` and `stop`, whether or not a capture is up: a rebuild
+    /// that failed leaves none, and the next change of output tries again.
+    private var isStarted = false
     private var heardBeforeRebuild = false
     /// How many times the capture has been rebuilt, for the check tool.
     public private(set) var rebuilds = 0
@@ -439,6 +457,7 @@ public final class SystemAudioRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         guard capture == nil else { return }
         try openCapture()
+        isStarted = true
         watch(AudioObjectID(kAudioObjectSystemObject),
               [(kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal)])
         watchCurrentOutput()
@@ -447,12 +466,21 @@ public final class SystemAudioRecorder: @unchecked Sendable {
     public func stop() {
         lock.lock()
         defer { lock.unlock() }
+        isStarted = false
         removeListeners(keepingSystem: false)
         if #available(macOS 14.2, *), let capture = capture as? SystemAudioCapture {
             heardBeforeRebuild = heardBeforeRebuild || capture.hasHeardSound
             capture.stop()
         }
         capture = nil
+    }
+
+    /// Whether a capture is up now. False after a rebuild failed — until
+    /// the next change of output, when it is tried again.
+    public var isCapturing: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return capture != nil
     }
 
     /// Whether anything but silence has come through since `start`.
@@ -522,11 +550,16 @@ public final class SystemAudioRecorder: @unchecked Sendable {
         guard #available(macOS 14.2, *) else { return }
         lock.lock()
         defer { lock.unlock() }
-        guard let current = capture as? SystemAudioCapture, !current.isStillValid else { return }
-        heardBeforeRebuild = heardBeforeRebuild || current.hasHeardSound
+        guard isStarted else { return }
+        // Nothing up — the last rebuild failed — is always worth another
+        // try; a capture that is up is replaced only once it is stale.
+        if let current = capture as? SystemAudioCapture {
+            guard !current.isStillValid else { return }
+            heardBeforeRebuild = heardBeforeRebuild || current.hasHeardSound
+            current.stop()
+            capture = nil
+        }
         removeListeners(keepingSystem: true)
-        current.stop()
-        capture = nil
         rebuilds += 1
         // A failure leaves the meeting with the microphone alone, which beats
         // ending it; the next change of output tries again.

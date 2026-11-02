@@ -13,7 +13,7 @@ extension AppCoordinator {
     ///   Take Notes".
     public func startMeeting(event: MeetingEvent? = nil, join: Bool = false,
                              callApp: CallApp? = nil) {
-        guard !isMeetingActive else {
+        guard !isMeetingActive, !isStartingMeeting else {
             showMeetingWindow()
             return
         }
@@ -24,8 +24,10 @@ extension AppCoordinator {
         }
         meetingProblem = nil
         let settings = settingsStore.settings
+        isStartingMeeting = true
 
         Task { @MainActor in
+            defer { isStartingMeeting = false }
             // Asked the first time a meeting starts, not at launch: dictation
             // never needs the calendar.
             if calendar.access == .notDetermined {
@@ -49,6 +51,7 @@ extension AppCoordinator {
             if settings.meetingSummaries, MeetingSummarizer.isAvailable {
                 session.summarize = { await MeetingSummarizer.summarize($0) }
             }
+            session.currentModel = { [weak self] in self?.activeModel }
             if let event { session.apply(event) }
             if join, let url = event?.joinURL {
                 NSWorkspace.shared.open(url)
@@ -160,6 +163,7 @@ extension AppCoordinator {
 
     private func checkForCalls() {
         let apps = CallDetection.appsUsingMicrophone()
+        guard !isStartingMeeting else { return }
         if let meeting, meeting.isActive {
             if let app = meetingCallApp, callWatch.callEnded(app: app, apps: apps) {
                 meetingCallApp = nil

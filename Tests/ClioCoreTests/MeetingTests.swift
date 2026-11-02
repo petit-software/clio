@@ -270,6 +270,31 @@ struct MeetingRecordTests {
         #expect(name.hasPrefix("20"))
     }
 
+    @Test("Two meetings with one title in one minute get two files, and each keeps its own")
+    func namesDoNotCollide() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-meeting-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var first = MeetingRecord(title: "Meeting", startDate: start)
+        first.notes = "first"
+        var second = MeetingRecord(title: "Meeting", startDate: start.addingTimeInterval(20))
+        second.notes = "second"
+
+        let firstURL = try MeetingMarkdown.write(first, to: folder)
+        let secondURL = try MeetingMarkdown.write(second, to: folder)
+        #expect(firstURL != secondURL)
+        // Each rewrites its own file, not the other's.
+        second.notes = "second, edited"
+        #expect(try MeetingMarkdown.write(second, to: folder, replacing: secondURL) == secondURL)
+        first.notes = "first, edited"
+        #expect(try MeetingMarkdown.write(first, to: folder, replacing: firstURL) == firstURL)
+        let notes = try [firstURL, secondURL].map {
+            MeetingMarkdown.parse(try String(contentsOf: $0, encoding: .utf8))?.notes
+        }
+        #expect(notes == ["first, edited", "second, edited"])
+    }
+
     @Test("Writing again after a rename leaves one file")
     func rewriteReplaces() throws {
         let folder = FileManager.default.temporaryDirectory
@@ -348,6 +373,17 @@ struct MeetingCalendarTests {
 
 @Suite("Meeting summary")
 struct MeetingSummaryTests {
+    @Test("However long the notes and the transcript, the last prompt fits; the notes lead it")
+    func finalPromptFits() {
+        let notes = String(repeating: "a note that goes on ", count: 1_000)       // 20,000 characters
+        let material = String(repeating: "something that was said ", count: 1_000)
+        let prompt = MeetingSummarizer.finalPrompt(notes: notes, material: material, label: "Transcript")
+        #expect(prompt.count <= MeetingSummarizer.notesLimit + MeetingSummarizer.pieceLimit + 100)
+        #expect(prompt.hasPrefix("Notes written during the meeting:\na note"))
+        #expect(prompt.contains("Transcript:\nsomething that was said"))
+        #expect(MeetingSummarizer.finalPrompt(notes: "  ", material: "x", label: "T") == "T:\nx")
+    }
+
     @Test("A long transcript is split at line breaks into pieces the model can hold")
     func splitsIntoPieces() {
         let line = String(repeating: "word ", count: 40)   // 200 characters
@@ -520,6 +556,66 @@ struct MeetingSessionTests {
         #expect(meeting.record.lines.isEmpty)
     }
 
+    @Test("Stop pressed while the microphone is still opening leaves nothing running")
+    func stopDuringStart() async throws {
+        /// Takes a while to start, like real hardware, and says whether it
+        /// was left running.
+        final class SlowSource: MeetingAudioSource, @unchecked Sendable {
+            var onSamples: (@Sendable ([Float]) -> Void)?
+            var hasHeardSound = true
+            private let lock = NSLock()
+            private var running = false
+            var isRunning: Bool { lock.lock(); defer { lock.unlock() }; return running }
+            func start() throws {
+                Thread.sleep(forTimeInterval: 0.3)
+                lock.lock(); running = true; lock.unlock()
+            }
+            func stop() { lock.lock(); running = false; lock.unlock() }
+        }
+        let mic = SlowSource(), system = SlowSource(), clock = TestClock(), folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let meeting = MeetingSession(
+            title: "Test", folder: folder, queue: TranscriptionQueue(LengthEngine()),
+            model: InstalledModel(id: "m", displayName: "M", sizeBytes: 0,
+                                  url: URL(fileURLWithPath: "/nonexistent")),
+            options: TranscribeOptions(), sensitivity: 0.5, micDeviceUID: nil,
+            microphone: mic, systemAudio: system, now: { clock.now() })
+
+        let starting = Task { await meeting.start() }
+        try await Task.sleep(for: .milliseconds(100))   // the mic is still opening
+        await meeting.stop()
+        await starting.value
+
+        #expect(meeting.phase == .finished)
+        #expect(!mic.isRunning)
+        #expect(!system.isRunning)
+    }
+
+    @Test("Chunks that keep failing to transcribe are said out loud, not dropped in silence")
+    func transcriptionFailuresAreReported() async throws {
+        actor BrokenEngine: TranscriptionEngine {
+            struct Gone: LocalizedError { var errorDescription: String? { "The model is missing." } }
+            var isLoaded: Bool { false }
+            func load(model: InstalledModel) async throws { throw Gone() }
+            func unload() async {}
+            func transcribe(samples: [Float], options: TranscribeOptions) async throws -> Transcript {
+                throw Gone()
+            }
+        }
+        let mic = FakeSource(), system = FakeSource(), clock = TestClock(), folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let meeting = MeetingSession(
+            title: "Test", folder: folder, queue: TranscriptionQueue(BrokenEngine()),
+            model: InstalledModel(id: "m", displayName: "M", sizeBytes: 0,
+                                  url: URL(fileURLWithPath: "/nonexistent")),
+            options: TranscribeOptions(), sensitivity: 0.5, micDeviceUID: nil,
+            microphone: mic, systemAudio: system, now: { clock.now() })
+        await meeting.start()
+        system.push(tone(2) + silence(2) + tone(2) + silence(2), clock: clock)
+        await meeting.stop(summarizing: false)
+        #expect(meeting.transcriptionProblem?.contains("The model is missing.") == true)
+    }
+
     @Test("The summary is written after the transcript, and skipped when asked")
     func summary() async throws {
         let folder = tempFolder()
@@ -566,6 +662,30 @@ struct MeetingLibraryTests {
         try Data("not a meeting".utf8).write(to: folder.appendingPathComponent("readme.md"))
         try Data("# Not markdown".utf8).write(to: folder.appendingPathComponent("x.txt"))
         #expect(MeetingLibrary.scan(folder).map(\.title) == ["New", "Old"])
+    }
+
+    @Test("A rescan reads only the files that changed")
+    func rescansOnlyChanges() throws {
+        let folder = try folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let kept = try write("Kept", daysAgo: 1, to: folder)
+        let edited = try write("Edited", daysAgo: 2, to: folder)
+        let (_, cache) = MeetingLibrary.scan(folder, cache: [:])
+
+        // A change the cache cannot see — same modification date — proves
+        // the file was not read again; a real edit is.
+        let date = try #require(try kept.resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate)
+        try Data(try String(contentsOf: kept, encoding: .utf8)
+            .replacingOccurrences(of: "# Kept", with: "# Changed unseen").utf8).write(to: kept)
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: kept.path)
+        try Data(try String(contentsOf: edited, encoding: .utf8)
+            .replacingOccurrences(of: "# Edited", with: "# Edited again").utf8).write(to: edited)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)],
+                                              ofItemAtPath: edited.path)
+
+        let titles = Set(MeetingLibrary.scan(folder, cache: cache).files.map(\.title))
+        #expect(titles == ["Kept", "Edited again"])
     }
 
     @Test("Search finds every word, in the title, the notes or what was said")

@@ -54,6 +54,11 @@ public final class AppCoordinator {
     /// samples into the real history.
     var libraryDictationsOverride: [TranscriptEntry]?
     #endif
+    /// Set from the moment a meeting is asked for until it exists. The
+    /// calendar prompt sits between the two, and a second start in that gap
+    /// — the menu again, the call offer — made a second session, the first
+    /// left recording with nothing able to stop it.
+    var isStartingMeeting = false
     /// The call the meeting belongs to, so it can stop when the call does.
     var meetingCallApp: CallApp?
     var callWatch = CallWatch()

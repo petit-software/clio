@@ -178,6 +178,9 @@ struct MeetingView: View {
         if let problem = meeting.microphoneProblem {
             return Warning(text: problem, action: nil)
         }
+        if let problem = meeting.transcriptionProblem {
+            return Warning(text: problem + " Check Settings ▸ Model.", action: nil)
+        }
         if let problem = meeting.saveProblem {
             return Warning(text: "The notes could not be saved: \(problem)", action: nil)
         }
