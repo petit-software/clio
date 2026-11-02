@@ -189,7 +189,18 @@ struct IntegrationTests {
 /// which a test binary only has if the user granted it. Run with:
 ///
 ///     CLIO_INTEGRATION=1 swift test --filter MicrophoneIntegration
-@Suite("MicrophoneIntegration", .enabled(if: integrationEnabled), .serialized)
+/// Every test here records, most of them from the system default. When that
+/// is a headset or a phone, opening it is noticed by whoever is wearing or
+/// holding it, so the suite stands down unless told otherwise.
+private let defaultInputOpensQuietly =
+    ProcessInfo.processInfo.environment["CLIO_RECORDER_STRESS_ALL"] != nil
+    || AudioDevices.defaultInput()?.transport.opensQuietly == true
+
+@Suite("MicrophoneIntegration",
+       .enabled(if: integrationEnabled),
+       .enabled(if: defaultInputOpensQuietly,
+                "the system default microphone is Bluetooth or an iPhone"),
+       .serialized)
 struct MicrophoneIntegrationTests {
 
     /// The microphone the system is actually using must record.
@@ -200,11 +211,23 @@ struct MicrophoneIntegrationTests {
     /// phone, a display microphone superseded by headphones — and they return
     /// silence by design rather than by fault. The others are reported so a
     /// real regression is still visible in the output.
+    ///
+    /// Built-in and USB only, as the stress sweep is, unless
+    /// CLIO_RECORDER_STRESS_ALL is set — see `AudioTransport.opensQuietly`.
+    /// It used to open every input, which made a Continuity microphone wake
+    /// its phone whenever the integration suite ran. If the system default
+    /// is not a quiet one, nothing here can stand in for it, so the test
+    /// skips its check rather than opening it.
     @Test("The system's current microphone records")
     func defaultDeviceRecords() async throws {
+        let everything = ProcessInfo.processInfo.environment["CLIO_RECORDER_STRESS_ALL"] != nil
         let devices = AudioDevices.availableInputs()
+            .filter { everything || $0.transport.opensQuietly }
         try #require(!devices.isEmpty)
-        let active = try #require(devices.first(where: \.isSystemDefault) ?? devices.first)
+        guard let active = devices.first(where: \.isSystemDefault) else {
+            print("[mic] the system default does not open quietly; not checked")
+            return
+        }
 
         for device in devices {
             let recorder = AudioRecorder()
