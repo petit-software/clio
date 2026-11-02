@@ -1,6 +1,35 @@
 import Foundation
 import Observation
 
+/// Where one side of a meeting comes from: the microphone, the system audio,
+/// or — in tests — samples pushed by hand.
+public protocol MeetingAudioSource: AnyObject, Sendable {
+    /// Called on the source's own thread with 16 kHz mono samples.
+    var onSamples: (@Sendable ([Float]) -> Void)? { get set }
+    func start() throws
+    func stop()
+    /// Whether anything but silence has arrived.
+    var hasHeardSound: Bool { get }
+}
+
+extension SystemAudioRecorder: MeetingAudioSource {}
+
+/// The microphone, streaming: an `AudioRecorder` that keeps nothing.
+public final class MeetingMicrophone: MeetingAudioSource, @unchecked Sendable {
+    public let recorder = AudioRecorder()
+    private let deviceUID: String?
+
+    public init(deviceUID: String?) { self.deviceUID = deviceUID }
+
+    public var onSamples: (@Sendable ([Float]) -> Void)? {
+        get { recorder.onSamples }
+        set { recorder.onSamples = newValue }
+    }
+    public func start() throws { try recorder.start(maxSeconds: 0, deviceUID: deviceUID) }
+    public func stop() { recorder.stop() }
+    public var hasHeardSound: Bool { recorder.buffersReceived > 0 }
+}
+
 /// One meeting being recorded: both sides of the call, cut at the pauses,
 /// transcribed as it goes, and kept on disk as Markdown the whole time.
 ///
@@ -60,9 +89,9 @@ public final class MeetingSession {
     private let queue: TranscriptionQueue
     private let model: InstalledModel
     private let options: TranscribeOptions
-    private let micDeviceUID: String?
-    private let microphone = AudioRecorder()
-    private let systemRecorder = SystemAudioRecorder()
+    private let microphone: MeetingAudioSource
+    private let systemRecorder: MeetingAudioSource
+    private let now: @Sendable () -> Date
     private let micFeed: StreamFeed
     private let systemFeed: StreamFeed
     private var transcriptions: [UUID: Task<Void, Never>] = [:]
@@ -74,18 +103,23 @@ public final class MeetingSession {
                 model: InstalledModel,
                 options: TranscribeOptions,
                 sensitivity: Double,
-                micDeviceUID: String?) {
-        let now = Date()
-        startedAt = now
-        record = MeetingRecord(title: title, startDate: now)
+                micDeviceUID: String?,
+                microphone: MeetingAudioSource? = nil,
+                systemAudio: MeetingAudioSource? = nil,
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        let start = now()
+        startedAt = start
+        self.now = now
+        record = MeetingRecord(title: title, startDate: start)
         self.folder = folder
         self.queue = queue
         self.model = model
         self.options = options
-        self.micDeviceUID = micDeviceUID
+        self.microphone = microphone ?? MeetingMicrophone(deviceUID: micDeviceUID)
+        self.systemRecorder = systemAudio ?? SystemAudioRecorder()
         let configuration = SpeechSegmenter.Configuration(sensitivity: sensitivity)
-        micFeed = StreamFeed(speaker: .me, meetingStart: now, configuration: configuration)
-        systemFeed = StreamFeed(speaker: .others, meetingStart: now, configuration: configuration)
+        micFeed = StreamFeed(speaker: .me, meetingStart: start, configuration: configuration, now: now)
+        systemFeed = StreamFeed(speaker: .others, meetingStart: start, configuration: configuration, now: now)
     }
 
     #if DEBUG
@@ -112,7 +146,7 @@ public final class MeetingSession {
 
     public var isActive: Bool { phase == .starting || phase == .recording }
     public var elapsed: TimeInterval {
-        (record.endDate ?? Date()).timeIntervalSince(record.startDate)
+        (record.endDate ?? now()).timeIntervalSince(record.startDate)
     }
 
     // MARK: Starting and stopping
@@ -131,15 +165,15 @@ public final class MeetingSession {
         micFeed.onChunks = { deliver(.me, $0) }
         systemFeed.onChunks = { deliver(.others, $0) }
         microphone.onSamples = { [micFeed] in micFeed.append($0) }
-        microphone.onFailure = { [weak self] error in
+        (microphone as? MeetingMicrophone)?.recorder.onFailure = { [weak self] error in
             self?.microphoneProblem = error.localizedDescription
         }
         systemRecorder.onSamples = { [systemFeed] in systemFeed.append($0) }
 
         // Opening hardware takes a moment and blocks; not on the main actor.
-        let microphone = microphone, systemRecorder = systemRecorder, uid = micDeviceUID
+        let microphone = microphone, systemRecorder = systemRecorder
         let micResult: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
-            Result { try microphone.start(maxSeconds: 0, deviceUID: uid) }
+            Result { try microphone.start() }
         }.value
         if case .failure(let error) = micResult {
             phase = .failed(error.localizedDescription)
@@ -160,7 +194,7 @@ public final class MeetingSession {
 
     /// Stops listening, transcribes what is left, writes the summary, and
     /// saves. Returns once the file is final.
-    public func stop() async {
+    public func stop(summarizing: Bool = true) async {
         guard isActive else { return }
         phase = .finishing
         silenceCheck?.cancel()
@@ -175,7 +209,7 @@ public final class MeetingSession {
         try? await Task.sleep(for: .milliseconds(100))
         transcribe(micFeed.finish(), from: .me)
         transcribe(systemFeed.finish(), from: .others)
-        record.endDate = Date()
+        record.endDate = now()
         save()
 
         // New ones are not started now that both feeds are finished.
@@ -183,7 +217,7 @@ public final class MeetingSession {
             await next.value
         }
 
-        if let summarize, !record.lines.isEmpty {
+        if summarizing, let summarize, !record.lines.isEmpty {
             phase = .summarizing
             record.summary = await summarize(record)
         }
@@ -198,7 +232,7 @@ public final class MeetingSession {
         microphone.stop()
         systemRecorder.stop()
         for task in transcriptions.values { task.cancel() }
-        record.endDate = record.endDate ?? Date()
+        record.endDate = record.endDate ?? now()
         phase = .finished
         save()
     }
@@ -317,10 +351,14 @@ private final class StreamFeed: @unchecked Sendable {
     private var suppressed = false
     private var finished = false
 
+    private let now: @Sendable () -> Date
+
     init(speaker: MeetingSpeaker, meetingStart: Date,
-         configuration: SpeechSegmenter.Configuration) {
+         configuration: SpeechSegmenter.Configuration,
+         now: @escaping @Sendable () -> Date) {
         self.speaker = speaker
         self.meetingStart = meetingStart
+        self.now = now
         segmenter = SpeechSegmenter(configuration: configuration)
     }
 
@@ -333,7 +371,7 @@ private final class StreamFeed: @unchecked Sendable {
         lock.lock()
         guard !finished else { lock.unlock(); return }
         let rate = AudioRecorder.sampleRate
-        let arrivedAt = Date().timeIntervalSince(meetingStart) - Double(samples.count) / rate
+        let arrivedAt = now().timeIntervalSince(meetingStart) - Double(samples.count) / rate
         if origin == nil { origin = max(0, arrivedAt) }
         var chunks: [SpeechChunk] = []
         // The tap sends nothing while nothing plays, so a stream's samples

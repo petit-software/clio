@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return env["CLIO_OVERLAY_DUMP"] != nil || env["CLIO_OVERLAY_SHOW"] != nil
             || env["CLIO_INTRO_SHOW"] != nil || env["CLIO_SETTINGS_SHOW"] != nil
             || env["CLIO_MENU_SHOW"] != nil || env["CLIO_MEETING_SHOW"] != nil
-            || env["CLIO_OFFER_SHOW"] != nil
+            || env["CLIO_OFFER_SHOW"] != nil || env["CLIO_LIBRARY_SHOW"] != nil
         #else
         return false
         #endif
@@ -93,7 +93,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let out = ProcessInfo.processInfo.environment["CLIO_SYSTEM_AUDIO_OUT"]
                 .map { URL(fileURLWithPath: $0) }
             Task { @MainActor in
-                let report = await SystemAudioRecorder.check(seconds: seconds, writingTo: out)
+                let flip = ProcessInfo.processInfo.environment["CLIO_SYSTEM_AUDIO_FLIP_RATE"] != nil
+                let report = await SystemAudioRecorder.check(seconds: seconds, writingTo: out,
+                                                             flipRate: flip)
                 FileHandle.standardError.write(Data((report + "\n").utf8))
                 exit(report.contains("heard sound: yes") ? 0 : 1)
             }
@@ -120,13 +122,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator.showSimulatedMeeting(which)
             return
         }
+        // The library window on sample meetings; "live" adds a recording.
+        if let which = ProcessInfo.processInfo.environment["CLIO_LIBRARY_SHOW"] {
+            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+            }
+            coordinator.showSimulatedLibrary(which)
+            return
+        }
         // The card offered when a call starts, top right.
         if ProcessInfo.processInfo.environment["CLIO_OFFER_SHOW"] != nil {
             NSApp.setActivationPolicy(.accessory)
             if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
                 NSApp.appearance = NSAppearance(named: .darkAqua)
             }
-            coordinator.showSimulatedOffer()
+            if ProcessInfo.processInfo.environment["CLIO_OFFER_SHOW"] == "click" {
+                coordinator.clickSimulatedOffer()
+            } else {
+                coordinator.showSimulatedOffer()
+            }
             return
         }
         // Render the overlay states and quit, without starting the app proper.
@@ -226,6 +240,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            !isMenuTool {
             intro.show(coordinator: coordinator)
         }
+    }
+
+    /// Quitting during a meeting finishes its transcript first — a few
+    /// seconds, at most ten — rather than dropping the last thing said.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard coordinator.isMeetingActive else { return .terminateNow }
+        Task { @MainActor in
+            await coordinator.finishMeetingBeforeQuitting(within: 10)
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -40,11 +40,17 @@ One meeting, end to end.
 | 6 | added in time order, echo of the call in the mic dropped, Markdown rewritten | `ClioCore/MeetingRecord` |
 | 7 | stop: drain, then a summary by Apple's on-device model (macOS 26) | `MeetingSession.stop`, `ClioCore/MeetingSummarizer` |
 | 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
+| 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
+
+The library window is Clio's one real window: meetings down the side (the
+live one first, then Today, Yesterday, months), dictations under them —
+whatever Settings ▸ history keeps, nothing more — and the picked one as a
+document. Clio has a Dock icon only while it is open.
 
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 165 tests live here.
+  without standing up an app. All 175 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -54,7 +60,7 @@ One meeting, end to end.
 
 ```sh
 swift build
-swift test                                  # 165 tests, 22 suites, no network
+swift test                                  # 175 tests, 24 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -91,6 +97,8 @@ CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a
 CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, finishing, finished
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
+CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording
+CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
 ```
@@ -248,6 +256,22 @@ during a meeting would have run on the pipeline alongside a chunk. Everything
 goes through `TranscriptionQueue`, dictation first. Loading too — switching
 models mid-chunk pulls the model out from under it.
 
+**Meeting files start with front matter** (`clio`, `start`, `end`, `link`).
+The library reads meetings back from the folder, and the human date line is
+in the user's locale — parsing it back would break the first time someone
+changed their region. The front matter is what is read; the rest is for
+people.
+
+**The tap is rebuilt when its clock moves, not only when the default output
+changes.** AirPods go into call mode — a new sample rate on the same device —
+the moment a call app opens their microphone. `SystemAudioRecorder` listens
+on the output device itself, and acts on another queue, because removing a
+listener from inside its own callback can deadlock.
+
+**A deadline is a race, not a task group.** Quitting waits for the meeting
+for at most ten seconds; written as a task group, the group waited for the
+stop that had lost anyway.
+
 **Meetings stream; they do not buffer.** A meeting starts its `AudioRecorder`
 with `maxSeconds: 0` and takes samples from `onSamples`. The dictation buffer
 is preallocated for the whole recording, which for a two-hour call is half a
@@ -334,7 +358,10 @@ Verified by something repeatable:
   WhisperKit, the Markdown and an Apple Intelligence summary
   (`CLIO_MEETING_TEST`, `say` through the speakers)
 - segmenting, echo removal, the queue's order, calendar matching, call
-  detection decisions: `MeetingTests`
+  detection decisions, a whole session on fake sources (drain on stop,
+  wall-clock gaps, the mic muted while dictating, the summary), the Markdown
+  round trip and the library's scan, search, edits and grouping:
+  `MeetingTests`
 
 Not verified, and worth knowing:
 
@@ -350,11 +377,16 @@ Not verified, and worth knowing:
   path in the app.
 - **Sparkle actually installing an update.** Every link has been checked
   individually; the whole chain has never been watched run.
+- **a first click on the offer card.** It accepts first mouse and may become
+  key, which is the documented fix; a click sent inside the app cannot tell
+  that from the old panel, and a click posted system-wide would move the
+  user's pointer, so nobody has clicked it for real.
 - **meetings on a real call.** The tap has heard `say`, not Zoom or a browser
   call; the offer and the auto-stop have only been tested as decisions, not
   watched against an app opening and closing its microphone; and the tap has
-  not been run with headphones or AirPods as the output, where the aggregate
-  is rebuilt on every change.
+  not been run with headphones or AirPods as the output. A rate change on the
+  built-in speakers rebuilds it and keeps hearing (`CLIO_SYSTEM_AUDIO_FLIP_RATE`);
+  a Bluetooth device has not been tried.
 - **the calendar prompt and EventKit reading real events.** Matching is
   tested on values; nobody has granted access and seen a meeting named.
 - **a refused system-audio permission.** Assumed to deliver silence, as it

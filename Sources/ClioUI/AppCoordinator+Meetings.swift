@@ -77,12 +77,65 @@ extension AppCoordinator {
         }
     }
 
-    public func showMeetingWindow() {
-        guard let meeting else { return }
-        if meetingWindow == nil {
-            meetingWindow = MeetingWindowController()
+    /// Stops the meeting and transcribes what is left, without a summary,
+    /// giving up after `seconds`: whatever is unfinished then is dropped.
+    public func finishMeetingBeforeQuitting(within seconds: Double) async {
+        guard let meeting, meeting.isActive else { return }
+        // A race, not a task group: a group waits for every child at its
+        // end, and the stop that lost would hold the quit up after all.
+        final class Once { var done = false }
+        let once = Once()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            func finish() {
+                guard !once.done else { return }
+                once.done = true
+                continuation.resume()
+            }
+            Task { @MainActor in
+                await meeting.stop(summarizing: false)
+                finish()
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(seconds))
+                finish()
+            }
         }
-        meetingWindow?.show(meeting: meeting, coordinator: self)
+        if meeting.phase != .finished { meeting.abandon() }
+    }
+
+    /// The live meeting, in the library window.
+    public func showMeetingWindow() {
+        showLibrary(selecting: meeting?.isActive == true ? .live
+                    : meeting?.fileURL.map(LibrarySelection.meeting))
+    }
+
+    /// Opens the library window, on `selection` if given.
+    public func showLibrary(selecting selection: LibrarySelection? = nil) {
+        let folder = MeetingMarkdown.folder(customPath: settingsStore.settings.meetingsFolderPath)
+        if let library {
+            library.setFolder(folder)
+            library.reload()
+        } else {
+            library = MeetingLibrary(folder: folder)
+        }
+        if let selection { librarySelection = selection }
+        if libraryWindow == nil { libraryWindow = LibraryWindowController() }
+        libraryWindow?.show(coordinator: self)
+    }
+
+    /// Settings moved the notes folder.
+    public func meetingsFolderChanged() {
+        library?.setFolder(MeetingMarkdown.folder(customPath: settingsStore.settings.meetingsFolderPath))
+    }
+
+    /// Dictations for the sidebar: whatever the history keeps — the last
+    /// twenty, on disk only if Settings says so. The library does not keep
+    /// any more than that.
+    public var libraryDictations: [TranscriptEntry] {
+        #if DEBUG
+        if let libraryDictationsOverride { return libraryDictationsOverride }
+        #endif
+        return history.entries
     }
 
     // MARK: Noticing calls
@@ -225,14 +278,98 @@ extension AppCoordinator {
         }
         meeting = MeetingSession.simulated(record: record, phase: phase, systemAudio: audio,
                                            pendingChunks: phase == .finishing ? 2 : 0)
-        showMeetingWindow()
+        libraryDictationsOverride = []
+        showLibrary(selecting: .live)
+    }
+
+    /// For CLIO_LIBRARY_SHOW: the library window on a folder of sample
+    /// meetings in a temporary directory — never the user's own — with
+    /// sample dictations, and a meeting recording at the top for "live".
+    public func showSimulatedLibrary(_ which: String) {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-library-sample", isDirectory: true)
+        try? FileManager.default.removeItem(at: folder)
+        let now = Date()
+        func sample(_ title: String, hoursAgo: Double, minutes: Double, people: [String],
+                     notes: String, summary: String?, lines: [(MeetingSpeaker, String)]) {
+            var record = MeetingRecord(title: title, startDate: now.addingTimeInterval(-hoursAgo * 3600))
+            record.endDate = record.startDate.addingTimeInterval(minutes * 60)
+            record.attendees = people.map { MeetingAttendee(name: $0) }
+            record.notes = notes
+            record.summary = summary
+            for (index, line) in lines.enumerated() {
+                let start = Double(index) * 9 + 3
+                record.add(MeetingLine(speaker: line.0, start: start, end: start + 6, text: line.1))
+            }
+            try? MeetingMarkdown.write(record, to: folder)
+        }
+        sample("Weekly product sync", hoursAgo: 2, minutes: 32, people: ["Ana Ruiz", "Bo Chen"],
+                notes: "- iOS beta date?\n- pricing page copy",
+                summary: "### iOS beta\n- Build is ready; goes to testers Thursday.\n\n### Pricing page\n- Copy drafted; design reviewing the table.\n\n### Next steps\n- [ ] Write the release notes — Me\n- [ ] Final pass on the pricing table — Bo",
+                lines: [(.others, "Okay, I think everyone's here. Let's start with the beta."),
+                        (.me, "The build is ready. I'd like to send it to testers on Thursday."),
+                        (.others, "Thursday works. Do we have the release notes?"),
+                        (.me, "Not yet, I'll write them tomorrow morning.")])
+        sample("1:1 with Ana", hoursAgo: 5, minutes: 25, people: ["Ana Ruiz"],
+                notes: "", summary: "### Hiring\n- Two onsite interviews next week.",
+                lines: [(.others, "How are the interviews going?"), (.me, "Two onsites next week.")])
+        sample("Design review", hoursAgo: 27, minutes: 45, people: ["Kit Lee", "Bo Chen"],
+                notes: "icon contrast", summary: nil,
+                lines: [(.others, "The icon needs more contrast on dark backgrounds.")])
+        sample("Quarterly planning", hoursAgo: 24 * 34, minutes: 80,
+                people: ["Ana Ruiz", "Bo Chen", "Kit Lee"], notes: "",
+                summary: "### Q1 goals\n- Ship meetings.",
+                lines: [(.others, "Let's agree the three goals for the quarter.")])
+
+        library = MeetingLibrary(folder: folder)
+        libraryDictationsOverride = [
+            TranscriptEntry(text: "Let's ship the microphone picker before the icon work.",
+                            date: now.addingTimeInterval(-600)),
+            TranscriptEntry(text: "Remember to re-grant accessibility after the next build.",
+                            date: now.addingTimeInterval(-7200)),
+        ]
+        if which == "live" {
+            var record = MeetingRecord(title: "Pricing call", startDate: now.addingTimeInterval(-754))
+            record.attendees = [MeetingAttendee(name: "Kit Lee")]
+            record.add(MeetingLine(speaker: .others, start: 4, end: 9,
+                                   text: "Can we talk about the starter tier first?"))
+            record.add(MeetingLine(speaker: .me, start: 12, end: 18,
+                                   text: "Sure. I think it should stay at nine dollars."))
+            meeting = MeetingSession.simulated(record: record, phase: .recording)
+            librarySelection = .live
+        } else {
+            librarySelection = nil
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(400))
+                if let first = library?.files.first { librarySelection = .meeting(first.url) }
+            }
+        }
+        if libraryWindow == nil { libraryWindow = LibraryWindowController() }
+        libraryWindow?.show(coordinator: self)
     }
 
     /// For CLIO_OFFER_SHOW.
     public func showSimulatedOffer() {
         if meetingOffer == nil { meetingOffer = MeetingOfferController() }
         meetingOffer?.show(title: "Weekly product sync",
-                           app: CallApp(bundleID: "us.zoom.xos", name: "Zoom", isBrowser: false)) {}
+                           app: CallApp(bundleID: "us.zoom.xos", name: "Zoom", isBrowser: false)) {
+            FileHandle.standardError.write(Data("[offer] Take Notes pressed\n".utf8))
+        }
+    }
+
+    /// For CLIO_OFFER_SHOW=click: shows the card, clicks "Take Notes" once
+    /// while Clio is not the active app, and says whether it was heard.
+    public func clickSimulatedOffer() {
+        showSimulatedOffer()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            // "Take Notes": the right half of the button row, near the bottom.
+            let size = MeetingOfferController.size
+            meetingOffer?.click(at: NSPoint(x: size.width * 0.75, y: 30))
+            try? await Task.sleep(for: .seconds(0.5))
+            FileHandle.standardError.write(Data("[offer] click sent\n".utf8))
+            exit(0)
+        }
     }
 }
 #endif

@@ -2,36 +2,8 @@ import AppKit
 import SwiftUI
 import ClioCore
 
-/// The meeting window: an ordinary titled window, because it is a document
-/// the user keeps beside the call, types into, and comes back to.
-@MainActor
-final class MeetingWindowController {
-    private var window: NSWindow?
-
-    func show(meeting: MeetingSession, coordinator: AppCoordinator) {
-        let view = MeetingView(meeting: meeting, coordinator: coordinator)
-        if let window {
-            window.contentView = NSHostingView(rootView: view)
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
-        window.title = "Meeting Notes"
-        window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 420, height: 420)
-        window.contentView = NSHostingView(rootView: view)
-        window.setFrameAutosaveName("ClioMeetingWindow")
-        if window.frame.origin == .zero { window.center() }
-        self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-    }
-}
-
+/// The meeting being recorded, in the library window: what it is, how it is
+/// going, the user's notes, and the transcript arriving.
 struct MeetingView: View {
     @Bindable var meeting: MeetingSession
     let coordinator: AppCoordinator
@@ -47,6 +19,10 @@ struct MeetingView: View {
     @State private var title = ""
     @State private var notes = ""
     @State private var notesSave: Task<Void, Never>?
+    @State private var titleSave: Task<Void, Never>?
+    /// The notes have the keyboard while a meeting runs: what is typed during
+    /// a call is a note, and the title should not be the first thing to go.
+    @FocusState private var notesFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -89,6 +65,12 @@ struct MeetingView: View {
         .onAppear {
             title = meeting.record.title
             notes = meeting.record.notes
+            if meeting.isActive {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(100))
+                    notesFocused = true
+                }
+            }
             #if DEBUG
             if let name = ProcessInfo.processInfo.environment["CLIO_MEETING_PANE"],
                let chosen = Pane.allCases.first(where: { $0.rawValue.lowercased() == name }) {
@@ -119,6 +101,17 @@ struct MeetingView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 20, weight: .semibold))
                 .onSubmit { meeting.setTitle(title) }
+                // Saved as typed, a beat later, and on leaving — not only
+                // on Return, which nobody presses in a title.
+                .onChange(of: title) { _, new in
+                    titleSave?.cancel()
+                    titleSave = Task {
+                        try? await Task.sleep(for: .milliseconds(800))
+                        guard !Task.isCancelled else { return }
+                        meeting.setTitle(new)
+                    }
+                }
+                .onDisappear { meeting.setTitle(title) }
 
             HStack(spacing: 8) {
                 statusDot
@@ -234,6 +227,7 @@ struct MeetingView: View {
 
     private var notesPane: some View {
         TextEditor(text: $notes)
+            .focused($notesFocused)
             .font(.system(size: 14))
             .scrollContentBackground(.hidden)
             .padding(.horizontal, 15)
@@ -261,37 +255,7 @@ struct MeetingView: View {
     }
 
     private var transcriptPane: some View {
-        let paragraphs = MeetingMarkdown.paragraphs(meeting.record.lines)
-        return ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if paragraphs.isEmpty {
-                        Text(meeting.isActive ? "Listening. Lines appear a few seconds after they are said."
-                                              : "Nothing was transcribed.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(paragraphs) { line in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(line.speaker.label) · \(line.timestamp)")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(line.speaker == .me ? Color.accentColor : .secondary)
-                            Text(line.text)
-                                .font(.system(size: 13))
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .id(line.id)
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .onChange(of: paragraphs.last?.id) { _, last in
-                guard let last else { return }
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
-            }
-        }
+        TranscriptList(lines: meeting.record.lines, isLive: meeting.isActive)
     }
 
     private var summaryPane: some View {

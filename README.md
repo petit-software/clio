@@ -15,7 +15,8 @@ calendar event that is on — or accept the offer Clio makes when a call app
 opens its microphone. Your microphone is "Me" and the call's audio is
 "Others", transcribed as the meeting goes into one Markdown file per meeting
 in `~/Documents/Clio Meetings`, with your own notes and, on macOS 26 with
-Apple Intelligence, a summary written on this Mac.
+Apple Intelligence, a summary written on this Mac. "Open Clio…" in the menu
+shows them all — searchable, editable, with recent dictations alongside.
 
 Requires macOS 14+. Design notes in
 [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-spec.md);
@@ -38,7 +39,7 @@ Working end to end, signed, notarized and updating itself through Sparkle.
 
 ```sh
 swift build              # library + executable
-swift test               # 165 tests, no network
+swift test               # 175 tests, no network
 ./scripts/build-app.sh   # Clio.app, signed with your Developer ID
 open Clio.app
 ```

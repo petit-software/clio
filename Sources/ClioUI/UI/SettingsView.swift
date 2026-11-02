@@ -742,6 +742,7 @@ private struct MeetingsTab: View {
                 if settings.meetingsFolderPath != nil {
                     Button("Use Documents ▸ Clio Meetings") {
                         coordinator.settingsStore.settings.meetingsFolderPath = nil
+                        coordinator.meetingsFolderChanged()
                     }
                 }
                 Toggle("Write a summary when the meeting ends", isOn: Binding(
@@ -802,6 +803,7 @@ private struct MeetingsTab: View {
         panel.directoryURL = MeetingMarkdown.folder(customPath: settings.meetingsFolderPath)
         if panel.runModal() == .OK, let url = panel.url {
             coordinator.settingsStore.settings.meetingsFolderPath = url.path
+            coordinator.meetingsFolderChanged()
         }
     }
 }

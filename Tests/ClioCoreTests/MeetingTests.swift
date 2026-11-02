@@ -201,13 +201,51 @@ struct MeetingRecordTests {
         record.add(line(.others, 3725, "Bye."))
         let markdown = MeetingMarkdown.render(record)
 
-        #expect(markdown.hasPrefix("# Weekly sync\n"))
+        #expect(markdown.hasPrefix("---\nclio: 1\nstart: "))
+        #expect(markdown.contains("---\n\n# Weekly sync\n"))
         #expect(markdown.contains("**Attendees:** Ana, Bo (declined)"))
         #expect(markdown.contains("## Notes\n\n- ship it"))
         #expect(markdown.contains("**[00:01] Me:** Hello. Can you hear me?"))
         #expect(markdown.contains("**[00:12] Others:** Yes."))
         #expect(markdown.contains("**[1:02:05] Others:** Bye."))
         #expect(!markdown.contains("## Summary"))
+    }
+
+    @Test("What is written is what is read back: title, dates, people, link, notes, summary, every line")
+    func roundTrips() throws {
+        var record = MeetingRecord(title: "Weekly sync: Q3",
+                                   startDate: Date(timeIntervalSince1970: 1_800_000_000))
+        record.endDate = record.startDate.addingTimeInterval(1800)
+        record.attendees = [MeetingAttendee(name: "Ana Ruiz"), MeetingAttendee(name: "Bo", declined: true)]
+        record.joinURL = URL(string: "https://zoom.us/j/123")
+        record.notes = "- ship it\n- **bold** idea"
+        record.summary = "### Beta\n- Thursday"
+        record.add(line(.me, 1, "Hello."))
+        record.add(line(.others, 20, "Hi there, everyone."))
+        record.add(line(.me, 3725, "Bye now."))
+
+        let read = try #require(MeetingMarkdown.parse(MeetingMarkdown.render(record)))
+        #expect(read.title == record.title)
+        #expect(read.startDate == record.startDate)
+        #expect(read.endDate == record.endDate)
+        #expect(read.attendees == record.attendees)
+        #expect(read.joinURL == record.joinURL)
+        #expect(read.notes == record.notes)
+        #expect(read.summary == record.summary)
+        #expect(read.lines.map(\.speaker) == [.me, .others, .me])
+        #expect(read.lines.map(\.start) == [1, 20, 3725])
+        #expect(read.lines.map(\.text) == ["Hello.", "Hi there, everyone.", "Bye now."])
+    }
+
+    @Test("A note written by hand, with no front matter, still reads as a meeting")
+    func readsHandWritten() throws {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let read = try #require(MeetingMarkdown.parse("# Standup\n\n## Notes\n\nall fine\n",
+                                                      fallbackDate: date))
+        #expect(read.title == "Standup")
+        #expect(read.notes == "all fine")
+        #expect(read.startDate == date)
+        #expect(MeetingMarkdown.parse("just some text") == nil)
     }
 
     @Test("File names sort by date and survive any title")
@@ -352,5 +390,217 @@ struct CallDetectionTests {
             #expect(watch.callEnded(app: zoom, apps: []) == false)
         }
         #expect(watch.callEnded(app: zoom, apps: []) == true)
+    }
+}
+
+// MARK: - A whole session, without hardware
+
+/// Samples pushed by hand, as if a device delivered them.
+private final class FakeSource: MeetingAudioSource, @unchecked Sendable {
+    var onSamples: (@Sendable ([Float]) -> Void)?
+    var hasHeardSound = true
+    private(set) var started = false
+    private(set) var stopped = false
+    func start() throws { started = true }
+    func stop() { stopped = true }
+    /// In blocks, the way a capture hands them over: each one arrives once
+    /// the time it covers has passed.
+    func push(_ samples: [Float], clock: TestClock) {
+        var index = 0
+        while index < samples.count {
+            let end = min(samples.count, index + 1024)
+            clock.advance(Double(end - index) / AudioRecorder.sampleRate)
+            onSamples?(Array(samples[index..<end]))
+            index = end
+        }
+    }
+}
+
+/// Answers with words no other call shares, so one side's line is never
+/// taken for the echo of the other's.
+private actor LengthEngine: TranscriptionEngine {
+    var isLoaded: Bool { true }
+    func load(model: InstalledModel) async throws {}
+    func unload() async {}
+    func transcribe(samples: [Float], options: TranscribeOptions) async throws -> Transcript {
+        Transcript(text: "x" + UUID().uuidString.replacingOccurrences(of: "-", with: " x"))
+    }
+}
+
+/// A clock the test moves.
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = Date(timeIntervalSince1970: 1_800_000_000)
+    func now() -> Date { lock.lock(); defer { lock.unlock() }; return value }
+    func advance(_ seconds: TimeInterval) { lock.lock(); value += seconds; lock.unlock() }
+}
+
+@MainActor
+@Suite("Meeting session")
+struct MeetingSessionTests {
+    private func session(mic: FakeSource, system: FakeSource, clock: TestClock,
+                         folder: URL) -> MeetingSession {
+        MeetingSession(
+            title: "Test", folder: folder, queue: TranscriptionQueue(LengthEngine()),
+            model: InstalledModel(id: "m", displayName: "M", sizeBytes: 0,
+                                  url: URL(fileURLWithPath: "/nonexistent")),
+            options: TranscribeOptions(), sensitivity: 0.5, micDeviceUID: nil,
+            microphone: mic, systemAudio: system, now: { clock.now() })
+    }
+
+    private func tempFolder() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("clio-session-\(UUID().uuidString)")
+    }
+
+    @Test("Both sides are transcribed, in time order, and stop waits for the last of them before the file is final")
+    func drainsOnStop() async throws {
+        let mic = FakeSource(), system = FakeSource(), clock = TestClock(), folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+        await meeting.start()
+        #expect(meeting.phase == .recording)
+        #expect(mic.started && system.started)
+
+        system.push(silence(1) + tone(2) + silence(2), clock: clock)
+        mic.push(silence(1) + tone(2), clock: clock)     // still talking when stop is pressed
+        await meeting.stop()
+
+        #expect(meeting.phase == .finished)
+        #expect(mic.stopped && system.stopped)
+        #expect(meeting.record.lines.map(\.speaker) == [.others, .me])
+        #expect(meeting.pendingChunks == 0)
+        let file = try String(contentsOf: try #require(meeting.fileURL), encoding: .utf8)
+        #expect(file.contains("Others:**"))
+        #expect(file.contains("Me:**"))
+        #expect(!file.contains("in progress"))
+    }
+
+    @Test("Time with no samples at all still counts: a line after a long quiet stretch is stamped when it was said")
+    func wallClockGaps() async throws {
+        let mic = FakeSource(), system = FakeSource(), clock = TestClock(), folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+        await meeting.start()
+
+        system.push(silence(1) + tone(2), clock: clock)   // said at about 1 s
+        clock.advance(120)                                // the tap sends nothing for two minutes
+        system.push(tone(2) + silence(2), clock: clock)   // said at about 123 s
+        await meeting.stop()
+
+        let starts = meeting.record.lines.map(\.start)
+        #expect(starts.count == 2)
+        #expect(abs(starts[0] - 1) < 0.5)
+        #expect(abs(starts[1] - 123) < 0.5)
+    }
+
+    @Test("While dictating, the meeting does not hear the microphone")
+    func suppressedWhileDictating() async throws {
+        let mic = FakeSource(), system = FakeSource(), clock = TestClock(), folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+        await meeting.start()
+
+        meeting.isMicrophoneSuppressed = true
+        mic.push(tone(3) + silence(1), clock: clock)
+        meeting.isMicrophoneSuppressed = false
+        await meeting.stop()
+
+        #expect(meeting.record.lines.isEmpty)
+    }
+
+    @Test("The summary is written after the transcript, and skipped when asked")
+    func summary() async throws {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for summarizing in [true, false] {
+            let mic = FakeSource(), system = FakeSource(), clock = TestClock()
+            let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+            meeting.summarize = { record in "### Lines\n- \(record.lines.count)" }
+            await meeting.start()
+            system.push(tone(2) + silence(1), clock: clock)
+            await meeting.stop(summarizing: summarizing)
+            #expect(meeting.record.summary == (summarizing ? "### Lines\n- 1" : nil))
+        }
+    }
+}
+
+// MARK: - The library
+
+@MainActor
+@Suite("Meeting library")
+struct MeetingLibraryTests {
+    private func folder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-library-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func write(_ title: String, daysAgo: Double, notes: String = "",
+                       said: String = "Hello there.", to folder: URL) throws -> URL {
+        var record = MeetingRecord(title: title,
+                                   startDate: Date().addingTimeInterval(-daysAgo * 86_400))
+        record.notes = notes
+        record.add(MeetingLine(speaker: .others, start: 1, end: 3, text: said))
+        return try MeetingMarkdown.write(record, to: folder)
+    }
+
+    @Test("The folder is read newest first; files that are not meetings are left out")
+    func scans() throws {
+        let folder = try folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        _ = try write("Old", daysAgo: 40, to: folder)
+        _ = try write("New", daysAgo: 0, to: folder)
+        try Data("not a meeting".utf8).write(to: folder.appendingPathComponent("readme.md"))
+        try Data("# Not markdown".utf8).write(to: folder.appendingPathComponent("x.txt"))
+        #expect(MeetingLibrary.scan(folder).map(\.title) == ["New", "Old"])
+    }
+
+    @Test("Search finds every word, in the title, the notes or what was said")
+    func searches() async throws {
+        let folder = try folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        _ = try write("Pricing call", daysAgo: 1, notes: "raise the starter tier", to: folder)
+        _ = try write("Design review", daysAgo: 2, said: "The icon needs more contrast.", to: folder)
+        let library = MeetingLibrary(folder: folder)
+        while !library.hasLoaded { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(library.search("pricing").map(\.title) == ["Pricing call"])
+        #expect(library.search("starter tier").map(\.title) == ["Pricing call"])
+        #expect(library.search("icon contrast").map(\.title) == ["Design review"])
+        #expect(library.search("icon pricing").isEmpty)
+        #expect(library.search("").count == 2)
+    }
+
+    @Test("Edits are written back, a new title moves the file, and the Trash takes it")
+    func editsAndTrashes() async throws {
+        let folder = try folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = try write("Sync", daysAgo: 0, to: folder)
+        let library = MeetingLibrary(folder: folder)
+        var record = try #require(library.record(at: url))
+        record.title = "Weekly sync"
+        record.notes = "decided: ship"
+        let moved = try library.save(record, at: url)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(library.record(at: moved)?.notes == "decided: ship")
+        #expect(library.record(at: moved)?.lines.count == 1)
+
+        try library.trash(moved)
+        #expect(!FileManager.default.fileExists(atPath: moved.path))
+    }
+
+    @Test("Grouped into Today, Yesterday, then months")
+    func groups() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func file(_ daysAgo: Double) -> MeetingFile {
+            MeetingFile(url: URL(fileURLWithPath: "/\(daysAgo).md"), title: "\(daysAgo)",
+                        start: now.addingTimeInterval(-daysAgo * 86_400), end: nil,
+                        attendees: [], preview: "", searchText: "")
+        }
+        let groups = MeetingLibrary.groups([file(40), file(0), file(1), file(0.01), file(60)],
+                                           now: now)
+        #expect(groups.map(\.title).prefix(2) == ["Today", "Yesterday"])
+        #expect(groups.first?.files.count == 2)
+        #expect(groups.count == 4)
     }
 }

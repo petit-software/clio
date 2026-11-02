@@ -43,7 +43,17 @@ public final class AppCoordinator {
     public internal(set) var meeting: MeetingSession?
     /// Why the last attempt to start a meeting did not, for the menu.
     public internal(set) var meetingProblem: String?
-    var meetingWindow: MeetingWindowController?
+    /// Every meeting in the notes folder. Made when the library window
+    /// first opens: reading the folder is not something launch should wait on.
+    public internal(set) var library: MeetingLibrary?
+    var libraryWindow: LibraryWindowController?
+    /// What the library window is showing.
+    public var librarySelection: LibrarySelection?
+    #if DEBUG
+    /// Dictations for the CLIO_LIBRARY_SHOW tool, which must not write
+    /// samples into the real history.
+    var libraryDictationsOverride: [TranscriptEntry]?
+    #endif
     /// The call the meeting belongs to, so it can stop when the call does.
     var meetingCallApp: CallApp?
     var callWatch = CallWatch()

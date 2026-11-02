@@ -66,7 +66,7 @@ public struct MeetingRecord: Sendable, Equatable {
     public var summary: String?
     public var joinURL: URL?
     /// Ordered by start time, whichever stream finished transcribing first.
-    public private(set) var lines: [MeetingLine] = []
+    public internal(set) var lines: [MeetingLine] = []
 
     public init(title: String, startDate: Date = Date()) {
         self.title = title
@@ -165,7 +165,13 @@ public enum MeetingMarkdown {
     }
 
     public static func render(_ record: MeetingRecord) -> String {
-        var out: [String] = ["# \(record.title)", ""]
+        // The facts a program needs, in front matter — Obsidian and most
+        // Markdown tools hide it — so reading the file back never means
+        // parsing a date written for a person in their own locale.
+        var out: [String] = ["---", "clio: 1", "start: \(iso.string(from: record.startDate))"]
+        if let end = record.endDate { out.append("end: \(iso.string(from: end))") }
+        if let url = record.joinURL { out.append("link: \(url.absoluteString)") }
+        out += ["---", "", "# \(record.title)", ""]
 
         let day = DateFormatter()
         day.dateStyle = .medium
@@ -219,6 +225,100 @@ public enum MeetingMarkdown {
             try? FileManager.default.removeItem(at: previous)
         }
         return url
+    }
+
+    nonisolated(unsafe) static let iso: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    // MARK: Reading
+
+    /// The meeting a file describes. Reads what `render` writes, and is
+    /// forgiving of a file edited by hand: anything it cannot place is left
+    /// out rather than failing the whole meeting. Nil only for a file that is
+    /// not a meeting at all — no title and no transcript.
+    ///
+    /// - Parameter fallbackDate: used when the front matter is gone, as for
+    ///   a note written by hand — the file's own date.
+    public static func parse(_ text: String, fallbackDate: Date = Date()) -> MeetingRecord? {
+        var lines = text.components(separatedBy: "\n")
+        var front: [String: String] = [:]
+        if lines.first == "---", let close = lines.dropFirst().firstIndex(of: "---") {
+            for line in lines[1..<close] {
+                guard let colon = line.firstIndex(of: ":") else { continue }
+                let key = line[..<colon].trimmingCharacters(in: .whitespaces)
+                let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                front[key] = value
+            }
+            lines.removeSubrange(0...close)
+        }
+
+        var title: String?
+        var section: String?
+        var sections: [String: [String]] = [:]
+        var attendees: [MeetingAttendee] = []
+        for line in lines {
+            if title == nil, line.hasPrefix("# ") {
+                title = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                continue
+            }
+            if line.hasPrefix("## ") {
+                section = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces).lowercased()
+                continue
+            }
+            if section == nil, line.hasPrefix("**Attendees:**") {
+                attendees = line.dropFirst("**Attendees:**".count)
+                    .trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: ", ")
+                    .filter { !$0.isEmpty }
+                    .map { name in
+                        name.hasSuffix(" (declined)")
+                            ? MeetingAttendee(name: String(name.dropLast(" (declined)".count)),
+                                              declined: true)
+                            : MeetingAttendee(name: name)
+                    }
+                continue
+            }
+            if let section { sections[section, default: []].append(line) }
+        }
+
+        let transcript = (sections["transcript"] ?? []).compactMap(transcriptLine)
+        guard title != nil || !transcript.isEmpty else { return nil }
+
+        let start = front["start"].flatMap(iso.date(from:)) ?? fallbackDate
+        var record = MeetingRecord(title: title ?? "Meeting", startDate: start)
+        record.endDate = front["end"].flatMap(iso.date(from:))
+        record.joinURL = front["link"].flatMap(URL.init(string:))
+        record.attendees = attendees
+        let notes = block(sections["notes"])
+        record.notes = notes == "*No notes.*" ? "" : notes
+        let summary = block(sections["summary"])
+        record.summary = summary.isEmpty ? nil : summary
+        // Straight in, in file order: these were checked for echo when they
+        // were first said.
+        record.lines = transcript
+        return record
+    }
+
+    private static func block(_ lines: [String]?) -> String {
+        (lines ?? []).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// "**[04:07] Others:** text" → a line at 247 s.
+    static func transcriptLine(_ raw: String) -> MeetingLine? {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        guard line.hasPrefix("**["), let close = line.range(of: "]"),
+              let labelEnd = line.range(of: ":**") else { return nil }
+        let stamp = line[line.index(line.startIndex, offsetBy: 3)..<close.lowerBound]
+        let label = line[close.upperBound..<labelEnd.lowerBound].trimmingCharacters(in: .whitespaces)
+        let text = line[labelEnd.upperBound...].trimmingCharacters(in: .whitespaces)
+        let parts = stamp.split(separator: ":").compactMap { Double($0) }
+        guard !parts.isEmpty, !text.isEmpty else { return nil }
+        let seconds = parts.reduce(0) { $0 * 60 + $1 }
+        let speaker: MeetingSpeaker = label.lowercased() == "me" ? .me : .others
+        return MeetingLine(speaker: speaker, start: seconds, end: seconds, text: text)
     }
 
     /// Consecutive lines from one side, close together, read as one

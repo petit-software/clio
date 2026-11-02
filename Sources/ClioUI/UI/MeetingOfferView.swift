@@ -35,7 +35,8 @@ final class MeetingOfferController {
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
-        panel.contentView = NSHostingView(rootView: view)
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.contentView = FirstClickHostingView(rootView: view)
 
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
@@ -52,6 +53,24 @@ final class MeetingOfferController {
         }
     }
 
+    #if DEBUG
+    /// Clicks the card the way the window server would — a mouse down and up
+    /// at `point` from the panel's bottom-left — for the CLIO_OFFER_SHOW=click
+    /// tool to prove the buttons hear a first click.
+    func click(at point: NSPoint) {
+        guard let panel else { return }
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            if let event = NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: panel.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) {
+                NSApp.sendEvent(event)
+            }
+        }
+    }
+    #endif
+
     func dismiss() {
         timeout?.cancel()
         timeout = nil
@@ -60,10 +79,18 @@ final class MeetingOfferController {
     }
 }
 
-/// Takes clicks without making Clio the active app.
+/// Non-activating: a click makes the card key for that click without
+/// making Clio the active app, so the call keeps its place in front.
 private final class OfferPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+/// Clio is never the active app while the card is up, so the first click on
+/// it is the one that matters — without this AppKit spends it on bringing
+/// the window forward and the button never hears it.
+private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 struct MeetingOfferView: View {

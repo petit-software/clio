@@ -34,9 +34,10 @@ final class SystemAudioCapture: @unchecked Sendable {
         var errorDescription: String? { "\(step) failed (error \(status))" }
     }
 
-    /// The output device the aggregate is clocked by, so a change can be
-    /// recognised.
+    /// The output device the aggregate is clocked by, and its rate when the
+    /// capture was made, so a change can be recognised.
     let outputDeviceID: AudioDeviceID
+    let outputSampleRate: Double
 
     private let tapID: AudioObjectID
     private let aggregateID: AudioDeviceID
@@ -124,6 +125,7 @@ final class SystemAudioCapture: @unchecked Sendable {
 
             return SystemAudioCapture(tapID: tapID, aggregateID: aggregateID,
                                       outputDeviceID: output,
+                                      outputSampleRate: nominalSampleRate(of: output),
                                       sampleRate: format.mSampleRate,
                                       onSamples: onSamples)
         } catch {
@@ -133,11 +135,12 @@ final class SystemAudioCapture: @unchecked Sendable {
     }
 
     private init(tapID: AudioObjectID, aggregateID: AudioDeviceID,
-                 outputDeviceID: AudioDeviceID, sampleRate: Double,
+                 outputDeviceID: AudioDeviceID, outputSampleRate: Double, sampleRate: Double,
                  onSamples: @escaping @Sendable ([Float]) -> Void) {
         self.tapID = tapID
         self.aggregateID = aggregateID
         self.outputDeviceID = outputDeviceID
+        self.outputSampleRate = outputSampleRate
         self.sampleRate = sampleRate
         self.onSamples = onSamples
         ringCapacity = max(Int(sampleRate) * 2, 8 * Self.blockFrames)
@@ -154,6 +157,37 @@ final class SystemAudioCapture: @unchecked Sendable {
 
     private static func check(_ status: OSStatus, _ step: String) throws {
         guard status == noErr else { throw Failure(step: step, status: status) }
+    }
+
+    static func nominalSampleRate(of device: AudioDeviceID) -> Double {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &rate) == noErr
+        else { return 0 }
+        return rate
+    }
+
+    /// False once the output it is clocked by has gone, is no longer the
+    /// default, or runs at another rate — a headset dropping into call mode
+    /// because the call app opened its microphone does exactly that, without
+    /// the device changing.
+    var isStillValid: Bool {
+        guard isRunning, outputDeviceID == AudioDevices.defaultOutputDeviceID() else {
+            return false
+        }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var alive: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(outputDeviceID, &address, 0, nil, &size, &alive) == noErr,
+              alive != 0 else { return false }
+        return Self.nominalSampleRate(of: outputDeviceID) == outputSampleRate
     }
 
     /// The Core Audio object for a process, or nil if it has not used audio.
@@ -358,8 +392,10 @@ private func systemAudioCaptureIO(device: AudioObjectID,
 // MARK: - The recorder
 
 /// System audio for the length of a meeting: a `SystemAudioCapture`, rebuilt
-/// when the output device changes underneath it (headphones plugged in, a
-/// headset connecting), since its clock is that device.
+/// whenever the output it is clocked by changes underneath it — another
+/// device becoming the default (headphones plugged in, a headset
+/// connecting), or the same one changing rate (AirPods going into call mode
+/// as the call app opens their microphone) or going away.
 public final class SystemAudioRecorder: @unchecked Sendable {
 
     /// Whether this Mac can tap system audio at all (macOS 14.2 and later).
@@ -373,9 +409,17 @@ public final class SystemAudioRecorder: @unchecked Sendable {
 
     private let lock = NSLock()
     private var capture: AnyObject?
-    private var listener: AudioObjectPropertyListenerBlock?
     private var heardBeforeRebuild = false
+    /// How many times the capture has been rebuilt, for the check tool.
+    public private(set) var rebuilds = 0
+    /// Every listener added, on the system object and on the output device,
+    /// so they can all be taken off again.
+    private var listeners: [(AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     private static let listenerQueue = DispatchQueue(label: "com.bartbak.clio.system-audio.listener")
+    /// Where a change is acted on. Not the listener queue: acting on it means
+    /// removing listeners, which must not be waited for on the queue they
+    /// run on.
+    private static let changeQueue = DispatchQueue(label: "com.bartbak.clio.system-audio.change")
 
     public struct Unsupported: LocalizedError {
         public var errorDescription: String? {
@@ -395,18 +439,15 @@ public final class SystemAudioRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         guard capture == nil else { return }
         try openCapture()
-        watchOutputDevice()
+        watch(AudioObjectID(kAudioObjectSystemObject),
+              [(kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal)])
+        watchCurrentOutput()
     }
 
     public func stop() {
         lock.lock()
         defer { lock.unlock() }
-        if let listener {
-            var address = Self.defaultOutputAddress
-            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
-                                                   &address, Self.listenerQueue, listener)
-            self.listener = nil
-        }
+        removeListeners(keepingSystem: false)
         if #available(macOS 14.2, *), let capture = capture as? SystemAudioCapture {
             heardBeforeRebuild = heardBeforeRebuild || capture.hasHeardSound
             capture.stop()
@@ -435,36 +476,62 @@ public final class SystemAudioRecorder: @unchecked Sendable {
         self.capture = capture
     }
 
-    private static var defaultOutputAddress: AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                                   mScope: kAudioObjectPropertyScopeGlobal,
-                                   mElement: kAudioObjectPropertyElementMain)
+    // MARK: Watching the output
+
+    /// Called under `lock`.
+    private func watch(_ object: AudioObjectID,
+                       _ selectors: [(AudioObjectPropertySelector, AudioObjectPropertyScope)]) {
+        for (selector, scope) in selectors {
+            var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                Self.changeQueue.async { self?.outputChanged() }
+            }
+            if AudioObjectAddPropertyListenerBlock(object, &address, Self.listenerQueue,
+                                                   listener) == noErr {
+                listeners.append((object, address, listener))
+            }
+        }
     }
 
     /// Called under `lock`.
-    private func watchOutputDevice() {
-        var address = Self.defaultOutputAddress
-        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.outputDeviceChanged()
-        }
-        if AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject),
-                                               &address, Self.listenerQueue, listener) == noErr {
-            self.listener = listener
+    private func watchCurrentOutput() {
+        guard #available(macOS 14.2, *),
+              let capture = capture as? SystemAudioCapture else { return }
+        watch(capture.outputDeviceID, [
+            (kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal),
+            (kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyScopeGlobal),
+            (kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput),
+        ])
+    }
+
+    /// Called under `lock`.
+    private func removeListeners(keepingSystem: Bool) {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        listeners.removeAll { object, address, listener in
+            if keepingSystem, object == system { return false }
+            var address = address
+            AudioObjectRemovePropertyListenerBlock(object, &address, Self.listenerQueue, listener)
+            return true
         }
     }
 
-    private func outputDeviceChanged() {
+    /// Something about the output moved. Opening a device can announce a
+    /// change that changed nothing, so the capture is asked first.
+    private func outputChanged() {
         guard #available(macOS 14.2, *) else { return }
         lock.lock()
         defer { lock.unlock() }
-        guard let current = capture as? SystemAudioCapture,
-              current.outputDeviceID != AudioDevices.defaultOutputDeviceID() else { return }
+        guard let current = capture as? SystemAudioCapture, !current.isStillValid else { return }
         heardBeforeRebuild = heardBeforeRebuild || current.hasHeardSound
+        removeListeners(keepingSystem: true)
         current.stop()
         capture = nil
-        // A failure here leaves the meeting with the microphone alone, which
-        // is better than ending it; the next output change tries again.
+        rebuilds += 1
+        // A failure leaves the meeting with the microphone alone, which beats
+        // ending it; the next change of output tries again.
         try? openCapture()
+        watchCurrentOutput()
     }
 }
 
@@ -480,7 +547,8 @@ extension SystemAudioRecorder {
     ///
     /// From the bundle: the permission belongs to it, and the first run is
     /// what makes macOS ask.
-    public static func check(seconds: Double, writingTo url: URL?) async -> String {
+    public static func check(seconds: Double, writingTo url: URL?,
+                             flipRate: Bool = false) async -> String {
         let recorder = SystemAudioRecorder()
         let collected = Collected()
         recorder.onSamples = { collected.append($0) }
@@ -489,15 +557,25 @@ extension SystemAudioRecorder {
         } catch {
             return "[system audio] FAILED to start: \(error.localizedDescription)"
         }
-        try? await Task.sleep(for: .seconds(seconds))
+        if flipRate, let output = AudioDevices.defaultOutputDeviceID() {
+            // Halfway through, change the output's rate and put it back at
+            // the end: what a headset does when a call opens its microphone.
+            let original = SystemAudioCaptureRate.get(output)
+            try? await Task.sleep(for: .seconds(seconds / 2))
+            SystemAudioCaptureRate.set(output, original == 48_000 ? 44_100 : 48_000)
+            try? await Task.sleep(for: .seconds(seconds / 2))
+            SystemAudioCaptureRate.set(output, original)
+        } else {
+            try? await Task.sleep(for: .seconds(seconds))
+        }
         recorder.stop()
         let samples = collected.samples
         let peak = samples.map(abs).max() ?? 0
         if let url {
             try? AudioWAV.data(samples).write(to: url)
         }
-        return String(format: "[system audio] %.1f s received, peak %.3f, heard sound: %@%@",
-                      Double(samples.count) / AudioRecorder.sampleRate, peak,
+        return String(format: "[system audio] %.1f s received, peak %.3f, rebuilt %d×, heard sound: %@%@",
+                      Double(samples.count) / AudioRecorder.sampleRate, peak, recorder.rebuilds,
                       recorder.hasHeardSound ? "yes" : "NO",
                       url.map { ", written to \($0.path)" } ?? "")
     }
@@ -507,6 +585,30 @@ extension SystemAudioRecorder {
         private var buffer: [Float] = []
         func append(_ samples: [Float]) { lock.lock(); buffer += samples; lock.unlock() }
         var samples: [Float] { lock.lock(); defer { lock.unlock() }; return buffer }
+    }
+}
+
+/// The output's nominal rate, read and set — only for the check tool.
+enum SystemAudioCaptureRate {
+    static func get(_ device: AudioDeviceID) -> Double {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        AudioObjectGetPropertyData(device, &address, 0, nil, &size, &rate)
+        return rate
+    }
+
+    static func set(_ device: AudioDeviceID, _ rate: Double) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var value = Float64(rate)
+        AudioObjectSetPropertyData(device, &address, 0, nil,
+                                   UInt32(MemoryLayout<Float64>.size), &value)
     }
 }
 

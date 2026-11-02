@@ -206,10 +206,7 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(Self.submenu("Later Today", submenu))
         }
 
-        if coordinator.meeting != nil {
-            menu.addItem(item("Show Last Meeting Notes") { coordinator.showMeetingWindow() })
-        }
-        menu.addItem(item("Open Meetings Folder") { coordinator.revealMeetingsFolder() })
+        menu.addItem(item("Open Clio…", key: "o") { coordinator.showLibrary() })
         if let problem = coordinator.meetingProblem {
             menu.addItem(Self.disabled(problem))
         }
