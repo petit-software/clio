@@ -670,18 +670,21 @@ struct MeetingLibraryTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         let kept = try write("Kept", daysAgo: 1, to: folder)
         let edited = try write("Edited", daysAgo: 2, to: folder)
+        // Whole seconds: a date with a fraction can come back from the file
+        // system rounded, which reads as a change.
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: kept.path)
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: edited.path)
         let (_, cache) = MeetingLibrary.scan(folder, cache: [:])
 
         // A change the cache cannot see — same modification date — proves
         // the file was not read again; a real edit is.
-        let date = try #require(try kept.resourceValues(forKeys: [.contentModificationDateKey])
-            .contentModificationDate)
         try Data(try String(contentsOf: kept, encoding: .utf8)
             .replacingOccurrences(of: "# Kept", with: "# Changed unseen").utf8).write(to: kept)
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: kept.path)
         try Data(try String(contentsOf: edited, encoding: .utf8)
             .replacingOccurrences(of: "# Edited", with: "# Edited again").utf8).write(to: edited)
-        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)],
+        try FileManager.default.setAttributes([.modificationDate: date.addingTimeInterval(60)],
                                               ofItemAtPath: edited.path)
 
         let titles = Set(MeetingLibrary.scan(folder, cache: cache).files.map(\.title))
