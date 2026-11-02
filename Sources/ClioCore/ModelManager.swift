@@ -118,6 +118,12 @@ public final class ModelManager {
         return installed.first { $0.id == id }
     }
 
+    /// The rows Settings shows: everything on offer, plus a retired model
+    /// only while a copy of it is installed — see `CatalogModel.retired`.
+    public var listedCatalog: [CatalogModel] {
+        catalog.filter { !$0.retired || isInstalled($0.id) }
+    }
+
     /// A model folder is one containing at least one compiled Core ML model.
     /// That is also what makes a half-finished download not count as installed.
     static func modelDirectories(in root: URL) -> [URL] {

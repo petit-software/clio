@@ -30,13 +30,24 @@
     "note": "Default. English, fast, accurate."
   },
   {
-    "id": "openai_whisper-large-v3_turbo_954MB",
+    "id": "openai_whisper-large-v3-v20240930_626MB",
     "displayName": "Whisper Large v3 Turbo",
+    "repo": "argmaxinc/whisperkit-coreml",
+    "tokenizerRepo": "openai/whisper-large-v3-turbo",
+    "approximateBytes": 627000000,
+    "tier": "best",
+    "languages": "multilingual",
+    "note": "Best quality, multilingual."
+  },
+  {
+    "id": "openai_whisper-large-v3_turbo_954MB",
+    "displayName": "Whisper Large v3",
     "repo": "argmaxinc/whisperkit-coreml",
     "tokenizerRepo": "openai/whisper-large-v3",
     "approximateBytes": 1053000000,
     "tier": "best",
     "languages": "multilingual",
-    "note": "Best quality, multilingual."
+    "note": "No longer offered. Large v3 Turbo is close in accuracy, smaller and much faster.",
+    "retired": true
   }
 ]

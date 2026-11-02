@@ -106,6 +106,36 @@ func corruptOverrideFallsBack() throws {
     #expect(ModelCatalog.load(overrideURL: override).isEmpty == false)
 }
 
+@Test("A catalog written before retired existed still decodes")
+func catalogWithoutRetiredDecodes() throws {
+    let json = """
+    [{"id": "m", "displayName": "M", "repo": "acme/models",
+      "approximateBytes": 1, "tier": "fast", "languages": "english"}]
+    """
+    let models = try JSONDecoder().decode([CatalogModel].self, from: Data(json.utf8))
+    #expect(models.first?.retired == false)
+}
+
+@MainActor
+@Test("A retired model is listed only while it is installed")
+func retiredModelListedOnlyWhenInstalled() {
+    let offered = CatalogModel(id: "offered", displayName: "Offered",
+                               repo: "acme/models", approximateBytes: 1,
+                               tier: .fast, languages: .english)
+    var gone = offered
+    gone.id = "gone"
+    gone.retired = true
+
+    let absent = ModelManager.simulating(catalog: [offered, gone])
+    #expect(absent.listedCatalog.map(\.id) == ["offered"])
+
+    let present = ModelManager.simulating(
+        catalog: [offered, gone],
+        installed: [InstalledModel(id: "gone", displayName: "Gone", sizeBytes: 1,
+                                   url: URL(fileURLWithPath: "/nonexistent/gone"))])
+    #expect(present.listedCatalog.map(\.id) == ["offered", "gone"])
+}
+
 // MARK: - Discovery
 
 @MainActor

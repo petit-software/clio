@@ -14,6 +14,14 @@ import WhisperKit
 private let integrationEnabled =
     ProcessInfo.processInfo.environment["CLIO_INTEGRATION"] != nil
 
+/// Tiny unless told otherwise. Any catalog id works, so a model can be proven
+/// before it is offered:
+///
+///     CLIO_INTEGRATION=1 CLIO_INTEGRATION_MODEL=openai_whisper-large-v3-v20240930_626MB \
+///         swift test --filter "Integration|LongAudio"
+let integrationModelID =
+    ProcessInfo.processInfo.environment["CLIO_INTEGRATION_MODEL"] ?? "openai_whisper-tiny"
+
 // Serialized: the tests share one installed model directory, and two of them
 // installing it at once raced on the .partial files. Serial also keeps the
 // timing test off a CPU busy transcribing for another test.
@@ -47,13 +55,13 @@ struct IntegrationTests {
             .appendingPathComponent("clio-integration-models", isDirectory: true)
     }
 
-    private func installTinyModel() async throws -> InstalledModel {
+    private func installModel() async throws -> InstalledModel {
         let root = sharedModelRoot
         try FileManager.default.createDirectory(at: root,
                                                 withIntermediateDirectories: true)
 
         let model = try #require(
-            ModelCatalog.builtIn.first { $0.id == "openai_whisper-tiny" })
+            ModelCatalog.builtIn.first { $0.id == integrationModelID })
 
         let manager = await ModelManager(
             transport: HuggingFaceTransport(),
@@ -81,7 +89,7 @@ struct IntegrationTests {
 
     @Test("A downloaded model transcribes real speech, entirely offline")
     func endToEnd() async throws {
-        let installed = try await installTinyModel()
+        let installed = try await installModel()
 
         // The tokenizer must be installed alongside, or the first
         // transcription silently reaches for the network.
@@ -120,7 +128,7 @@ struct IntegrationTests {
     /// (Whisper hallucinates text over silence), not a speed one.
     @Test("Trimming silence cuts a whole Whisper window off a long clip")
     func vadCutsLatency() async throws {
-        let installed = try await installTinyModel()
+        let installed = try await installModel()
         let engine = WhisperKitEngine()
         try await engine.load(model: installed)
         defer { Task { await engine.unload() } }

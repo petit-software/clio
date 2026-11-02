@@ -56,6 +56,7 @@ Gated suites and tools, all off by default:
 
 ```sh
 CLIO_INTEGRATION=1 swift test --filter Integration        # downloads ~81 MB
+CLIO_INTEGRATION=1 CLIO_INTEGRATION_MODEL=<catalog id> swift test --filter "Integration|LongAudio"   # prove a model before offering it
 CLIO_INTEGRATION=1 swift test --filter StartupLatency     # where start() spends time
 CLIO_OVERLAY_DUMP=/tmp/x swift run Clio                   # every pill state to PNG
 CLIO_OVERLAY_SHOW=recording swift run Clio                # the real panel, on screen

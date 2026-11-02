@@ -43,7 +43,7 @@ struct LongAudioDiagnostic {
             .appendingPathComponent("clio-integration-models", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
-        let catalog = try #require(ModelCatalog.builtIn.first { $0.id == "openai_whisper-tiny" })
+        let catalog = try #require(ModelCatalog.builtIn.first { $0.id == integrationModelID })
         let manager = await ModelManager(transport: HuggingFaceTransport(),
                                          modelsDirectory: root,
                                          huggingFaceCache: URL(fileURLWithPath: "/nonexistent"))

@@ -43,11 +43,17 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
     public var tier: QualityTier
     public var languages: ModelLanguages
     public var note: String?
+    /// No longer offered for download, but kept so a copy someone already
+    /// has stays visible in Settings — usable, and deletable. Dropping the
+    /// entry instead would leave a gigabyte on disk with no row to remove it
+    /// from, still quietly in use if it was the active model.
+    public var retired: Bool
 
     public init(id: String, displayName: String, repo: String,
                 tokenizerRepo: String? = nil,
                 approximateBytes: Int64, tier: QualityTier,
-                languages: ModelLanguages, note: String? = nil) {
+                languages: ModelLanguages, note: String? = nil,
+                retired: Bool = false) {
         self.id = id
         self.displayName = displayName
         self.repo = repo
@@ -56,6 +62,23 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
         self.tier = tier
         self.languages = languages
         self.note = note
+        self.retired = retired
+    }
+
+    /// Written out so `retired` can be missing: an older `models.json` in
+    /// Application Support has no such key, and the synthesized decoder would
+    /// reject the whole file for it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        repo = try c.decode(String.self, forKey: .repo)
+        tokenizerRepo = try c.decodeIfPresent(String.self, forKey: .tokenizerRepo)
+        approximateBytes = try c.decode(Int64.self, forKey: .approximateBytes)
+        tier = try c.decode(QualityTier.self, forKey: .tier)
+        languages = try c.decode(ModelLanguages.self, forKey: .languages)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+        retired = try c.decodeIfPresent(Bool.self, forKey: .retired) ?? false
     }
 }
 
@@ -124,15 +147,32 @@ public enum ModelCatalog {
             tier: .balanced,
             languages: .english,
             note: "Default. English, fast, accurate."),
+        // OpenAI's large-v3-turbo, which Argmax names by its release date.
+        // Argmax's own "_turbo" suffix is something else: a streaming build,
+        // older than OpenAI's turbo, which Clio has no use for since it
+        // transcribes a finished recording.
+        CatalogModel(
+            id: "openai_whisper-large-v3-v20240930_626MB",
+            displayName: "Whisper Large v3 Turbo",
+            repo: "argmaxinc/whisperkit-coreml",
+            tokenizerRepo: "openai/whisper-large-v3-turbo",
+            approximateBytes: 627_000_000,
+            tier: .best,
+            languages: .multilingual,
+            note: "Best quality, multilingual."),
+        // What shipped as "Large v3 Turbo" until 0.12. It is full large-v3 —
+        // 32 decoder layers to the real turbo's 4 — at 1 GB, and Argmax leaves
+        // it off the list of models supported on M1 Macs.
         CatalogModel(
             id: "openai_whisper-large-v3_turbo_954MB",
-            displayName: "Whisper Large v3 Turbo",
+            displayName: "Whisper Large v3",
             repo: "argmaxinc/whisperkit-coreml",
             tokenizerRepo: "openai/whisper-large-v3",
             approximateBytes: 1_053_000_000,
             tier: .best,
             languages: .multilingual,
-            note: "Best quality, multilingual."),
+            note: "No longer offered. Large v3 Turbo is close in accuracy, smaller and much faster.",
+            retired: true),
     ]
 
     public static let defaultModelID = "distil-whisper_distil-large-v3_594MB"

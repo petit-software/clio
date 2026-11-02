@@ -161,7 +161,7 @@ private struct ModelTab: View {
     var body: some View {
         Form {
             Section {
-                ForEach(models.catalog) { model in
+                ForEach(models.listedCatalog) { model in
                     ModelRow(coordinator: coordinator,
                              model: model,
                              deleteError: $deleteError)
