@@ -74,6 +74,12 @@ failure.
 Updates are offered, never applied silently — Clio is held open by a global
 event tap and may be mid-dictation.
 
+## iOS
+
+The iPhone app lives in its own repository beside this one, `clio-ios`: the
+same offline promise, as a recorder with a local transcriber. Start at its
+`docs/plan.md`.
+
 ## Layout
 
 Three targets. `ClioCore` is everything that is not SwiftUI, so the parts with
