@@ -55,6 +55,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayPreview: OverlayController?
     #endif
 
+    /// The tools' appearance: CLIO_OVERLAY_DARK forces dark, and
+    /// CLIO_OVERLAY_LIGHT light — for a Mac that is itself set to dark.
+    private static func applyToolAppearance() {
+        let env = ProcessInfo.processInfo.environment
+        if env["CLIO_OVERLAY_DARK"] != nil {
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        } else if env["CLIO_OVERLAY_LIGHT"] != nil {
+            NSApp.appearance = NSAppearance(named: .aqua)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hammer the recorder against the machine's microphones and quit. Not
         // DEBUG-only: it has to run from the signed bundle, which is the
@@ -117,9 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the state named: recording, finishing, finished, silent.
         if let which = ProcessInfo.processInfo.environment["CLIO_MEETING_SHOW"] {
             NSApp.setActivationPolicy(.accessory)
-            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
-                NSApp.appearance = NSAppearance(named: .darkAqua)
-            }
+            Self.applyToolAppearance()
             coordinator.showSimulatedMeeting(which)
             return
         }
@@ -131,18 +140,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // The library window on sample meetings; "live" adds a recording.
         if let which = ProcessInfo.processInfo.environment["CLIO_LIBRARY_SHOW"] {
-            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
-                NSApp.appearance = NSAppearance(named: .darkAqua)
-            }
+            Self.applyToolAppearance()
             coordinator.showSimulatedLibrary(which)
             return
         }
         // The card offered when a call starts, top right.
         if ProcessInfo.processInfo.environment["CLIO_OFFER_SHOW"] != nil {
             NSApp.setActivationPolicy(.accessory)
-            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
-                NSApp.appearance = NSAppearance(named: .darkAqua)
-            }
+            Self.applyToolAppearance()
             if ProcessInfo.processInfo.environment["CLIO_OFFER_SHOW"] == "click" {
                 coordinator.clickSimulatedOffer()
             } else {
@@ -167,9 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // this Mac's actual state and a download actually downloads.
         if let which = ProcessInfo.processInfo.environment["CLIO_INTRO_SHOW"] {
             NSApp.setActivationPolicy(.accessory)
-            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
-                NSApp.appearance = NSAppearance(named: .darkAqua)
-            }
+            Self.applyToolAppearance()
             // `downloading` and `waiting` are the setup step mid-download,
             // on a simulated coordinator: this Mac has a model already.
             if which == "downloading" || which == "waiting" {
@@ -186,9 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and weight that no preview reproduces, so they are judged here.
         if ProcessInfo.processInfo.environment["CLIO_SETTINGS_SHOW"] != nil {
             NSApp.setActivationPolicy(.accessory)
-            if ProcessInfo.processInfo.environment["CLIO_OVERLAY_DARK"] != nil {
-                NSApp.appearance = NSAppearance(named: .darkAqua)
-            }
+            Self.applyToolAppearance()
             // Through the Settings scene: the scene is what gives the
             // TabView its icon-and-label tab bar, and a TabView hosted in a
             // plain window draws a segmented control with no icons at all.

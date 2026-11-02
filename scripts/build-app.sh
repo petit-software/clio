@@ -47,6 +47,9 @@ fi
 # app in place fails, and a half-written executable is worse than an old one.
 cp ".build/release/Clio" "$APP/Contents/MacOS/Clio.new"
 mv "$APP/Contents/MacOS/Clio.new" "$APP/Contents/MacOS/Clio"
+# The real SDK version, not the deployment target SwiftPM writes there:
+# without it macOS draws the app in its pre-26 look. See declare-sdk.sh.
+"$(dirname "$0")/declare-sdk.sh" "$APP/Contents/MacOS/Clio"
 
 # --- Sparkle ----------------------------------------------------------------
 # SwiftPM links Sparkle but does not embed it: a bare executable has nowhere to

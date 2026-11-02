@@ -52,11 +52,13 @@ struct MeetingView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-            footer
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+            // Room at the end, so the last line can scroll clear of the bar.
+            .safeAreaPadding(.bottom, 64)
+            .overlay(alignment: .bottom) {
+                actionBar
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+            }
         }
         .frame(minWidth: 420, minHeight: 420)
         .onAppear {
@@ -108,11 +110,15 @@ struct MeetingView: View {
                 statusDot
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     Text(statusLine)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
                 }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            // The one live thing on the page, on glass; faintly red while
+            // it is listening.
+            .glassSurface(Capsule(), tint: meeting.isActive ? .red.opacity(0.18) : nil)
 
             if !meeting.record.attendees.isEmpty {
                 Text(meeting.record.attendees
@@ -201,12 +207,14 @@ struct MeetingView: View {
                 if let action = warning.action {
                     Button(action.title, action: action.run)
                         .controlSize(.small)
+                        .glassButton()
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+        .glassSurface(RoundedRectangle(cornerRadius: 16, style: .continuous),
+                      tint: .orange.opacity(0.45))
     }
 
     static func openSystemAudioSettings() {
@@ -256,32 +264,42 @@ struct MeetingView: View {
 
     // MARK: Footer
 
-    private var footer: some View {
-        HStack {
-            if let url = meeting.fileURL {
-                Button("Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+    /// The meeting's actions, floating on glass over the notes: what to do
+    /// with the file on the left, Stop on the right.
+    private var actionBar: some View {
+        GlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                if let url = meeting.fileURL {
+                    Button("Show in Finder", systemImage: "folder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Show in Finder")
+                    .glassButton()
+                    Button("Copy Transcript", systemImage: "doc.on.doc") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("Copy the transcript")
+                    .disabled(meeting.record.lines.isEmpty)
+                    .glassButton()
                 }
-                Button("Copy Transcript") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
+                Spacer()
+                if meeting.isActive {
+                    Button("Stop Recording", systemImage: "stop.fill") {
+                        meeting.setTitle(title)
+                        meeting.setNotes(notes)
+                        coordinator.stopMeeting()
+                    }
+                    .keyboardShortcut(".", modifiers: .command)
+                    .glassButton(prominent: true, tint: .red)
+                } else if meeting.phase == .finished, let url = meeting.fileURL {
+                    Button("Open Notes", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
+                        .glassButton(prominent: true)
                 }
-                .disabled(meeting.record.lines.isEmpty)
             }
-            Spacer()
-            if meeting.isActive {
-                Button("Stop Recording") {
-                    meeting.setTitle(title)
-                    meeting.setNotes(notes)
-                    coordinator.stopMeeting()
-                }
-                .keyboardShortcut(".", modifiers: .command)
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-            } else if meeting.phase == .finished, let url = meeting.fileURL {
-                Button("Open Notes") { NSWorkspace.shared.open(url) }
-                    .buttonStyle(.borderedProminent)
-            }
+            .controlSize(.large)
         }
     }
 }

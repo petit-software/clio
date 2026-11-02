@@ -50,7 +50,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 175 tests live here.
+  without standing up an app. All 184 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -60,7 +60,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 175 tests, 24 suites, no network
+swift test                                  # 184 tests, 25 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -97,6 +97,8 @@ CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a
 CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, finishing, finished
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
+CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing rule through a real text view; exits non-zero on a failure
+CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
@@ -234,6 +236,22 @@ the network — breaking the only promise the app makes.
 windows using the timestamps it emits. Suppressing them silently drops
 everything after the first window: measured 154 characters against 993 on the
 same minute of speech.
+
+**The binary must say which SDK it was built with.** SwiftPM links against
+the installed SDK but writes the deployment target (14.0) into
+`LC_BUILD_VERSION` as the SDK version, and macOS reads that number to decide
+whether an app was built for the current design: below 26 it draws every
+system control the old way — no Liquid Glass toolbar, sidebar, search field,
+button or segmented control — while explicit `glassEffect` calls still work,
+which is why the pill looked right and nothing else did. `declare-sdk.sh`
+writes the real version; `build-app.sh` runs it before signing. For the
+`swift run` tools: `scripts/declare-sdk.sh .build/debug/Clio --sign-ad-hoc`
+after building, then run `.build/debug/Clio` directly. Check with
+`otool -l <binary> | grep -A5 LC_BUILD_VERSION`.
+
+**A window that wants the macOS 26 look needs a toolbar.** The library is an
+`NSWindow` hosting SwiftUI; without an `NSToolbar` and `sceneBridgingOptions`
+the split view had nothing to float under and stayed a flat column.
 
 **System audio is a process tap, not ScreenCaptureKit.** ScreenCaptureKit
 records a display to get at its sound, so it needs Screen Recording; a tap

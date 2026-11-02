@@ -35,7 +35,17 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 680, height: 440)
-        window.contentView = NSHostingView(rootView: LibraryView(coordinator: coordinator))
+        // A real toolbar, and SwiftUI's toolbar and title bridged into it.
+        // Without one the split view has nothing to float under: the sidebar
+        // was a flat column, and the toolbar buttons plain icons, instead of
+        // the glass macOS 26 draws for a window built this way.
+        let toolbar = NSToolbar(identifier: "ClioLibrary")
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
+        let host = NSHostingView(rootView: LibraryView(coordinator: coordinator))
+        host.sceneBridgingOptions = [.toolbars, .title]
+        window.contentView = host
         window.setFrameAutosaveName("ClioLibraryWindow")
         if !window.setFrameUsingName("ClioLibraryWindow") { window.center() }
         window.delegate = self
@@ -130,7 +140,7 @@ struct LibraryView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
-                .buttonStyle(.borderedProminent)
+                .glassButton(prominent: true)
                 .padding(12)
             }
         }
@@ -445,8 +455,9 @@ private struct DictationView: View {
             }
             HStack {
                 Spacer()
-                Button("Copy") { TextInjector.copy(entry.text) }
+                Button("Copy", systemImage: "doc.on.doc") { TextInjector.copy(entry.text) }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .glassButton()
             }
         }
         .padding(28)
