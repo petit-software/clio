@@ -273,7 +273,9 @@ private struct LiveRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // In the icons' column, so the titles line up.
             Circle().fill(Color.red).frame(width: 7, height: 7)
+                .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(meeting.record.title)
                     .font(.system(size: 13, weight: .semibold))
@@ -296,21 +298,38 @@ private struct MeetingRow: View {
     let file: MeetingFile
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(file.title)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-            HStack(spacing: 4) {
-                Text(file.start, style: .time)
-                if !file.preview.isEmpty {
-                    Text("·")
-                    Text(file.preview).lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            RowIcon(symbol: "calendar.day")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(file.start, style: .time)
+                    if !file.preview.isEmpty {
+                        Text("·")
+                        Text(file.preview).lineLimit(1)
+                    }
                 }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             }
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 3)
+    }
+}
+
+/// What a row is, at a glance: a meeting, or a dictation. Fixed width, so
+/// the titles line up whatever the symbol.
+private struct RowIcon: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(width: 18)
+            .accessibilityHidden(true)
     }
 }
 
@@ -318,13 +337,16 @@ private struct DictationRow: View {
     let entry: TranscriptEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(entry.text)
-                .font(.system(size: 12))
-                .lineLimit(2)
-            Text(entry.date, format: .relative(presentation: .named))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            RowIcon(symbol: "text.bubble")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.text)
+                    .font(.system(size: 12))
+                    .lineLimit(2)
+                Text(entry.date, format: .relative(presentation: .named))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
     }
