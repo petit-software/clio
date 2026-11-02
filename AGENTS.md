@@ -79,6 +79,7 @@ Gated suites and tools, all off by default:
 CLIO_INTEGRATION=1 swift test --filter Integration        # downloads ~81 MB
 CLIO_INTEGRATION=1 CLIO_INTEGRATION_MODEL=<catalog id> swift test --filter "Integration|LongAudio"   # prove a model before offering it
 CLIO_INTEGRATION=1 swift test --filter StartupLatency     # where start() spends time
+CLIO_LONG_MEETING=60 swift test --filter LongMeeting      # an hour of meeting through a real session and an installed model; downloads nothing
 CLIO_OVERLAY_DUMP=/tmp/x swift run Clio                   # every pill state to PNG
 CLIO_OVERLAY_SHOW=recording swift run Clio                # the real panel, on screen
 CLIO_OVERLAY_DARK=1 CLIO_OVERLAY_SHOW=transcribing swift run Clio
@@ -375,6 +376,10 @@ Verified by something repeatable:
   (`CLIO_SYSTEM_AUDIO_TEST`), and a whole meeting — both streams, the queue,
   WhisperKit, the Markdown and an Apple Intelligence summary
   (`CLIO_MEETING_TEST`, `say` through the speakers)
+- an hour of meeting through a real session and the real model
+  (`LongMeeting`): large-v3 turbo transcribes it in about two minutes, both
+  sides, and resident memory goes from 55 MB to a 161 MB peak — under the
+  test's limit, but not flat, and not yet explained
 - segmenting, echo removal, the queue's order, calendar matching, call
   detection decisions, a whole session on fake sources (drain on stop,
   wall-clock gaps, the mic muted while dictating, the summary), the Markdown
