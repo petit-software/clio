@@ -761,8 +761,8 @@ struct MeetingDocumentView: View {
     }
 
     /// The meeting as one page that scrolls under the window's glass
-    /// toolbar, which carries its title (edited there), its date, and the
-    /// pane picked top right.
+    /// toolbar, which carries its title (edited there) and its date; the
+    /// pane is picked bottom left.
     private func document(_ record: MeetingRecord) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -791,12 +791,25 @@ struct MeetingDocumentView: View {
                 DocumentTitle(title: binding(\.title), subtitle: Self.when(record),
                               attendees: record.attendees)
             }
+            // Everything else about the file, top right.
             TrailingToolbarActions {
-                Picker("Show", selection: $pane) {
-                    ForEach(panes(record)) { Text($0.rawValue).tag($0) }
+                MoreMenu {
+                    Button("Show in Finder", systemImage: "folder.fill") {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                    Button("Open in Default App", systemImage: "doc.text") {
+                        NSWorkspace.shared.open(url)
+                    }
+                    Button("Copy Transcript", systemImage: "text.quote") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(record.transcriptText, forType: .string)
+                    }
+                    .disabled(record.lines.isEmpty)
+                    Divider()
+                    Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
+                        confirmingTrash = true
+                    }
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
             }
         }
         #if DEBUG
@@ -808,28 +821,16 @@ struct MeetingDocumentView: View {
         // What it shows, and what to do with it, along its foot.
         .overlay(alignment: .bottom) {
             DocumentBar {
-                EmptyView()
+                Picker("Show", selection: $pane) {
+                    ForEach(panes(record)) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
             } trailing: {
                 CopyButton(help: "Copy the whole meeting as Markdown") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(MeetingMarkdown.render(record), forType: .string)
-                }
-                MoreMenu {
-                Button("Show in Finder", systemImage: "folder.fill") {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                }
-                Button("Open in Default App", systemImage: "doc.text") {
-                    NSWorkspace.shared.open(url)
-                }
-                Button("Copy Transcript", systemImage: "text.quote") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(record.transcriptText, forType: .string)
-                }
-                .disabled(record.lines.isEmpty)
-                Divider()
-                Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
-                    confirmingTrash = true
-                }
                 }
             }
         }
@@ -910,6 +911,11 @@ private struct DictationView: View {
                 DocumentTitle(title: .constant("Dictation"), isEditable: false,
                               subtitle: entry.date.formatted(date: .complete, time: .shortened))
             }
+            TrailingToolbarActions {
+                MoreMenu {
+                    Button("Remove", systemImage: "minus.circle.fill", role: .destructive, action: remove)
+                }
+            }
         }
         .overlay(alignment: .bottom) {
             DocumentBar {
@@ -917,9 +923,6 @@ private struct DictationView: View {
             } trailing: {
                 CopyButton(help: "Copy the dictation") { TextInjector.copy(entry.text) }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
-                MoreMenu {
-                    Button("Remove", systemImage: "minus.circle.fill", role: .destructive, action: remove)
-                }
             }
         }
     }

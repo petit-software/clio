@@ -74,9 +74,9 @@ struct GlassGroup<Content: View>: View {
     }
 }
 
-/// A document's pane picker, top right of the window. A flexible space
-/// pushes it there: on macOS a placement alone puts it at the leading edge,
-/// beside the title.
+/// A document's ⋯, top right of the window. A flexible space pushes it
+/// there: on macOS a placement alone puts it at the leading edge, beside
+/// the title.
 struct TrailingToolbarActions<Content: View>: ToolbarContent {
     @ViewBuilder var content: Content
 
@@ -120,8 +120,8 @@ struct AttendeesMenu: View {
     }
 }
 
-/// The ⋯ at the bottom of a meeting or a dictation: everything but Copy,
-/// which stays in the toolbar.
+/// The ⋯ top right of a meeting or a dictation: everything but Copy,
+/// which stays along the foot.
 struct MoreMenu<Content: View>: View {
     @ViewBuilder var content: Content
 

@@ -59,14 +59,26 @@ struct MeetingView: View {
         }
         .overlay(alignment: .bottom) { actionBar }
         // The name and date are drawn in the toolbar, the name edited
-        // there; the pane is picked there too, top right.
+        // there.
         .toolbar {
             TitleItem {
                 DocumentTitle(title: $title,
                               subtitle: meeting.record.startDate.formatted(date: .complete, time: .shortened),
                               attendees: meeting.record.attendees)
             }
-            TrailingToolbarActions { panePicker }
+            TrailingToolbarActions {
+                MoreMenu {
+                    Button("Show in Finder", systemImage: "folder.fill") {
+                        if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    }
+                    .disabled(meeting.fileURL == nil)
+                    Button("Copy Transcript", systemImage: "text.quote") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
+                    }
+                    .disabled(meeting.record.lines.isEmpty)
+                }
+            }
         }
         .navigationTitle(title)
         .frame(minWidth: 420, minHeight: 420)
@@ -286,28 +298,18 @@ struct MeetingView: View {
         }
         .pickerStyle(.menu)
         .labelsHidden()
+        .fixedSize()
     }
 
-    /// What to do with the file, floating on glass over the notes, bottom
-    /// right. Stop is up by the recording indicator.
+    /// Along the foot: the pane on the left, what to do with the file on
+    /// the right. Stop is up by the recording indicator.
     private var actionBar: some View {
         DocumentBar {
-            EmptyView()
+            panePicker
         } trailing: {
                 CopyButton(help: "Copy the meeting so far as Markdown") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(MeetingMarkdown.render(meeting.record), forType: .string)
-                }
-                MoreMenu {
-                    Button("Show in Finder", systemImage: "folder.fill") {
-                        if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    }
-                    .disabled(meeting.fileURL == nil)
-                    Button("Copy Transcript", systemImage: "text.quote") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
-                    }
-                    .disabled(meeting.record.lines.isEmpty)
                 }
                 if meeting.phase == .finished, let url = meeting.fileURL {
                     Button("Open Notes", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
