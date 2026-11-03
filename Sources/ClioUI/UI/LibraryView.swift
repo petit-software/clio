@@ -499,9 +499,12 @@ private struct EventRow: View {
             }
             Spacer(minLength: 4)
             if canJoin {
+                // Quiet beside the event: a grey capsule, not ink.
                 Button("Join", action: join)
                     .controlSize(.small)
-                    .inkButton()
+                    .buttonBorderShape(.capsule)
+                    .foregroundStyle(.primary)
+                    .glassButton()
                     .help(item.notes == nil ? "Join the call and take notes" : "Join the call")
             }
         }
