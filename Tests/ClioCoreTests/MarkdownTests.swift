@@ -45,6 +45,22 @@ struct MarkdownTests {
         #expect(text(.quote, in: source) == ["> quoted"])
     }
 
+    @Test("A fenced code block is code, fences and all; nothing inside it is Markdown")
+    func codeBlocks() {
+        let source = "before\n```swift\nlet x = **not bold**\n# not a heading\n```\nafter **bold**"
+        #expect(text(.fence, in: source) == ["```swift", "```"])
+        #expect(text(.codeBlock, in: source) == ["let x = **not bold**", "# not a heading"])
+        #expect(text(.bold, in: source) == ["**bold**"])
+        #expect(text(.heading(1), in: source).isEmpty)
+    }
+
+    @Test("A line of three dashes, stars or underscores is a rule; a list item is not")
+    func rules() {
+        let source = "---\n* * *\n___\n- item\n--"
+        #expect(text(.rule, in: source) == ["---", "* * *", "___"])
+        #expect(text(.listMarker, in: source) == ["-"])
+    }
+
     @Test("Return keeps a list going, numbers it, and ends it on an empty item")
     func continuation() {
         #expect(MarkdownSyntax.continuation(after: "- milk") == .continueWith("- "))

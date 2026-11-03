@@ -65,6 +65,9 @@ public struct MeetingRecord: Sendable, Equatable {
     public var notes = ""
     public var summary: String?
     public var joinURL: URL?
+    /// The calendar event it was taken for, so the day's calendar can open
+    /// its notes. Nil for notes taken without one.
+    public var eventID: String?
     /// Ordered by start time, whichever stream finished transcribing first.
     public internal(set) var lines: [MeetingLine] = []
 
@@ -171,6 +174,7 @@ public enum MeetingMarkdown {
         var out: [String] = ["---", "clio: 1", "start: \(iso.string(from: record.startDate))"]
         if let end = record.endDate { out.append("end: \(iso.string(from: end))") }
         if let url = record.joinURL { out.append("link: \(url.absoluteString)") }
+        if let event = record.eventID { out.append("event: \(event)") }
         out += ["---", "", "# \(record.title)", ""]
 
         let day = DateFormatter()
@@ -296,6 +300,7 @@ public enum MeetingMarkdown {
         var record = MeetingRecord(title: title ?? "Meeting", startDate: start)
         record.endDate = front["end"].flatMap(iso.date(from:))
         record.joinURL = front["link"].flatMap(URL.init(string:))
+        record.eventID = front["event"].flatMap { $0.isEmpty ? nil : $0 }
         record.attendees = attendees
         let notes = block(sections["notes"])
         record.notes = notes == "*No notes.*" ? "" : notes

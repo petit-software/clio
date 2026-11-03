@@ -111,7 +111,12 @@ public final class MeetingCalendar {
     /// `refresh` is called.
     public private(set) var events: [MeetingEvent] = []
 
+    /// Bumped whenever the calendar changes, so a view showing some other
+    /// day knows to read it again.
+    public private(set) var revision = 0
+
     private let store: EKEventStore?
+    private var simulated: [MeetingEvent] = []
     private var observer: NSObjectProtocol?
 
     public init() {
@@ -125,7 +130,23 @@ public final class MeetingCalendar {
     public init(simulating events: [MeetingEvent], access: Access = .granted) {
         store = nil
         self.access = access
-        self.events = events
+        self.simulated = events
+        self.events = events.filter { Calendar.current.isDateInToday($0.start) }
+    }
+
+    /// Any day's events, read now — the day browser's, which is not always
+    /// today. Empty without access.
+    public func events(on day: Date) -> [MeetingEvent] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: day)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        guard let store else {
+            return simulated.filter { $0.start < end && $0.end > start }
+                .sorted { $0.start < $1.start }
+        }
+        guard Self.currentAccess() == .granted else { return [] }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        return store.events(matching: predicate).map(Self.meetingEvent).sorted { $0.start < $1.start }
     }
 
     private static func currentAccess() -> Access {
@@ -166,6 +187,7 @@ public final class MeetingCalendar {
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? Date()
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
         events = store.events(matching: predicate).map(Self.meetingEvent)
+        revision += 1
     }
 
     private func startObserving() {

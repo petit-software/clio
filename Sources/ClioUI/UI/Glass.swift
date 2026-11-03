@@ -76,3 +76,89 @@ struct TrailingToolbarActions<Content: View>: ToolbarContent {
         ToolbarItemGroup(placement: .automatic) { content }
     }
 }
+
+/// The ⋯ at the bottom of a meeting or a dictation: everything but Copy,
+/// which stays in the toolbar.
+struct MoreMenu<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Menu {
+            content
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 22, height: 22)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .glassButton()
+        .fixedSize()
+        .help("More")
+        .accessibilityLabel("More")
+    }
+}
+
+/// The onboarding card's ink, for the library's main buttons: black on
+/// light, white on dark, the label in the opposite. Glass on macOS 26.
+private struct InkButton: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.controlActiveState) private var activeState
+
+    func body(content: Content) -> some View {
+        let dark = colorScheme == .dark
+        // In a window that is not active, macOS draws prominent glass
+        // without its tint: an inverted label would be white on pale glass.
+        // There the label takes the text's own colour instead.
+        let inactive = activeState == .inactive
+        content
+            .foregroundStyle(inactive ? Color.primary : (dark ? Color.black : Color.white))
+            .glassButton(prominent: true, tint: dark ? .white : .black)
+    }
+}
+
+extension View {
+    func inkButton() -> some View { modifier(InkButton()) }
+}
+
+/// Copy, as a glass disc the size of the ⋯ beside it.
+struct CopyButton: View {
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "square.fill.on.square.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 22, height: 22)
+        }
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .glassButton()
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// A document's controls, along its foot on glass: what it shows on the
+/// left, what to do with it on the right. There is no toolbar; this is
+/// where the toolbar's things went.
+struct DocumentBar<Leading: View, Trailing: View>: View {
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        GlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                leading
+                Spacer(minLength: 0)
+                trailing
+            }
+            .controlSize(.large)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 14)
+    }
+}

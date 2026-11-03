@@ -41,6 +41,7 @@ One meeting, end to end.
 | 7 | stop: drain, then a summary by Apple's on-device model (macOS 26) | `MeetingSession.stop`, `ClioCore/MeetingSummarizer` |
 | 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
+| 10 | the sidebar is a day: its calendar events with their notes, then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)` |
 
 The library window is Clio's one real window: meetings down the side (the
 live one first, then Today, Yesterday, months), dictations under them —
@@ -50,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 184 tests live here.
+  without standing up an app. All 198 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -60,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 184 tests, 25 suites, no network
+swift test                                  # 198 tests, 27 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -98,9 +99,11 @@ CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a
 CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, finishing, finished
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
+CLIO_TYPE=$'## Agenda\n- [ ] item' CLIO_LIBRARY_SHOW=live .build/debug/Clio   # types into the notes editor in the real window and reports how it laid out
 CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing rule through a real text view; exits non-zero on a failure
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
-CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording
+CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =empty picks nothing
+CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short window, so the sidebar scrolls under its foot
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
@@ -250,9 +253,18 @@ writes the real version; `build-app.sh` runs it before signing. For the
 after building, then run `.build/debug/Clio` directly. Check with
 `otool -l <binary> | grep -A5 LC_BUILD_VERSION`.
 
-**A window that wants the macOS 26 look needs a toolbar.** The library is an
-`NSWindow` hosting SwiftUI; without an `NSToolbar` and `sceneBridgingOptions`
-the split view had nothing to float under and stayed a flat column.
+**The library window has no toolbar, on purpose.** It once had one, bridged
+from SwiftUI, and that was first blamed for the compatibility look (the SDK
+version above was the real cause). Now the title bar is transparent with
+nothing in it, `sceneBridgingOptions` is empty so SwiftUI adds no toolbar of
+its own, the sidebar's controls sit along its foot (`safeAreaInset`) and a
+document's along its own bottom (`DocumentBar`), floating over the page.
+
+**`scrollEdgeEffectStyle` does nothing on the sidebar's `List`.** Rows
+scrolled straight through the foot's controls, and under the search field,
+with `.soft` set on the list for either edge. The foot draws its own
+progressive blur: a material masked with a vertical gradient, behind the
+inset. `CLIO_LIBRARY_HEIGHT` makes a window short enough to see it.
 
 **System audio is a process tap, not ScreenCaptureKit.** ScreenCaptureKit
 records a display to get at its sound, so it needs Screen Recording; a tap
@@ -286,6 +298,26 @@ changes.** AirPods go into call mode — a new sample rate on the same device �
 the moment a call app opens their microphone. `SystemAudioRecorder` listens
 on the output device itself, and acts on another queue, because removing a
 listener from inside its own callback can deadlock.
+
+**Markdown is rendered, not shown — but never rewritten.** The notes editor
+keeps the Markdown in its text (the file, Copy and undo all see it) and hides
+the syntax at the glyph level: `MarkdownStyle` marks `#`, `**`, backticks,
+link brackets and fences with an attribute, and `MarkdownTextView`, as the
+layout manager's delegate, gives those characters null glyphs. Bullets and
+checkboxes keep their characters for the room they take, coloured clear, and
+are drawn over (`drawDecorations`). The line with the caret shows its syntax
+so it can be edited; a read-only editor — summaries, dictations — shows none.
+`layoutManager` is touched, so this is TextKit 1; a TextKit 2 rewrite would
+have to find another way to hide characters.
+
+**Never size the notes editor by resizing its own text container.** SwiftUI
+asks a representable for its size at several widths — a near-zero one for the
+minimum among them — and whichever came last was the width the text was then
+laid out at: typing filled a column a point wide, the editor grew, and
+nothing could be read. `height(forWidth:)` measures a copy with a layout
+manager of its own; the real container only follows the view. The editing
+check could not see it — its text view is not inside SwiftUI. `CLIO_TYPE`
+types into the real one, in the real window.
 
 **A deadline is a race, not a task group.** Quitting waits for the meeting
 for at most ten seconds; written as a task group, the group waited for the
