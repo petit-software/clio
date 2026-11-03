@@ -99,6 +99,7 @@ CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a
 CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, finishing, finished
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
+CLIO_TYPE=$'## Agenda\n- [ ] item' CLIO_LIBRARY_SHOW=live .build/debug/Clio   # types into the notes editor in the real window and reports how it laid out
 CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing rule through a real text view; exits non-zero on a failure
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording
@@ -298,6 +299,15 @@ are drawn over (`drawDecorations`). The line with the caret shows its syntax
 so it can be edited; a read-only editor — summaries, dictations — shows none.
 `layoutManager` is touched, so this is TextKit 1; a TextKit 2 rewrite would
 have to find another way to hide characters.
+
+**Never size the notes editor by resizing its own text container.** SwiftUI
+asks a representable for its size at several widths — a near-zero one for the
+minimum among them — and whichever came last was the width the text was then
+laid out at: typing filled a column a point wide, the editor grew, and
+nothing could be read. `height(forWidth:)` measures a copy with a layout
+manager of its own; the real container only follows the view. The editing
+check could not see it — its text view is not inside SwiftUI. `CLIO_TYPE`
+types into the real one, in the real window.
 
 **Toolbar items declared on the sidebar get only the strip above it.** The
 day control and Take Notes, put there, half overflowed into the `»` menu;

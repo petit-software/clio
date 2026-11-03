@@ -47,6 +47,7 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.prepareMarkdown()
         textView.replaceAllText(with: text)
         if focusOnAppear, isEditable {
@@ -229,17 +230,28 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
     private let ownUndoManager = UndoManager()
     override var undoManager: UndoManager? { ownUndoManager }
 
-    /// How tall the text is at `width`, insets included.
+    /// How tall the text would be at `width`, insets included — measured on
+    /// a copy, laid out by a layout manager of its own.
+    ///
+    /// Never on the real container. SwiftUI asks at several widths, a
+    /// near-zero one for the minimum among them, and whichever it asked
+    /// last was the width the text was then drawn at: typing laid it out a
+    /// character to a line in a column a point wide — the editor grew, and
+    /// nothing could be read. The real container follows the view's width
+    /// and nothing else.
     func height(forWidth width: CGFloat) -> CGFloat {
-        guard let layoutManager, let textContainer else { return 0 }
+        guard let textStorage else { return 0 }
         let lineWidth = max(1, width - 2 * textContainerInset.width)
-        if textContainer.containerSize.width != lineWidth {
-            textContainer.containerSize = NSSize(width: lineWidth,
-                                                 height: .greatestFiniteMagnitude)
-        }
-        layoutManager.ensureLayout(for: textContainer)
-        let used = layoutManager.usedRect(for: textContainer).height
-        return ceil(used + 2 * textContainerInset.height)
+        let copy = NSTextStorage(attributedString: textStorage)
+        let manager = NSLayoutManager()
+        manager.delegate = self   // hides syntax as the real one does
+        let container = NSTextContainer(size: NSSize(width: lineWidth,
+                                                     height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = textContainer?.lineFragmentPadding ?? 5
+        manager.addTextContainer(container)
+        copy.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+        return ceil(manager.usedRect(for: container).height + 2 * textContainerInset.height)
     }
 
     override var intrinsicContentSize: NSSize {
@@ -680,6 +692,57 @@ extension MarkdownTextView {
 #endif
 
 #if DEBUG
+extension MarkdownTextView {
+    /// For CLIO_TYPE: types into whichever notes editor has the keyboard,
+    /// the way keystrokes would, and says what the text system made of it.
+    @MainActor
+    public static func typeIntoFocused(_ text: String) {
+        func find(_ view: NSView) -> MarkdownTextView? {
+            if let editor = view as? MarkdownTextView, editor.isEditable { return editor }
+            for sub in view.subviews { if let found = find(sub) { return found } }
+            return nil
+        }
+        let focused = NSApp.keyWindow?.firstResponder as? MarkdownTextView
+        guard let view = focused ?? NSApp.keyWindow?.contentView.flatMap(find) else {
+            FileHandle.standardError.write(Data("[type] no notes editor in the window\n".utf8))
+            return
+        }
+        if focused == nil {
+            view.window?.makeFirstResponder(view)
+            view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        }
+        for character in text {
+            if character == "\n" {
+                view.insertNewline(nil)
+            } else {
+                view.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
+        }
+        report(view, "typed")
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            report(view, "after save")
+        }
+    }
+
+    @MainActor
+    private static func report(_ view: MarkdownTextView, _ when: String) {
+        let storage = view.textStorage!
+        let layout = view.layoutManager!
+        layout.ensureLayout(for: view.textContainer!)
+        var report = "[type] \(when): \(view.string.count) characters, frame \(view.frame.size)\n"
+        for index in 0..<min(storage.length, 6) {
+            let attributes = storage.attributes(at: index, effectiveRange: nil)
+            let glyph = layout.glyphIndexForCharacter(at: index)
+            let property = layout.propertyForGlyph(at: glyph)
+            report += "[type]   \(index): hidden \(attributes[MarkdownStyle.hidden] != nil), "
+                + "color \(String(describing: attributes[.foregroundColor])), null \(property.contains(.null))\n"
+        }
+        report += "[type] used \(layout.usedRect(for: view.textContainer!)), container \(view.textContainer!.containerSize)\n"
+        FileHandle.standardError.write(Data(report.utf8))
+    }
+}
+
 /// For the app's CLIO_MARKDOWN_CHECK tool, which lives outside this module.
 public enum MarkdownEditorCheck {
     @MainActor public static func run() -> [String] { MarkdownTextView.check() }

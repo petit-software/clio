@@ -409,6 +409,12 @@ extension AppCoordinator {
         }
         if libraryWindow == nil { libraryWindow = LibraryWindowController() }
         libraryWindow?.show(coordinator: self)
+        if let typed = ProcessInfo.processInfo.environment["CLIO_TYPE"] {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.5))
+                MarkdownTextView.typeIntoFocused(typed)
+            }
+        }
     }
 
     /// For CLIO_OFFER_SHOW.
