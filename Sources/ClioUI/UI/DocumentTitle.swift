@@ -2,9 +2,9 @@ import SwiftUI
 import ClioCore
 
 /// A document's name and date, where the window's title would be: the
-/// name edited in place, a chevron after it for who was invited, the date
-/// under both. Drawn by hand because the window's own title cannot take
-/// a menu when it is bridged from a hosting view — `toolbarTitleMenu`
+/// name edited in place; under it the date and, as a dropdown of its own,
+/// who was invited. Drawn by hand because the window's own title cannot
+/// take a menu when it is bridged from a hosting view — `toolbarTitleMenu`
 /// showed nothing.
 struct DocumentTitle: View {
     @Binding var title: String
@@ -15,41 +15,49 @@ struct DocumentTitle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
+            if isEditable {
+                TextField("Meeting", text: $title)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, weight: .bold))
+                    .fixedSize()
+            } else {
+                Text(title)
+                    .font(.system(size: 13, weight: .bold))
+                    .lineLimit(1)
+            }
             HStack(spacing: 5) {
-                if isEditable {
-                    TextField("Meeting", text: $title)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13, weight: .bold))
-                        .fixedSize()
-                } else {
-                    Text(title)
-                        .font(.system(size: 13, weight: .bold))
-                        .lineLimit(1)
-                }
-                if let attendees {
+                Text(subtitle)
+                    .lineLimit(1)
+                if let attendees, !attendees.isEmpty {
+                    Text("·")
                     Menu {
                         AttendeesMenu(attendees: attendees)
                     } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 14, height: 14)
-                            .contentShape(Rectangle())
+                        HStack(spacing: 3) {
+                            Text(attendees.count == 1 ? "1 participant" : "\(attendees.count) participants")
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .menuStyle(.borderlessButton)
+                    // The plain button under a button-style menu keeps the
+                    // label as written; borderless redrew it larger, with a
+                    // chevron of its own in front.
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .help("Who was invited")
-                    .accessibilityLabel("Attendees")
+                    .help("Who was invited; click a name to copy their email")
+                    .accessibilityLabel("Participants")
                 }
             }
-            Text(subtitle)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
         }
-        // Its whole width, or the toolbar clips the date.
+        // Its whole width, or the toolbar clips the date; in from the
+        // sidebar's edge by the margin the window's own title kept.
         .fixedSize()
+        .padding(.leading, 12)
     }
 }
 

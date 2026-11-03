@@ -634,6 +634,9 @@ private struct EventView: View {
                 if let url = event.joinURL {
                     Link(url.host ?? url.absoluteString, destination: url)
                         .font(.system(size: 12))
+                        // Not the first responder's ring: the page is
+                        // opened by a click in the sidebar, not by Tab.
+                        .focusEffectDisabled()
                 }
                 if !isOver {
                     // One button: joining the call when there is one to join,
@@ -674,10 +677,7 @@ private struct EventView: View {
     }
 
     static func when(_ event: MeetingEvent) -> String {
-        let day = event.start.formatted(date: .complete, time: .omitted)
-        let from = event.start.formatted(date: .omitted, time: .shortened)
-        let to = event.end.formatted(date: .omitted, time: .shortened)
-        return "\(day) · \(from) – \(to)"
+        whenLine(start: event.start, end: event.end)
     }
 }
 
@@ -873,16 +873,22 @@ struct MeetingDocumentView: View {
     }
 
     static func when(_ record: MeetingRecord) -> String {
-        let day = DateFormatter()
-        day.dateStyle = .full
-        day.timeStyle = .short
-        var text = day.string(from: record.startDate)
-        if let end = record.endDate {
-            let minutes = Int(end.timeIntervalSince(record.startDate) / 60)
-            text += " · \(minutes < 1 ? "under a minute" : "\(minutes) min")"
-        }
-        return text
+        whenLine(start: record.startDate, end: record.endDate)
     }
+}
+
+/// "Tuesday, 3 November 2026 at 09:25 · 32 min" — the one date line, for a
+/// meeting that happened and one still to come alike.
+func whenLine(start: Date, end: Date?) -> String {
+    let day = DateFormatter()
+    day.dateStyle = .full
+    day.timeStyle = .short
+    var text = day.string(from: start)
+    if let end {
+        let minutes = Int(end.timeIntervalSince(start) / 60)
+        text += " · \(minutes < 1 ? "under a minute" : "\(minutes) min")"
+    }
+    return text
 }
 
 // MARK: - A dictation

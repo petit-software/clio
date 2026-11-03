@@ -423,6 +423,8 @@ extension AppCoordinator {
             librarySelection = .dictation(first.id)
         } else if which == "empty" {
             librarySelection = nil
+        } else if which == "event" {
+            librarySelection = .event("pricing")
         } else {
             librarySelection = nil
             Task { @MainActor in
