@@ -57,31 +57,8 @@ struct MeetingView: View {
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.end, anchor: .bottom) }
             }
         }
-        .overlay(alignment: .bottom) {
-            actionBar
-                .padding(.horizontal, 16)
-                .padding(.bottom, 14)
-        }
+        .overlay(alignment: .bottom) { actionBar }
         .frame(minWidth: 420, minHeight: 420)
-        .toolbar {
-            // The view switcher, centred in the toolbar.
-            ToolbarItem(placement: .principal) {
-                Picker("Show", selection: $pane) {
-                    ForEach(panes) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-            }
-            // Top right, always — where a saved meeting's and a dictation's are.
-            TrailingToolbarActions {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(MeetingMarkdown.render(meeting.record), forType: .string)
-                } label: { Label("Copy as Markdown", systemImage: "square.fill.on.square.fill") }
-                    .help("Copy the meeting so far as Markdown")
-            }
-        }
         .onAppear {
             title = meeting.record.title
             notes = meeting.record.notes
@@ -291,9 +268,18 @@ struct MeetingView: View {
     /// The meeting's actions, floating on glass over the notes: what to do
     /// with the file on the left, Stop on the right.
     private var actionBar: some View {
-        GlassGroup(spacing: 10) {
-            HStack(spacing: 10) {
-                Spacer()
+        DocumentBar {
+            Picker("Show", selection: $pane) {
+                ForEach(panes) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        } trailing: {
+                CopyButton(help: "Copy the meeting so far as Markdown") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(MeetingMarkdown.render(meeting.record), forType: .string)
+                }
                 MoreMenu {
                     Button("Show in Finder", systemImage: "folder.fill") {
                         if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
@@ -317,8 +303,6 @@ struct MeetingView: View {
                     Button("Open Notes", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
                         .glassButton(prominent: true)
                 }
-            }
-            .controlSize(.large)
         }
     }
 }

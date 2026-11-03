@@ -122,3 +122,43 @@ private struct InkButton: ViewModifier {
 extension View {
     func inkButton() -> some View { modifier(InkButton()) }
 }
+
+/// Copy, as a glass disc the size of the ⋯ beside it.
+struct CopyButton: View {
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "square.fill.on.square.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 22, height: 22)
+        }
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .glassButton()
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// A document's controls, along its foot on glass: what it shows on the
+/// left, what to do with it on the right. There is no toolbar; this is
+/// where the toolbar's things went.
+struct DocumentBar<Leading: View, Trailing: View>: View {
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        GlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                leading
+                Spacer(minLength: 0)
+                trailing
+            }
+            .controlSize(.large)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 14)
+    }
+}

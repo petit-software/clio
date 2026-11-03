@@ -410,6 +410,8 @@ extension AppCoordinator {
             librarySelection = .live
         } else if which == "dictation", let first = libraryDictationsOverride?.first {
             librarySelection = .dictation(first.id)
+        } else if which == "empty" {
+            librarySelection = nil
         } else {
             librarySelection = nil
             Task { @MainActor in

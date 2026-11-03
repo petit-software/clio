@@ -37,22 +37,25 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 680, height: 440)
-        // A real toolbar, and SwiftUI's toolbar and title bridged into it.
-        // Without one the split view has nothing to float under: the sidebar
-        // was a flat column, and the toolbar buttons plain icons, instead of
-        // the glass macOS 26 draws for a window built this way.
-        let toolbar = NSToolbar(identifier: "ClioLibrary")
-        toolbar.displayMode = .iconOnly
-        window.toolbar = toolbar
-        window.toolbarStyle = .unified
-        // No line under the toolbar: it is glass over the document, and the
-        // soft scroll edge is where the two meet.
+        // No toolbar: just the traffic lights, over a title bar the page
+        // shows through. The sidebar's controls are along its foot, a
+        // document's along its own. Nothing is bridged, or SwiftUI would
+        // make a toolbar of its own for the split view's sidebar button.
+        window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         let host = NSHostingView(rootView: LibraryView(coordinator: coordinator))
-        host.sceneBridgingOptions = [.toolbars, .title]
+        host.sceneBridgingOptions = []
         window.contentView = host
         window.setFrameAutosaveName("ClioLibraryWindow")
         if !window.setFrameUsingName("ClioLibraryWindow") { window.center() }
+        #if DEBUG
+        // CLIO_LIBRARY_HEIGHT: a short window, whatever was saved, to see
+        // the sidebar scroll under its foot.
+        if let set = ProcessInfo.processInfo.environment["CLIO_LIBRARY_HEIGHT"].flatMap(Double.init) {
+            window.setContentSize(NSSize(width: 920, height: max(440, set)))
+            window.center()
+        }
+        #endif
         window.delegate = self
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
@@ -71,15 +74,31 @@ struct LibraryView: View {
     @Bindable var coordinator: AppCoordinator
     @State private var query = ""
     @State private var dayEvents: [MeetingEvent] = []
+    /// Whether the sidebar shows. The system's button for it lived in the
+    /// toolbar, which is gone; ours is in the sidebar's foot, and beside
+    /// the traffic lights while the sidebar is hidden.
+    @State private var columns: NavigationSplitViewVisibility = .all
 
     private var library: MeetingLibrary? { coordinator.library }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 380)
         } detail: {
             detail
+                .overlay(alignment: .topLeading) {
+                    if columns == .detailOnly {
+                        Button("Show Sidebar", systemImage: "sidebar.left") { toggleSidebar() }
+                            .labelStyle(.iconOnly)
+                            .buttonBorderShape(.circle)
+                            .glassButton()
+                            .help("Show the sidebar (⌃⌘S)")
+                            .keyboardShortcut("s", modifiers: [.control, .command])
+                            .padding(.leading, 84)
+                            .padding(.top, 8)
+                    }
+                }
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
         // A meeting that has just finished is a file now; follow it there.
@@ -120,32 +139,59 @@ struct LibraryView: View {
                 ContentUnavailableView.search(text: query)
             }
         }
-        // The bottom of the sidebar: the day it shows.
+        // The foot of the sidebar: Take Notes, the day it shows, and hiding
+        // the sidebar — everything the toolbar held.
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 10) {
-                ControlGroup {
+            HStack(spacing: 8) {
+                Button("Take Notes", systemImage: "record.circle") { coordinator.startMeeting() }
+                    .labelStyle(.iconOnly)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .glassButton()
+                    .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
+                Spacer(minLength: 0)
+                // Three buttons on one piece of glass, nothing drawn
+                // between them.
+                HStack(spacing: 0) {
                     Button("Previous Day", systemImage: "chevron.compact.backward") { move(-1) }
                         .help("Previous day (⌘[)")
                         .keyboardShortcut("[", modifiers: .command)
                     Button(dayTitle) { coordinator.libraryDay = Self.today }
                         .help(isToday ? "Today" : "Back to today")
-                        .frame(maxWidth: .infinity)
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 4)
                     Button("Next Day", systemImage: "chevron.compact.forward") { move(1) }
                         .help("Next day (⌘])")
                         .keyboardShortcut("]", modifiers: .command)
                 }
-                .controlGroupStyle(.navigation)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
                 .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .glassSurface(Capsule())
+                .fixedSize()
+                Spacer(minLength: 0)
+                Button("Hide Sidebar", systemImage: "sidebar.left") { toggleSidebar() }
+                    .labelStyle(.iconOnly)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .glassButton()
+                    .help("Hide the sidebar (⌃⌘S)")
+                    .keyboardShortcut("s", modifiers: [.control, .command])
             }
             .padding(12)
-        }
-        // Take Notes, at the top of the sidebar: just the symbol.
-        .toolbar {
-            ToolbarItem {
-                Button("Take Notes", systemImage: "record.circle") { coordinator.startMeeting() }
-                    .labelStyle(.iconOnly)
-                    .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
+            // What scrolls under the foot fades into frost before it
+            // reaches the controls.
+            .background {
+                Rectangle()
+                    .fill(.regularMaterial)
+                    .mask {
+                        LinearGradient(stops: [.init(color: .clear, location: 0),
+                                               .init(color: .black, location: 0.5)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                    .padding(.top, -28)
             }
         }
         // The day's events, read again when the day or the calendar changes.
@@ -173,6 +219,10 @@ struct LibraryView: View {
         return day.formatted(.dateTime.day().month(.abbreviated))
     }
 
+    private func toggleSidebar() {
+        withAnimation { columns = columns == .detailOnly ? .all : .detailOnly }
+    }
+
     private func move(_ days: Int) {
         coordinator.libraryDay = DayAgenda.step(coordinator.libraryDay, by: days)
     }
@@ -183,16 +233,19 @@ struct LibraryView: View {
                        dictations: coordinator.libraryDictations)
     }
 
+    /// A section's title, in from the edge by the same 8pt the rows are.
+    private func header(_ title: String) -> some View {
+        Text(title).padding(.leading, 8)
+    }
+
     @ViewBuilder
     private var daySections: some View {
         let agenda = agenda
         if let meeting = liveMeeting, isToday {
-            Section("Now") {
-                selectable(.live) { LiveRow(meeting: meeting) }
-            }
+            Section { selectable(.live) { LiveRow(meeting: meeting) } } header: { header("Now") }
         }
 
-        Section("Calendar") {
+        Section {
             switch coordinator.libraryCalendarAccess {
             case .notDetermined:
                 Button("Show your calendar") {
@@ -220,23 +273,23 @@ struct LibraryView: View {
                     }
                 }
             }
-        }
+        } header: { header("Calendar") }
 
         if !agenda.otherNotes.isEmpty {
-            Section("Notes") {
+            Section {
                 ForEach(agenda.otherNotes) { file in
                     selectable(.meeting(file.url)) { MeetingRow(file: file) }
                         .contextMenu { meetingMenu(file.url) }
                 }
-            }
+            } header: { header("Notes") }
         }
 
         if !agenda.dictations.isEmpty {
-            Section("Dictations") {
+            Section {
                 ForEach(agenda.dictations) { entry in
                     dictationRow(entry)
                 }
-            }
+            } header: { header("Dictations") }
         }
     }
 
@@ -251,19 +304,19 @@ struct LibraryView: View {
     @ViewBuilder
     private var searchSections: some View {
         ForEach(groups) { group in
-            Section(group.title) {
+            Section {
                 ForEach(group.files) { file in
                     selectable(.meeting(file.url)) { MeetingRow(file: file) }
                         .contextMenu { meetingMenu(file.url) }
                 }
-            }
+            } header: { header(group.title) }
         }
         if !dictations.isEmpty {
-            Section("Dictations") {
+            Section {
                 ForEach(dictations) { entry in
                     dictationRow(entry)
                 }
-            }
+            } header: { header("Dictations") }
         }
     }
 
@@ -387,8 +440,14 @@ struct LibraryView: View {
     }
 
     private var nothingSelected: some View {
-        ContentUnavailableView("Nothing selected", systemImage: "calendar.day",
-                               description: Text("Pick a meeting or a dictation on the left."))
+        ContentUnavailableView {
+            Label {
+                Text("Pick a meeting\nor a dictation on the left.")
+                    .multilineTextAlignment(.center)
+            } icon: {
+                Image(systemName: "calendar.day")
+            }
+        }
     }
 }
 
@@ -699,28 +758,21 @@ struct MeetingDocumentView: View {
         .defaultScrollAnchor(ProcessInfo.processInfo.environment["CLIO_LIBRARY_SCROLLED"] != nil
                              ? .bottom : nil)
         #endif
-        .toolbar {
-            // The view switcher, centred in the toolbar.
-            ToolbarItem(placement: .principal) {
+        // What it shows, and what to do with it, along its foot.
+        .overlay(alignment: .bottom) {
+            DocumentBar {
                 Picker("Show", selection: $pane) {
                     ForEach(panes(record)) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
-            }
-            // Top right, always — the same place for a meeting and a dictation.
-            TrailingToolbarActions {
-                Button {
+            } trailing: {
+                CopyButton(help: "Copy the whole meeting as Markdown") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(MeetingMarkdown.render(record), forType: .string)
-                } label: { Label("Copy as Markdown", systemImage: "square.fill.on.square.fill") }
-                    .help("Copy the whole meeting as Markdown")
-            }
-        }
-        // Everything else, at the bottom.
-        .overlay(alignment: .bottomTrailing) {
-            MoreMenu {
+                }
+                MoreMenu {
                 Button("Show in Finder", systemImage: "folder.fill") {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
@@ -736,9 +788,8 @@ struct MeetingDocumentView: View {
                 Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
                     confirmingTrash = true
                 }
+                }
             }
-            .padding(.trailing, 16)
-            .padding(.bottom, 14)
         }
     }
 
@@ -811,22 +862,16 @@ private struct DictationView: View {
             .padding(.vertical, 12)
         }
         .softTopEdge()
-        // Top right, as a meeting's are.
-        .toolbar {
-            TrailingToolbarActions {
-                Button {
-                    TextInjector.copy(entry.text)
-                } label: { Label("Copy", systemImage: "square.fill.on.square.fill") }
+        .overlay(alignment: .bottom) {
+            DocumentBar {
+                EmptyView()
+            } trailing: {
+                CopyButton(help: "Copy the dictation") { TextInjector.copy(entry.text) }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .help("Copy the dictation")
+                MoreMenu {
+                    Button("Remove", systemImage: "minus.circle.fill", role: .destructive, action: remove)
+                }
             }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            MoreMenu {
-                Button("Remove", systemImage: "minus.circle.fill", role: .destructive, action: remove)
-            }
-            .padding(.trailing, 16)
-            .padding(.bottom, 14)
         }
     }
 }

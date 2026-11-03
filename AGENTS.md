@@ -102,7 +102,8 @@ CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for 
 CLIO_TYPE=$'## Agenda\n- [ ] item' CLIO_LIBRARY_SHOW=live .build/debug/Clio   # types into the notes editor in the real window and reports how it laid out
 CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing rule through a real text view; exits non-zero on a failure
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
-CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording
+CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =empty picks nothing
+CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short window, so the sidebar scrolls under its foot
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
@@ -252,9 +253,18 @@ writes the real version; `build-app.sh` runs it before signing. For the
 after building, then run `.build/debug/Clio` directly. Check with
 `otool -l <binary> | grep -A5 LC_BUILD_VERSION`.
 
-**A window that wants the macOS 26 look needs a toolbar.** The library is an
-`NSWindow` hosting SwiftUI; without an `NSToolbar` and `sceneBridgingOptions`
-the split view had nothing to float under and stayed a flat column.
+**The library window has no toolbar, on purpose.** It once had one, bridged
+from SwiftUI, and that was first blamed for the compatibility look (the SDK
+version above was the real cause). Now the title bar is transparent with
+nothing in it, `sceneBridgingOptions` is empty so SwiftUI adds no toolbar of
+its own, the sidebar's controls sit along its foot (`safeAreaInset`) and a
+document's along its own bottom (`DocumentBar`), floating over the page.
+
+**`scrollEdgeEffectStyle` does nothing on the sidebar's `List`.** Rows
+scrolled straight through the foot's controls, and under the search field,
+with `.soft` set on the list for either edge. The foot draws its own
+progressive blur: a material masked with a vertical gradient, behind the
+inset. `CLIO_LIBRARY_HEIGHT` makes a window short enough to see it.
 
 **System audio is a process tap, not ScreenCaptureKit.** ScreenCaptureKit
 records a display to get at its sound, so it needs Screen Recording; a tap
@@ -308,10 +318,6 @@ nothing could be read. `height(forWidth:)` measures a copy with a layout
 manager of its own; the real container only follows the view. The editing
 check could not see it — its text view is not inside SwiftUI. `CLIO_TYPE`
 types into the real one, in the real window.
-
-**Toolbar items declared on the sidebar get only the strip above it.** The
-day control and Take Notes, put there, half overflowed into the `»` menu;
-they live at the detail's leading edge (`.navigation`) instead.
 
 **A deadline is a race, not a task group.** Quitting waits for the meeting
 for at most ten seconds; written as a task group, the group waited for the
