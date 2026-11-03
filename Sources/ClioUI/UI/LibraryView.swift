@@ -82,8 +82,8 @@ struct LibraryView: View {
             detail
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
-        // The day being shown, and Take Notes: at the leading edge of the
-        // toolbar, where the sidebar ends. Over the sidebar itself there was
+        // The day being shown: at the leading edge of the toolbar, where
+        // the sidebar ends. Over the sidebar itself there was
         // room for half of it, and the rest went to the overflow menu.
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -99,10 +99,6 @@ struct LibraryView: View {
                 }
                 .controlGroupStyle(.navigation)
                 .fixedSize()
-            }
-            ToolbarItem(placement: .navigation) {
-                Button("Take Notes", systemImage: "record.circle") { coordinator.startMeeting() }
-                    .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
             }
         }
         .softTopEdge()
@@ -142,6 +138,20 @@ struct LibraryView: View {
         .overlay {
             if !query.isEmpty, library?.hasLoaded == true, groups.isEmpty, dictations.isEmpty {
                 ContentUnavailableView.search(text: query)
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if liveMeeting == nil {
+                Button {
+                    coordinator.startMeeting()
+                } label: {
+                    Label("Take Notes", systemImage: "record.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                .inkButton()
+                .help("Take notes for the meeting on now")
+                .padding(12)
             }
         }
         // The day's events, read again when the day or the calendar changes.
@@ -208,7 +218,7 @@ struct LibraryView: View {
                 ForEach(agenda.events) { item in
                     selectable(eventSelection(item)) {
                         EventRow(item: item, isToday: isToday) {
-                            coordinator.startMeeting(event: item.event, join: true)
+                            coordinator.join(item.event)
                         }
                     }
                     .contextMenu {
@@ -463,8 +473,10 @@ private struct EventRow: View {
     let join: () -> Void
 
     private var event: MeetingEvent { item.event }
+    /// While the call is on and there is one to join — notes or not, so a
+    /// dropped call can be rejoined from here.
     private var canJoin: Bool {
-        item.notes == nil && event.joinURL != nil && isToday && event.end > Date()
+        event.joinURL != nil && isToday && event.end > Date()
     }
 
     var body: some View {
@@ -489,8 +501,8 @@ private struct EventRow: View {
             if canJoin {
                 Button("Join", action: join)
                     .controlSize(.small)
-                    .glassButton(prominent: true)
-                    .help("Join the call and take notes")
+                    .inkButton()
+                    .help(item.notes == nil ? "Join the call and take notes" : "Join the call")
             }
         }
         .padding(.vertical, 3)
@@ -540,7 +552,7 @@ private struct EventView: View {
                             }
                         }
                     }
-                    .glassButton(prominent: true)
+                    .inkButton()
                     .controlSize(.large)
                     .padding(.top, 14)
                 } else {

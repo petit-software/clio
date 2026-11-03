@@ -71,6 +71,16 @@ extension AppCoordinator {
         }
     }
 
+    /// Join from the day's calendar: the call, and notes for it — or, if
+    /// notes are already being taken, only the call, to rejoin it.
+    public func join(_ event: MeetingEvent) {
+        if isMeetingActive || isStartingMeeting {
+            if let url = event.joinURL { NSWorkspace.shared.open(url) }
+        } else {
+            startMeeting(event: event, join: true)
+        }
+    }
+
     /// Stops the meeting; the window stays to show the last chunks and the
     /// summary arriving.
     public func stopMeeting() {

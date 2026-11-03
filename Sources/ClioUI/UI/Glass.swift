@@ -100,3 +100,20 @@ struct MoreMenu<Content: View>: View {
         .accessibilityLabel("More")
     }
 }
+
+/// The onboarding card's ink, for the library's main buttons: black on
+/// light, white on dark, the label in the opposite. Glass on macOS 26.
+private struct InkButton: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let dark = colorScheme == .dark
+        content
+            .foregroundStyle(dark ? Color.black : Color.white)
+            .glassButton(prominent: true, tint: dark ? .white : .black)
+    }
+}
+
+extension View {
+    func inkButton() -> some View { modifier(InkButton()) }
+}
