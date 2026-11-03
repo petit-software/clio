@@ -493,12 +493,10 @@ private struct EventRow: View {
             }
             Spacer(minLength: 4)
             if canJoin {
-                // Quiet beside the event: a grey capsule, not ink.
+                // Quiet beside the event: a plain grey capsule — no glass,
+                // which in a list of rows read as one more surface.
                 Button("Join", action: join)
-                    .controlSize(.small)
-                    .buttonBorderShape(.capsule)
-                    .foregroundStyle(.primary)
-                    .glassButton()
+                    .buttonStyle(GreyCapsuleButtonStyle())
                     .help(item.notes == nil ? "Join the call and take notes" : "Join the call")
             }
         }
@@ -865,5 +863,23 @@ struct TranscriptList: View {
         }
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A flat grey capsule: the label in the text colour on a light fill that
+/// darkens a little when pressed.
+private struct GreyCapsuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(Color.primary.opacity(configuration.isPressed ? 0.16 : 0.08)))
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.5)
     }
 }
