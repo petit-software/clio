@@ -17,6 +17,8 @@ struct MarkdownEditor: NSViewRepresentable {
     var placeholder: String = ""
     /// Set to focus the editor when it appears.
     var focusOnAppear = false
+    /// False for a summary or a dictation: rendered, selectable, not typed in.
+    var isEditable = true
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
@@ -30,7 +32,8 @@ struct MarkdownEditor: NSViewRepresentable {
     func makeNSView(context: Context) -> MarkdownTextView {
         let textView = MarkdownTextView(frame: .zero)
         textView.delegate = context.coordinator
-        textView.textStorage?.delegate = context.coordinator
+        textView.isEditable = isEditable
+        textView.isSelectable = true
         textView.isRichText = false
         textView.allowsUndo = true
         textView.drawsBackground = false
@@ -44,9 +47,9 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
+        textView.prepareMarkdown()
         textView.replaceAllText(with: text)
-        MarkdownStyle.apply(to: textView.textStorage!)
-        if focusOnAppear {
+        if focusOnAppear, isEditable {
             DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         }
         return textView
@@ -73,7 +76,7 @@ struct MarkdownEditor: NSViewRepresentable {
         return CGSize(width: width, height: max(minHeight, textView.height(forWidth: width)))
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
 
         init(text: Binding<String>) { self.text = text }
@@ -85,22 +88,139 @@ struct MarkdownEditor: NSViewRepresentable {
             textView.invalidateIntrinsicContentSize()
             textView.needsDisplay = true
         }
-
-        /// Restyled after every change to the characters. Attributes only —
-        /// the text is not touched, so undo is unaffected.
-        func textStorage(_ textStorage: NSTextStorage,
-                         didProcessEditing editedMask: NSTextStorageEditActions,
-                         range editedRange: NSRange, changeInLength delta: Int) {
-            guard editedMask.contains(.editedCharacters) else { return }
-            MarkdownStyle.apply(to: textStorage)
-        }
     }
 }
 
 // MARK: - The text view
 
-final class MarkdownTextView: NSTextView {
+final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var placeholder = ""
+    /// What `MarkdownStyle` asked to be drawn in place of hidden syntax.
+    private var decorations: [MarkdownStyle.Decoration] = []
+    /// The line whose syntax shows, while editing.
+    private var revealedLine: NSRange?
+
+    /// Hooks up the hiding of syntax and styles what is there. Called once
+    /// the view is made.
+    func prepareMarkdown() {
+        layoutManager?.delegate = self
+        restyle()
+    }
+
+    /// The line being edited shows its syntax; nothing does when the editor
+    /// is not being typed in — or cannot be.
+    private var currentRevealedLine: NSRange? {
+        guard isEditable, window?.firstResponder === self else { return nil }
+        return (string as NSString).lineRange(for: NSRange(location: selectedRange().location, length: 0))
+    }
+
+    func restyle() {
+        guard let textStorage else { return }
+        revealedLine = currentRevealedLine
+        decorations = MarkdownStyle.apply(to: textStorage, revealing: revealedLine)
+        typingAttributes = MarkdownStyle.base
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        restyle()
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity,
+                                    stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        // Moving to another line hides this one's syntax and shows that one's.
+        if !stillSelecting, currentRevealedLine != revealedLine { restyle() }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { restyle() }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { DispatchQueue.main.async { [weak self] in self?.restyle() } }
+        return resigned
+    }
+
+    // MARK: Hiding syntax
+
+    func layoutManager(_ layoutManager: NSLayoutManager,
+                       shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+                       properties: UnsafePointer<NSLayoutManager.GlyphProperty>,
+                       characterIndexes: UnsafePointer<Int>,
+                       font: NSFont,
+                       forGlyphRange glyphRange: NSRange) -> Int {
+        guard let storage = layoutManager.textStorage else { return 0 }
+        var changed: [NSLayoutManager.GlyphProperty]?
+        for index in 0..<glyphRange.length {
+            let character = characterIndexes[index]
+            guard character < storage.length,
+                  storage.attribute(MarkdownStyle.hidden, at: character, effectiveRange: nil) != nil
+            else { continue }
+            if changed == nil { changed = Array(UnsafeBufferPointer(start: properties, count: glyphRange.length)) }
+            changed![index] = .null
+        }
+        guard let changed else { return 0 }
+        layoutManager.setGlyphs(glyphs, properties: changed, characterIndexes: characterIndexes,
+                                font: font, forGlyphRange: glyphRange)
+        return glyphRange.length
+    }
+
+    // MARK: Drawing what is hidden
+
+    private func rect(for range: NSRange) -> NSRect? {
+        guard let layoutManager, let textContainer, NSMaxRange(range) <= (string as NSString).length
+        else { return nil }
+        let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+        rect.origin.x += textContainerOrigin.x
+        rect.origin.y += textContainerOrigin.y
+        return rect
+    }
+
+    private func drawDecorations() {
+        guard let layoutManager else { return }
+        for decoration in decorations {
+            switch decoration {
+            case .bullet(let range):
+                guard let rect = rect(for: range) else { continue }
+                let dot = "•" as NSString
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: MarkdownStyle.body, .foregroundColor: NSColor.secondaryLabelColor]
+                let size = dot.size(withAttributes: attributes)
+                dot.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),
+                         withAttributes: attributes)
+            case .checkbox(let range, let done):
+                guard let rect = rect(for: range) else { continue }
+                let symbol = done ? "checkmark.square.fill" : "square"
+                // A white tick on the accent when done; an outline when not.
+                let palette: [NSColor] = done ? [.white, .controlAccentColor] : [.secondaryLabelColor]
+                let configuration = NSImage.SymbolConfiguration(pointSize: MarkdownStyle.size, weight: .medium)
+                    .applying(.init(paletteColors: palette))
+                guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(configuration) else { continue }
+                let side = min(rect.height, image.size.height)
+                let scale = side / max(image.size.height, 1)
+                let size = NSSize(width: image.size.width * scale, height: side)
+                // Centred in the room the hidden "[ ]" leaves.
+                image.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
+                                      width: size.width, height: size.height))
+            case .rule(let range):
+                let glyph = layoutManager.glyphIndexForCharacter(at: range.location)
+                var line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                line.origin.x += textContainerOrigin.x
+                line.origin.y += textContainerOrigin.y
+                NSColor.separatorColor.setFill()
+                NSRect(x: line.minX + (textContainer?.lineFragmentPadding ?? 0), y: line.midY.rounded(),
+                       width: line.width - 2 * (textContainer?.lineFragmentPadding ?? 0), height: 1).fill()
+            }
+        }
+    }
 
     /// Its own, not the window's. The window's is shared by every editor it
     /// has held, and ⌘Z after switching meetings — or after the note was
@@ -131,10 +251,12 @@ final class MarkdownTextView: NSTextView {
     func replaceAllText(with text: String) {
         string = text
         ownUndoManager.removeAllActions()
+        restyle()
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        drawDecorations()
         guard string.isEmpty, !placeholder.isEmpty else { return }
         let origin = NSPoint(x: textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0),
                              y: textContainerInset.height)
@@ -292,6 +414,19 @@ enum MarkdownStyle {
     static let size: CGFloat = 14
     static var body: NSFont { .systemFont(ofSize: size) }
 
+    /// Characters with this are given no glyph: Markdown syntax, still in
+    /// the text — so the file, Copy and undo all see Markdown — but not on
+    /// the page. `MarkdownTextView` is the layout manager's delegate that
+    /// reads it.
+    static let hidden = NSAttributedString.Key("ClioMarkdownHidden")
+
+    /// Something drawn in place of hidden syntax.
+    enum Decoration: Equatable {
+        case bullet(NSRange)
+        case checkbox(NSRange, done: Bool)
+        case rule(NSRange)
+    }
+
     static var paragraph: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = 3
@@ -308,14 +443,46 @@ enum MarkdownStyle {
         return .systemFont(ofSize: sizes[min(max(level, 1), 6) - 1], weight: .semibold)
     }
 
-    /// Restyles all of it. Notes are short; a whole pass is simpler than
-    /// working out which lines a change could have reached, and fast enough
-    /// to run on every keystroke.
-    static func apply(to storage: NSTextStorage) {
+    /// Restyles all of it, and says what to draw. Syntax is hidden except on
+    /// the line `revealing` touches — the one being edited — where it shows,
+    /// dimmed, so it can still be changed. Notes are short; a whole pass is
+    /// simpler than working out what an edit could reach, and fast enough
+    /// for every keystroke.
+    @discardableResult
+    static func apply(to storage: NSTextStorage, revealing: NSRange? = nil) -> [Decoration] {
         let all = NSRange(location: 0, length: storage.length)
+        storage.beginEditing()
+        defer { storage.endEditing() }
         storage.setAttributes(base, range: all)
-        for span in MarkdownSyntax.spans(in: storage.string) {
+        let string = storage.string as NSString
+        var decorations: [Decoration] = []
+
+        func revealed(_ range: NSRange) -> Bool {
+            guard let revealing else { return false }
+            let line = string.lineRange(for: range)
+            return NSIntersectionRange(line, revealing).length > 0
+                || (revealing.length == 0 && NSLocationInRange(revealing.location, line))
+                || (revealing.length == 0 && revealing.location == NSMaxRange(line)
+                    && !string.substring(with: line).hasSuffix("\n"))
+        }
+        func hide(_ range: NSRange) {
+            guard range.length > 0 else { return }
+            storage.addAttribute(hidden, value: true, range: range)
+        }
+        func dim(_ range: NSRange) {
+            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
+        }
+
+        let spans = MarkdownSyntax.spans(in: storage.string)
+        // A checkbox line's bullet goes with the box: "- [ ] x" shows as ☐ x.
+        let boxes = spans.compactMap { span -> NSRange? in
+            if case .checkbox = span.kind { return span.range }
+            return nil
+        }
+
+        for span in spans {
             guard NSMaxRange(span.range) <= storage.length else { continue }
+            let shown = revealed(span.range)
             switch span.kind {
             case .heading(let level):
                 storage.addAttribute(.font, value: headingFont(level), range: span.range)
@@ -335,25 +502,63 @@ enum MarkdownStyle {
             case .linkText:
                 storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: span.range)
             case .linkURL:
-                storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: span.range)
+                shown ? dim(span.range) : hide(span.range)
             case .quote:
                 storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: span.range)
                 storage.applyFontTraits(.italicFontMask, range: span.range)
             case .marker:
-                storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: span.range)
+                shown ? dim(span.range) : hide(span.range)
             case .listMarker:
-                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: span.range)
+                let marker = string.substring(with: span.range)
+                let box = boxes.first { $0.location > span.range.location
+                    && string.lineRange(for: $0) == string.lineRange(for: span.range) }
+                if shown {
+                    storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
+                                         range: span.range)
+                } else if let box {
+                    hide(NSRange(location: span.range.location,
+                                 length: box.location - span.range.location))
+                } else if ["-", "*", "+"].contains(marker) {
+                    // Kept for its width, and drawn over as a bullet.
+                    storage.addAttribute(.foregroundColor, value: NSColor.clear, range: span.range)
+                    decorations.append(.bullet(span.range))
+                } else {
+                    storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
+                                         range: span.range)
+                }
             case .checkbox(let done):
-                storage.addAttributes([
-                    .font: NSFont.monospacedSystemFont(ofSize: size - 1, weight: .medium),
-                    .foregroundColor: done ? NSColor.controlAccentColor : NSColor.secondaryLabelColor,
-                ], range: span.range)
+                storage.addAttribute(.font,
+                                     value: NSFont.monospacedSystemFont(ofSize: size, weight: .medium),
+                                     range: span.range)
+                if shown {
+                    storage.addAttribute(.foregroundColor,
+                                         value: done ? NSColor.controlAccentColor : NSColor.secondaryLabelColor,
+                                         range: span.range)
+                } else {
+                    storage.addAttribute(.foregroundColor, value: NSColor.clear, range: span.range)
+                    decorations.append(.checkbox(span.range, done: done))
+                }
             case .doneItem:
                 storage.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue,
                                        .foregroundColor: NSColor.secondaryLabelColor],
                                       range: span.range)
+            case .codeBlock:
+                storage.addAttributes([
+                    .font: NSFont.monospacedSystemFont(ofSize: size - 1, weight: .regular),
+                    .backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15),
+                ], range: span.range)
+            case .fence:
+                shown ? dim(span.range) : hide(span.range)
+            case .rule:
+                if shown {
+                    dim(span.range)
+                } else {
+                    hide(span.range)
+                    decorations.append(.rule(span.range))
+                }
             }
         }
+        return decorations
     }
 }
 
@@ -372,6 +577,7 @@ extension MarkdownTextView {
         let view = MarkdownTextView(frame: window.contentView!.bounds)
         view.allowsUndo = true
         view.isRichText = false
+        view.prepareMarkdown()
         window.contentView?.addSubview(view)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)

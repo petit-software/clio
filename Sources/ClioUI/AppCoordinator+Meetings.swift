@@ -122,6 +122,8 @@ extension AppCoordinator {
             library = MeetingLibrary(folder: folder)
         }
         if let selection { librarySelection = selection }
+        // The meeting on now is on today's page.
+        if selection == .live { libraryDay = Calendar.current.startOfDay(for: Date()) }
         if libraryWindow == nil { libraryWindow = LibraryWindowController() }
         libraryWindow?.show(coordinator: self)
     }
@@ -134,6 +136,26 @@ extension AppCoordinator {
         libraryDictationsOverride?.removeAll { $0.id == id }
         #endif
         if librarySelection == .dictation(id) { librarySelection = nil }
+    }
+
+    /// Whether the library can show the calendar.
+    public var libraryCalendarAccess: MeetingCalendar.Access {
+        #if DEBUG
+        if libraryEventsOverride != nil { return .granted }
+        #endif
+        return calendar.access
+    }
+
+    /// Any day's calendar events, for the library's day browser.
+    public func dayEvents(on day: Date) -> [MeetingEvent] {
+        #if DEBUG
+        if let libraryEventsOverride {
+            let calendar = Calendar.current
+            return libraryEventsOverride.filter { calendar.isDate($0.start, inSameDayAs: day) }
+                .sorted { $0.start < $1.start }
+        }
+        #endif
+        return calendar.events(on: day)
     }
 
     /// Settings moved the notes folder.
@@ -338,6 +360,27 @@ extension AppCoordinator {
                 people: ["Ana Ruiz", "Bo Chen", "Kit Lee"], notes: "",
                 summary: "### Q1 goals\n- Ship meetings.",
                 lines: [(.others, "Let's agree the three goals for the quarter.")])
+
+        // A day of events around the samples: two with notes (matched by
+        // time and title), one that passed without notes, one still to come
+        // with a call to join.
+        func event(_ id: String, _ title: String, hoursAgo: Double, minutes: Double,
+                   link: Bool = false, people: [String] = []) -> MeetingEvent {
+            let start = now.addingTimeInterval(-hoursAgo * 3600)
+            return MeetingEvent(id: id, title: title, start: start,
+                                end: start.addingTimeInterval(minutes * 60),
+                                attendees: people.map { MeetingAttendee(name: $0) },
+                                joinURL: link ? URL(string: "https://zoom.us/j/123456789") : nil)
+        }
+        libraryEventsOverride = [
+            event("sync", "Weekly product sync", hoursAgo: 2, minutes: 30, link: true,
+                  people: ["Ana Ruiz", "Bo Chen"]),
+            event("lunch", "Team lunch", hoursAgo: 0.75, minutes: 30),
+            event("pricing", "Pricing call", hoursAgo: -0.75, minutes: 30, link: true,
+                  people: ["Kit Lee", "Ana Ruiz"]),
+            event("review", "Roadmap review", hoursAgo: -3, minutes: 60, people: ["Bo Chen"]),
+        ]
+        libraryDay = Calendar.current.startOfDay(for: now)
 
         library = MeetingLibrary(folder: folder)
         libraryDictationsOverride = [

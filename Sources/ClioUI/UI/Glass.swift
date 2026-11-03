@@ -76,3 +76,27 @@ struct TrailingToolbarActions<Content: View>: ToolbarContent {
         ToolbarItemGroup(placement: .automatic) { content }
     }
 }
+
+/// The ⋯ at the bottom of a meeting or a dictation: everything but Copy,
+/// which stays in the toolbar.
+struct MoreMenu<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Menu {
+            content
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 22, height: 22)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .glassButton()
+        .fixedSize()
+        .help("More")
+        .accessibilityLabel("More")
+    }
+}

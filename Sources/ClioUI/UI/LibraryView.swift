@@ -8,6 +8,8 @@ public enum LibrarySelection: Hashable, Sendable {
     case live
     case meeting(URL)
     case dictation(UUID)
+    /// A calendar event with no notes yet.
+    case event(String)
 }
 
 /// Clio's one real window: every meeting and dictation down the side, the
@@ -68,6 +70,7 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
 struct LibraryView: View {
     @Bindable var coordinator: AppCoordinator
     @State private var query = ""
+    @State private var dayEvents: [MeetingEvent] = []
 
     private var library: MeetingLibrary? { coordinator.library }
 
@@ -79,6 +82,29 @@ struct LibraryView: View {
             detail
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
+        // The day being shown, and Take Notes: at the leading edge of the
+        // toolbar, where the sidebar ends. Over the sidebar itself there was
+        // room for half of it, and the rest went to the overflow menu.
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                ControlGroup {
+                    Button("Previous Day", systemImage: "chevron.left") { move(-1) }
+                        .help("Previous day (⌘[)")
+                        .keyboardShortcut("[", modifiers: .command)
+                    Button(dayTitle) { coordinator.libraryDay = Self.today }
+                        .help(isToday ? "Today" : "Back to today")
+                    Button("Next Day", systemImage: "chevron.right") { move(1) }
+                        .help("Next day (⌘])")
+                        .keyboardShortcut("]", modifiers: .command)
+                }
+                .controlGroupStyle(.navigation)
+                .fixedSize()
+            }
+            ToolbarItem(placement: .navigation) {
+                Button("Take Notes", systemImage: "record.circle") { coordinator.startMeeting() }
+                    .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
+            }
+        }
         .softTopEdge()
         // A meeting that has just finished is a file now; follow it there.
         .onChange(of: coordinator.meeting?.phase) { _, phase in
@@ -102,35 +128,10 @@ struct LibraryView: View {
         // colour, whatever tint it is given. Each row draws a light one
         // instead (`selectable`), and ↑/↓ are handled below.
         List {
-            if let meeting = liveMeeting {
-                Section("Now") {
-                    selectable(.live) { LiveRow(meeting: meeting) }
-                }
-            }
-
-            ForEach(groups) { group in
-                Section(group.title) {
-                    ForEach(group.files) { file in
-                        selectable(.meeting(file.url)) { MeetingRow(file: file) }
-                            .contextMenu { meetingMenu(file.url) }
-                    }
-                }
-            }
-
-            if !dictations.isEmpty {
-                Section("Dictations") {
-                    ForEach(dictations) { entry in
-                        selectable(.dictation(entry.id)) { DictationRow(entry: entry) }
-                            .contextMenu {
-                                Button("Copy", systemImage: "square.fill.on.square.fill") {
-                                    TextInjector.copy(entry.text)
-                                }
-                                Button("Remove", systemImage: "minus.circle.fill", role: .destructive) {
-                                    coordinator.removeDictation(id: entry.id)
-                                }
-                            }
-                    }
-                }
+            if query.isEmpty {
+                daySections
+            } else {
+                searchSections
             }
         }
         .listStyle(.sidebar)
@@ -139,30 +140,139 @@ struct LibraryView: View {
         .onKeyPress(.downArrow) { step(1) }
         .onKeyPress(.upArrow) { step(-1) }
         .overlay {
-            if library?.hasLoaded == true, groups.isEmpty, liveMeeting == nil, dictations.isEmpty {
-                ContentUnavailableView {
-                    Label(query.isEmpty ? "No meetings yet" : "Nothing found",
-                          systemImage: query.isEmpty ? "text.bubble" : "magnifyingglass")
-                } description: {
-                    Text(query.isEmpty
-                         ? "Take notes during a call and they appear here."
-                         : "No meeting mentions “\(query)”.")
+            if !query.isEmpty, library?.hasLoaded == true, groups.isEmpty, dictations.isEmpty {
+                ContentUnavailableView.search(text: query)
+            }
+        }
+        // The day's events, read again when the day or the calendar changes.
+        .task(id: DayKey(day: coordinator.libraryDay, revision: coordinator.calendar.revision)) {
+            dayEvents = coordinator.dayEvents(on: coordinator.libraryDay)
+        }
+    }
+
+    // MARK: The day
+
+    private struct DayKey: Equatable {
+        var day: Date
+        var revision: Int
+    }
+
+    private static var today: Date { Calendar.current.startOfDay(for: Date()) }
+    private var isToday: Bool { Calendar.current.isDateInToday(coordinator.libraryDay) }
+
+    private var dayTitle: String {
+        let day = coordinator.libraryDay
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) { return "Today" }
+        if calendar.isDateInYesterday(day) { return "Yesterday" }
+        if calendar.isDateInTomorrow(day) { return "Tomorrow" }
+        return day.formatted(.dateTime.day().month(.abbreviated))
+    }
+
+    private func move(_ days: Int) {
+        coordinator.libraryDay = DayAgenda.step(coordinator.libraryDay, by: days)
+    }
+
+    private var agenda: DayAgenda {
+        DayAgenda.make(day: coordinator.libraryDay, events: dayEvents,
+                       files: (library?.files ?? []).filter { $0.url != liveMeeting?.fileURL },
+                       dictations: coordinator.libraryDictations)
+    }
+
+    @ViewBuilder
+    private var daySections: some View {
+        let agenda = agenda
+        if let meeting = liveMeeting, isToday {
+            Section("Now") {
+                selectable(.live) { LiveRow(meeting: meeting) }
+            }
+        }
+
+        Section("Calendar") {
+            switch coordinator.libraryCalendarAccess {
+            case .notDetermined:
+                Button("Show your calendar") {
+                    Task { await coordinator.calendar.requestAccess() }
+                }
+                .buttonStyle(.link)
+            case .denied:
+                Button("Calendar access is off — open Privacy Settings") {
+                    coordinator.calendar.openPrivacySettings()
+                }
+                .buttonStyle(.link)
+            case .granted:
+                if agenda.events.isEmpty {
+                    Text("Nothing on the calendar")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(agenda.events) { item in
+                    selectable(eventSelection(item)) {
+                        EventRow(item: item, isToday: isToday) {
+                            coordinator.startMeeting(event: item.event, join: true)
+                        }
+                    }
+                    .contextMenu {
+                        if let notes = item.notes { meetingMenu(notes.url) }
+                    }
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if liveMeeting == nil {
-                Button {
-                    coordinator.startMeeting()
-                } label: {
-                    Label("Take Notes", systemImage: "record.circle")
-                        .frame(maxWidth: .infinity)
+
+        if !agenda.otherNotes.isEmpty {
+            Section("Notes") {
+                ForEach(agenda.otherNotes) { file in
+                    selectable(.meeting(file.url)) { MeetingRow(file: file) }
+                        .contextMenu { meetingMenu(file.url) }
                 }
-                .controlSize(.large)
-                .glassButton(prominent: true)
-                .padding(12)
             }
         }
+
+        if !agenda.dictations.isEmpty {
+            Section("Dictations") {
+                ForEach(agenda.dictations) { entry in
+                    dictationRow(entry)
+                }
+            }
+        }
+    }
+
+    /// An event opens its notes if it has any, its details if not.
+    private func eventSelection(_ item: DayAgenda.Event) -> LibrarySelection {
+        item.notes.map { .meeting($0.url) } ?? .event(item.event.id)
+    }
+
+    // MARK: Search
+
+    /// Every day's meetings and dictations matching the search.
+    @ViewBuilder
+    private var searchSections: some View {
+        ForEach(groups) { group in
+            Section(group.title) {
+                ForEach(group.files) { file in
+                    selectable(.meeting(file.url)) { MeetingRow(file: file) }
+                        .contextMenu { meetingMenu(file.url) }
+                }
+            }
+        }
+        if !dictations.isEmpty {
+            Section("Dictations") {
+                ForEach(dictations) { entry in
+                    dictationRow(entry)
+                }
+            }
+        }
+    }
+
+    private func dictationRow(_ entry: TranscriptEntry) -> some View {
+        selectable(.dictation(entry.id)) { DictationRow(entry: entry) }
+            .contextMenu {
+                Button("Copy", systemImage: "square.fill.on.square.fill") {
+                    TextInjector.copy(entry.text)
+                }
+                Button("Remove", systemImage: "minus.circle.fill", role: .destructive) {
+                    coordinator.removeDictation(id: entry.id)
+                }
+            }
     }
 
     /// A row that selects itself on a click, with a light highlight when it
@@ -189,9 +299,15 @@ struct LibraryView: View {
 
     /// Everything selectable, top to bottom, for ↑ and ↓.
     private var order: [LibrarySelection] {
-        (liveMeeting == nil ? [] : [.live])
-            + groups.flatMap { $0.files.map { .meeting($0.url) } }
-            + dictations.map { .dictation($0.id) }
+        guard query.isEmpty else {
+            return groups.flatMap { $0.files.map { .meeting($0.url) } }
+                + dictations.map { .dictation($0.id) }
+        }
+        let agenda = agenda
+        return (liveMeeting != nil && isToday ? [.live] : [])
+            + agenda.events.map(eventSelection)
+            + agenda.otherNotes.map { .meeting($0.url) }
+            + agenda.dictations.map { .dictation($0.id) }
     }
 
     private func step(_ by: Int) -> KeyPress.Result {
@@ -255,14 +371,20 @@ struct LibraryView: View {
             } else {
                 nothingSelected
             }
+        case .event(let id):
+            if let event = dayEvents.first(where: { $0.id == id }) {
+                EventView(event: event, coordinator: coordinator)
+            } else {
+                nothingSelected
+            }
         case nil:
             nothingSelected
         }
     }
 
     private var nothingSelected: some View {
-        ContentUnavailableView("No meeting selected", systemImage: "doc.text",
-                               description: Text("Pick one on the left."))
+        ContentUnavailableView("Nothing selected", systemImage: "calendar.day",
+                               description: Text("Pick a meeting or a dictation on the left."))
     }
 }
 
@@ -330,6 +452,114 @@ private struct RowIcon: View {
             .foregroundStyle(.secondary)
             .frame(width: 18)
             .accessibilityHidden(true)
+    }
+}
+
+/// A calendar event in the day: when, what, and whether there are notes —
+/// or, for one about to start with a link, a way to join.
+private struct EventRow: View {
+    let item: DayAgenda.Event
+    let isToday: Bool
+    let join: () -> Void
+
+    private var event: MeetingEvent { item.event }
+    private var canJoin: Bool {
+        item.notes == nil && event.joinURL != nil && isToday && event.end > Date()
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(event.start, format: .dateTime.hour().minute())
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 40, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
+                    .font(.system(size: 13, weight: item.notes == nil ? .regular : .semibold))
+                    .lineLimit(1)
+                if item.notes != nil {
+                    Label("Notes", systemImage: "doc.text")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+            Spacer(minLength: 4)
+            if canJoin {
+                Button("Join", action: join)
+                    .controlSize(.small)
+                    .glassButton(prominent: true)
+                    .help("Join the call and take notes")
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+/// A calendar event with no notes: what it is, who is in it, and — while it
+/// is still to come — taking notes for it.
+private struct EventView: View {
+    let event: MeetingEvent
+    let coordinator: AppCoordinator
+
+    private var isOver: Bool { event.end < Date() }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(event.title)
+                    .font(.system(size: 26, weight: .bold))
+                    .textSelection(.enabled)
+                Text(Self.when(event))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                if !event.attendees.isEmpty {
+                    Text(event.attendees
+                        .map { $0.declined ? "\($0.name) (declined)" : $0.name }
+                        .joined(separator: ", "))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                if let url = event.joinURL {
+                    Link(url.host ?? url.absoluteString, destination: url)
+                        .font(.system(size: 12))
+                }
+                if !isOver {
+                    HStack(spacing: 10) {
+                        if event.joinURL != nil {
+                            Button("Join & Take Notes", systemImage: "video.fill") {
+                                coordinator.startMeeting(event: event, join: true)
+                            }
+                            .glassButton(prominent: true)
+                        }
+                        Button("Take Notes", systemImage: "record.circle") {
+                            coordinator.startMeeting(event: event)
+                        }
+                        .glassButton(prominent: event.joinURL == nil)
+                    }
+                    .controlSize(.large)
+                    .padding(.top, 14)
+                } else {
+                    Text("No notes were taken for this meeting.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 14)
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .softTopEdge()
+    }
+
+    static func when(_ event: MeetingEvent) -> String {
+        let day = event.start.formatted(date: .complete, time: .omitted)
+        let from = event.start.formatted(date: .omitted, time: .shortened)
+        let to = event.end.formatted(date: .omitted, time: .shortened)
+        return "\(day) · \(from) – \(to)"
     }
 }
 
@@ -443,14 +673,14 @@ struct MeetingDocumentView: View {
                                    minHeight: 320)
                         .padding(.horizontal, 8)
                 case .summary:
-                    SummaryText(markdown: record.summary ?? "")
-                        .padding(.horizontal, 28)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    MarkdownEditor(text: .constant(record.summary ?? ""), isEditable: false,
+                                   minHeight: 0)
+                        .padding(.horizontal, 8)
                 case .transcript:
                     TranscriptList(lines: record.lines, isLive: false)
                 }
             }
-            .padding(.bottom, 40)
+            .padding(.bottom, 80)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .softTopEdge()
@@ -477,15 +707,29 @@ struct MeetingDocumentView: View {
                     NSPasteboard.general.setString(MeetingMarkdown.render(record), forType: .string)
                 } label: { Label("Copy as Markdown", systemImage: "square.fill.on.square.fill") }
                     .help("Copy the whole meeting as Markdown")
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                } label: { Label("Show in Finder", systemImage: "folder.fill") }
-                    .help("Show in Finder")
-                Button(role: .destructive) {
-                    confirmingTrash = true
-                } label: { Label("Move to Trash", systemImage: "minus.circle.fill") }
-                    .help("Move to Trash")
             }
+        }
+        // Everything else, at the bottom.
+        .overlay(alignment: .bottomTrailing) {
+            MoreMenu {
+                Button("Show in Finder", systemImage: "folder.fill") {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+                Button("Open in Default App", systemImage: "doc.text") {
+                    NSWorkspace.shared.open(url)
+                }
+                Button("Copy Transcript", systemImage: "text.quote") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(record.transcriptText, forType: .string)
+                }
+                .disabled(record.lines.isEmpty)
+                Divider()
+                Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
+                    confirmingTrash = true
+                }
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, 14)
         }
     }
 
@@ -551,12 +795,10 @@ private struct DictationView: View {
                 Text(entry.date.formatted(date: .complete, time: .shortened))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                Text(entry.text)
-                    .font(.system(size: 16))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                MarkdownEditor(text: .constant(entry.text), isEditable: false, minHeight: 0)
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 8)
             .padding(.vertical, 12)
         }
         .softTopEdge()
@@ -568,11 +810,14 @@ private struct DictationView: View {
                 } label: { Label("Copy", systemImage: "square.fill.on.square.fill") }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
                     .help("Copy the dictation")
-                Button(role: .destructive, action: remove) {
-                    Label("Remove", systemImage: "minus.circle.fill")
-                }
-                .help("Remove it from the history")
             }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            MoreMenu {
+                Button("Remove", systemImage: "minus.circle.fill", role: .destructive, action: remove)
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, 14)
         }
     }
 }

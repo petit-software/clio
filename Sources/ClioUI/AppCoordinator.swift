@@ -49,10 +49,14 @@ public final class AppCoordinator {
     var libraryWindow: LibraryWindowController?
     /// What the library window is showing.
     public var librarySelection: LibrarySelection?
+    /// The day the library's sidebar shows.
+    public var libraryDay = Calendar.current.startOfDay(for: Date())
     #if DEBUG
     /// Dictations for the CLIO_LIBRARY_SHOW tool, which must not write
     /// samples into the real history.
     var libraryDictationsOverride: [TranscriptEntry]?
+    /// Events for the CLIO_LIBRARY_SHOW tool, which has no calendar of its own.
+    var libraryEventsOverride: [MeetingEvent]?
     #endif
     /// Set from the moment a meeting is asked for until it exists. The
     /// calendar prompt sits between the two, and a second start in that gap

@@ -41,6 +41,7 @@ One meeting, end to end.
 | 7 | stop: drain, then a summary by Apple's on-device model (macOS 26) | `MeetingSession.stop`, `ClioCore/MeetingSummarizer` |
 | 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
+| 10 | the sidebar is a day: its calendar events with their notes, then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)` |
 
 The library window is Clio's one real window: meetings down the side (the
 live one first, then Today, Yesterday, months), dictations under them —
@@ -50,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 184 tests live here.
+  without standing up an app. All 198 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -60,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 184 tests, 25 suites, no network
+swift test                                  # 198 tests, 27 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -286,6 +287,21 @@ changes.** AirPods go into call mode — a new sample rate on the same device �
 the moment a call app opens their microphone. `SystemAudioRecorder` listens
 on the output device itself, and acts on another queue, because removing a
 listener from inside its own callback can deadlock.
+
+**Markdown is rendered, not shown — but never rewritten.** The notes editor
+keeps the Markdown in its text (the file, Copy and undo all see it) and hides
+the syntax at the glyph level: `MarkdownStyle` marks `#`, `**`, backticks,
+link brackets and fences with an attribute, and `MarkdownTextView`, as the
+layout manager's delegate, gives those characters null glyphs. Bullets and
+checkboxes keep their characters for the room they take, coloured clear, and
+are drawn over (`drawDecorations`). The line with the caret shows its syntax
+so it can be edited; a read-only editor — summaries, dictations — shows none.
+`layoutManager` is touched, so this is TextKit 1; a TextKit 2 rewrite would
+have to find another way to hide characters.
+
+**Toolbar items declared on the sidebar get only the strip above it.** The
+day control and Take Notes, put there, half overflowed into the `»` menu;
+they live at the detail's leading edge (`.navigation`) instead.
 
 **A deadline is a race, not a task group.** Quitting waits for the meeting
 for at most ten seconds; written as a task group, the group waited for the

@@ -77,15 +77,9 @@ struct MeetingView: View {
             TrailingToolbarActions {
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
-                } label: { Label("Copy Transcript", systemImage: "square.fill.on.square.fill") }
-                    .help("Copy the transcript")
-                    .disabled(meeting.record.lines.isEmpty)
-                Button {
-                    if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                } label: { Label("Show in Finder", systemImage: "folder.fill") }
-                    .help("Show in Finder")
-                    .disabled(meeting.fileURL == nil)
+                    NSPasteboard.general.setString(MeetingMarkdown.render(meeting.record), forType: .string)
+                } label: { Label("Copy as Markdown", systemImage: "square.fill.on.square.fill") }
+                    .help("Copy the meeting so far as Markdown")
             }
         }
         .onAppear {
@@ -278,7 +272,8 @@ struct MeetingView: View {
     private var summaryPane: some View {
         Group {
             if let summary = meeting.record.summary {
-                SummaryText(markdown: summary)
+                MarkdownEditor(text: .constant(summary), isEditable: false, minHeight: 0)
+                    .padding(.horizontal, -20)
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -299,6 +294,17 @@ struct MeetingView: View {
         GlassGroup(spacing: 10) {
             HStack(spacing: 10) {
                 Spacer()
+                MoreMenu {
+                    Button("Show in Finder", systemImage: "folder.fill") {
+                        if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    }
+                    .disabled(meeting.fileURL == nil)
+                    Button("Copy Transcript", systemImage: "text.quote") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
+                    }
+                    .disabled(meeting.record.lines.isEmpty)
+                }
                 if meeting.isActive {
                     Button("Stop Recording", systemImage: "stop.fill") {
                         meeting.setTitle(title)

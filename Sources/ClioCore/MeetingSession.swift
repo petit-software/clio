@@ -290,6 +290,7 @@ public final class MeetingSession {
         record.title = event.title
         record.attendees = event.attendees
         record.joinURL = event.joinURL
+        record.eventID = event.id
         save()
     }
 

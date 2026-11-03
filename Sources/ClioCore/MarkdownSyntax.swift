@@ -29,6 +29,12 @@ public enum MarkdownSyntax {
         case checkbox(done: Bool)
         /// The text of a ticked item.
         case doneItem
+        /// A line inside a fenced code block, fences excluded.
+        case codeBlock
+        /// A ``` line that opens or closes a code block.
+        case fence
+        /// `---`, `***` or `___` alone on a line.
+        case rule
     }
 
     public struct Span: Equatable, Sendable {
@@ -48,6 +54,7 @@ public enum MarkdownSyntax {
         let string = text as NSString
         var spans: [Span] = []
         var location = 0
+        var inFence = false
         while location < string.length {
             let lineRange = string.lineRange(for: NSRange(location: location, length: 0))
             var content = lineRange
@@ -57,7 +64,18 @@ public enum MarkdownSyntax {
                   CharacterSet.newlines.contains(scalar) {
                 content.length -= 1
             }
-            spans += lineSpans(string, content)
+            let trimmed = string.substring(with: content).trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                // Fences open and close; nothing inside is Markdown.
+                spans.append(Span(.fence, content))
+                inFence.toggle()
+            } else if inFence {
+                if content.length > 0 { spans.append(Span(.codeBlock, content)) }
+            } else if rule.firstMatch(in: text, range: content) != nil {
+                spans.append(Span(.rule, content))
+            } else {
+                spans += lineSpans(string, content)
+            }
             location = NSMaxRange(lineRange)
             if lineRange.length == 0 { break }
         }
@@ -138,6 +156,7 @@ public enum MarkdownSyntax {
     }
 
     nonisolated(unsafe) static let heading = regex(#"^(#{1,6})[ \t]+(.*)$"#)
+    nonisolated(unsafe) static let rule = regex(#"^[ \t]*([-*_])[ \t]*\1[ \t]*\1[ \t-*_]*$"#)
     nonisolated(unsafe) static let checkbox = regex(#"^([ \t]*)([-*+])[ \t]+(\[[ xX]\])[ \t]"#)
     nonisolated(unsafe) static let listItem = regex(#"^([ \t]*)([-*+]|\d+[.)])[ \t]"#)
     nonisolated(unsafe) static let quoteLine = regex(#"^([ \t]*>[ \t]?)"#)

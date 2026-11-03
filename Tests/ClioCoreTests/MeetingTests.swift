@@ -730,7 +730,7 @@ struct MeetingLibraryTests {
         func file(_ daysAgo: Double) -> MeetingFile {
             MeetingFile(url: URL(fileURLWithPath: "/\(daysAgo).md"), title: "\(daysAgo)",
                         start: now.addingTimeInterval(-daysAgo * 86_400), end: nil,
-                        attendees: [], preview: "", searchText: "")
+                        attendees: [], eventID: nil, preview: "", searchText: "")
         }
         let groups = MeetingLibrary.groups([file(40), file(0), file(1), file(0.01), file(60)],
                                            now: now)
@@ -751,4 +751,88 @@ func removeDictation() {
     let middle = store.entries[1].id
     store.remove(id: middle)
     #expect(store.entries.map(\.text) == ["third", "first"])
+}
+
+// MARK: - A day in the calendar
+
+@Suite("Day agenda")
+struct DayAgendaTests {
+    private let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Warsaw")!
+        return calendar
+    }()
+    /// 3 Nov 2026, 00:00 in Warsaw.
+    private var day: Date {
+        calendar.date(from: DateComponents(year: 2026, month: 11, day: 3))!
+    }
+
+    private func at(_ hour: Double) -> Date { day.addingTimeInterval(hour * 3600) }
+
+    private func event(_ id: String, _ title: String, from: Double, to: Double,
+                       allDay: Bool = false, declined: Bool = false) -> MeetingEvent {
+        MeetingEvent(id: id, title: title, start: at(from), end: at(to),
+                     isAllDay: allDay, declinedByMe: declined)
+    }
+
+    private func file(_ title: String, at hour: Double, event: String? = nil) -> MeetingFile {
+        MeetingFile(url: URL(fileURLWithPath: "/\(title)-\(hour).md"), title: title,
+                    start: at(hour), end: nil, attendees: [], eventID: event,
+                    preview: "", searchText: "")
+    }
+
+    @Test("Notes that name their event are its; the rest are matched by time, the same title first")
+    func linksNotes() {
+        let events = [event("e1", "Standup", from: 9.5, to: 10),
+                      event("e2", "1:1 with Ana", from: 11, to: 11.5),
+                      event("e3", "Design review", from: 14, to: 15)]
+        let files = [file("Renamed later", at: 9.45, event: "e1"),   // says so
+                     file("Meeting at 10:58", at: 10.97),             // early, by time
+                     file("Design review", at: 14.1),                  // same title wins…
+                     file("Scratch", at: 14.05)]                       // …over an earlier one
+        let agenda = DayAgenda.make(day: day, events: events, files: files, dictations: [],
+                                    calendar: calendar)
+        #expect(agenda.events.map(\.notes?.title) == ["Renamed later", "Meeting at 10:58", "Design review"])
+        #expect(agenda.otherNotes.map(\.title) == ["Scratch"])
+    }
+
+    @Test("Only the day's own: all-day and declined events are left out, other days' notes too")
+    func onlyTheDay() {
+        let events = [event("all", "Holiday", from: 0, to: 24, allDay: true),
+                      event("no", "Declined", from: 12, to: 13, declined: true),
+                      event("ok", "Lunch", from: 12, to: 13)]
+        let files = [file("Yesterday's", at: -5), file("Today's", at: 16)]
+        let dictations = [TranscriptEntry(text: "today", date: at(8)),
+                          TranscriptEntry(text: "tomorrow", date: at(30))]
+        let agenda = DayAgenda.make(day: day, events: events, files: files, dictations: dictations,
+                                    calendar: calendar)
+        #expect(agenda.events.map(\.event.id) == ["ok"])
+        #expect(agenda.otherNotes.map(\.title) == ["Today's"])
+        #expect(agenda.dictations.map(\.text) == ["today"])
+    }
+
+    @Test("One set of notes per event, and one event per set of notes")
+    func oneToOne() {
+        let events = [event("a", "Sync", from: 10, to: 11), event("b", "Sync", from: 10, to: 11)]
+        let files = [file("Sync", at: 10.1)]
+        let agenda = DayAgenda.make(day: day, events: events, files: files, dictations: [],
+                                    calendar: calendar)
+        #expect(agenda.events.compactMap(\.notes).count == 1)
+        #expect(agenda.otherNotes.isEmpty)
+    }
+
+    @Test("‹ and › step a day at a time, from midnight")
+    func steps() {
+        let next = DayAgenda.step(at(15), by: 1, calendar: calendar)
+        #expect(next == day.addingTimeInterval(86_400))
+        #expect(DayAgenda.step(at(15), by: -1, calendar: calendar) == day.addingTimeInterval(-86_400))
+    }
+
+    @Test("The event a meeting was taken for is kept in its file")
+    func eventInFrontMatter() throws {
+        var record = MeetingRecord(title: "Standup")
+        record.eventID = "ABC-123:2026"
+        let read = try #require(MeetingMarkdown.parse(MeetingMarkdown.render(record)))
+        #expect(read.eventID == "ABC-123:2026")
+    }
 }
