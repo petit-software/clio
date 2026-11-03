@@ -77,6 +77,11 @@ struct MeetingView: View {
                         NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
                     }
                     .disabled(meeting.record.lines.isEmpty)
+                    if let link = meeting.record.joinURL {
+                        Button("Copy Meeting URL", systemImage: "link") {
+                            TextInjector.copy(link.absoluteString)
+                        }
+                    }
                 }
             }
         }

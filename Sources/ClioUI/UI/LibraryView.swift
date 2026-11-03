@@ -631,13 +631,8 @@ private struct EventView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                if let url = event.joinURL {
-                    Link(url.host ?? url.absoluteString, destination: url)
-                        .font(.system(size: 12))
-                        // Not the first responder's ring: the page is
-                        // opened by a click in the sidebar, not by Tab.
-                        .focusEffectDisabled()
-                }
+                // No link on the page: Join & Take Notes is the way in, and
+                // the address itself is under the ⋯.
                 if !isOver {
                     // One button: joining the call when there is one to join,
                     // just the notes when there is not (a meeting in a room).
@@ -672,6 +667,15 @@ private struct EventView: View {
             TitleItem {
                 DocumentTitle(title: .constant(event.title), isEditable: false,
                               subtitle: Self.when(event), attendees: event.attendees)
+            }
+            if let url = event.joinURL {
+                TrailingToolbarActions {
+                    MoreMenu {
+                        Button("Copy Meeting URL", systemImage: "link") {
+                            TextInjector.copy(url.absoluteString)
+                        }
+                    }
+                }
             }
         }
     }
@@ -805,6 +809,11 @@ struct MeetingDocumentView: View {
                         NSPasteboard.general.setString(record.transcriptText, forType: .string)
                     }
                     .disabled(record.lines.isEmpty)
+                    if let link = record.joinURL {
+                        Button("Copy Meeting URL", systemImage: "link") {
+                            TextInjector.copy(link.absoluteString)
+                        }
+                    }
                     Divider()
                     Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
                         confirmingTrash = true
