@@ -120,7 +120,7 @@ struct LibraryView: View {
                 ContentUnavailableView.search(text: query)
             }
         }
-        // The bottom of the sidebar: the day it shows, and Take Notes.
+        // The bottom of the sidebar: the day it shows.
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 ControlGroup {
@@ -137,19 +137,15 @@ struct LibraryView: View {
                 .controlGroupStyle(.navigation)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
-                if liveMeeting == nil {
-                    Button {
-                        coordinator.startMeeting()
-                    } label: {
-                        Label("Take Notes", systemImage: "record.circle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .controlSize(.large)
-                    .inkButton()
-                    .help("Take notes for the meeting on now")
-                }
             }
             .padding(12)
+        }
+        // Take Notes, at the top of the sidebar: just the words.
+        .toolbar {
+            ToolbarItem {
+                Button("Take Notes") { coordinator.startMeeting() }
+                    .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
+            }
         }
         // The day's events, read again when the day or the calendar changes.
         .task(id: DayKey(day: coordinator.libraryDay, revision: coordinator.calendar.revision)) {
