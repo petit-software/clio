@@ -83,8 +83,12 @@ struct TrailingToolbarActions<Content: View>: ToolbarContent {
     var body: some ToolbarContent {
         if #available(macOS 26.0, *) {
             ToolbarSpacer(.flexible)
+            // On bare toolbar, like the title: no glass capsule of its own.
+            ToolbarItem(placement: .automatic) { content }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .automatic) { content }
         }
-        ToolbarItemGroup(placement: .automatic) { content }
     }
 }
 
