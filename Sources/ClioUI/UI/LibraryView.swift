@@ -591,21 +591,21 @@ private struct EventRow: View {
                     color: event.calendarColor.map {
                         Color(red: $0.red, green: $0.green, blue: $0.blue)
                     } ?? .secondary)
-            Text(event.start, format: .dateTime.hour().minute())
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .frame(width: 40, alignment: .leading)
+            // The same shape as a meeting that happened: the title, then
+            // the time under it, with what there is to say about it.
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title)
-                    .font(.system(size: 13, weight: item.notes == nil ? .regular : .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
-                if item.notes != nil {
-                    Label("Notes", systemImage: "doc.text")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .labelStyle(.titleAndIcon)
+                HStack(spacing: 4) {
+                    Text(event.start, style: .time)
+                    if item.notes != nil {
+                        Text("·")
+                        Text("Notes")
+                    }
                 }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
             if canJoin {
