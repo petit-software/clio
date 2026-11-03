@@ -3,6 +3,16 @@
     <channel>
         <title>Clio</title>
         <item>
+            <title>1.2</title>
+            <pubDate>Tue, 03 Nov 2026 23:34:01 +0100</pubDate>
+            <link>https://github.com/petit-software/clio/releases</link>
+            <sparkle:version>153</sparkle:version>
+            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/petit-software/clio/releases/download/v1.2/Clio-1.2.dmg" length="10789833" type="application/octet-stream" sparkle:edSignature="zLOPXO3g5i2YhfHNaPP3ZPkSlSkjR30wziqVlfEyckYmyh3N+YmXMYM5du6I6B0SPIiFDTJkVZobU51pP0ThAw=="/>
+        </item>
+        <item>
             <title>1.1</title>
             <pubDate>Tue, 03 Nov 2026 12:10:33 +0100</pubDate>
             <link>https://github.com/petit-software/clio/releases</link>
@@ -21,16 +31,6 @@
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/petit-software/clio/releases/download/v1.0/Clio-1.0.dmg" length="6345249" type="application/octet-stream" sparkle:edSignature="Vx4ccTPQVFk6wvSmw+sSVlmy2EddplN5jWBhMXandJPXzqjpMPCwlCm7wift2/FENEv6ZEMzAPgZyROX837jBA=="/>
-        </item>
-        <item>
-            <title>0.13</title>
-            <pubDate>Mon, 02 Nov 2026 13:33:40 +0100</pubDate>
-            <link>https://github.com/petit-software/clio/releases</link>
-            <sparkle:version>105</sparkle:version>
-            <sparkle:shortVersionString>0.13</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/petit-software/clio/releases/download/v0.13/Clio-0.13.dmg" length="5698256" type="application/octet-stream" sparkle:edSignature="ddcPBaEjVJk1EpJob2Fg7TBZ+CuSk8Ej4dFAFbHpYcJZ7ixtuG+94bEevB7ZJ/i9gqUW+QaSzlZBOpHBoJ+iBg=="/>
         </item>
     </channel>
 </rss>
