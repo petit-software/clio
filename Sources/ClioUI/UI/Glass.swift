@@ -22,6 +22,17 @@ extension View {
         }
     }
 
+    /// Interactive glass in a circle, for something that is not a Button
+    /// but should look like a large glass one.
+    @ViewBuilder
+    func glassDisc() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            background(.regularMaterial, in: Circle())
+        }
+    }
+
     /// Glass behind this view, in `shape`; a material before macOS 26.
     @ViewBuilder
     func glassSurface<S: Shape>(_ shape: S, tint: Color? = nil) -> some View {
@@ -83,19 +94,23 @@ struct MoreMenu<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        // A Menu on macOS ignores `buttonStyle(.glass)` and draws the
+        // stock grey menu button; so the glass is drawn around a
+        // borderless one, sized to the disc a large glass Button gets.
         Menu {
             content
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 15, weight: .semibold))
-                .frame(width: 22, height: 22)
+                .foregroundStyle(.primary)
+                .frame(width: 35, height: 35)
+                .contentShape(Circle())
         }
         .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .buttonBorderShape(.circle)
-        .controlSize(.large)
-        .glassButton()
         .fixedSize()
+        .glassDisc()
         .help("More")
         .accessibilityLabel("More")
     }

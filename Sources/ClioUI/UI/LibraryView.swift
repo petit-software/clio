@@ -136,8 +136,13 @@ struct LibraryView: View {
         // The foot of the sidebar: Take Notes and the day it shows.
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
-                Button("Take Notes", systemImage: "record.circle") { coordinator.startMeeting() }
-                    .labelStyle(.iconOnly)
+                Button { coordinator.startMeeting() } label: {
+                    // The same disc as Copy across the split.
+                    Image(systemName: "record.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                    .accessibilityLabel("Take Notes")
                     .buttonBorderShape(.circle)
                     .controlSize(.large)
                     .glassButton()
@@ -171,7 +176,11 @@ struct LibraryView: View {
                 .glassSurface(Capsule())
                 .fixedSize()
             }
-            .padding(12)
+            // The same insets as a document's bar, so the two line up
+            // across the split.
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
             // What scrolls under the foot fades into frost before it
             // reaches the controls.
             .background {
