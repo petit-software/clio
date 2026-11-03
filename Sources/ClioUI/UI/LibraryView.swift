@@ -88,12 +88,12 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 ControlGroup {
-                    Button("Previous Day", systemImage: "chevron.left") { move(-1) }
+                    Button("Previous Day", systemImage: "chevron.compact.backward") { move(-1) }
                         .help("Previous day (⌘[)")
                         .keyboardShortcut("[", modifiers: .command)
                     Button(dayTitle) { coordinator.libraryDay = Self.today }
                         .help(isToday ? "Today" : "Back to today")
-                    Button("Next Day", systemImage: "chevron.right") { move(1) }
+                    Button("Next Day", systemImage: "chevron.compact.forward") { move(1) }
                         .help("Next day (⌘])")
                         .keyboardShortcut("]", modifiers: .command)
                 }

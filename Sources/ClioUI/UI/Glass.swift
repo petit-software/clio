@@ -105,11 +105,16 @@ struct MoreMenu<Content: View>: View {
 /// light, white on dark, the label in the opposite. Glass on macOS 26.
 private struct InkButton: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.controlActiveState) private var activeState
 
     func body(content: Content) -> some View {
         let dark = colorScheme == .dark
+        // In a window that is not active, macOS draws prominent glass
+        // without its tint: an inverted label would be white on pale glass.
+        // There the label takes the text's own colour instead.
+        let inactive = activeState == .inactive
         content
-            .foregroundStyle(dark ? Color.black : Color.white)
+            .foregroundStyle(inactive ? Color.primary : (dark ? Color.black : Color.white))
             .glassButton(prominent: true, tint: dark ? .white : .black)
     }
 }
