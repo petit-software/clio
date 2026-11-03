@@ -87,18 +87,14 @@ struct LibraryView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 380)
         } detail: {
             detail
-                .overlay(alignment: .topLeading) {
-                    if columns == .detailOnly {
-                        Button("Show Sidebar", systemImage: "sidebar.left") { toggleSidebar() }
-                            .labelStyle(.iconOnly)
-                            .buttonBorderShape(.circle)
-                            .glassButton()
-                            .help("Show the sidebar (⌃⌘S)")
-                            .keyboardShortcut("s", modifiers: [.control, .command])
-                            .padding(.leading, 84)
-                            .padding(.top, 8)
-                    }
-                }
+        }
+        // The sidebar button stays where the toolbar had it: top left, after
+        // the traffic lights, over whichever column is there. The window's
+        // title bar is a safe area, so the overlay is laid out past it.
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geometry in
+                sidebarToggle.offset(y: -geometry.safeAreaInsets.top)
+            }
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
         // A meeting that has just finished is a file now; follow it there.
@@ -139,8 +135,7 @@ struct LibraryView: View {
                 ContentUnavailableView.search(text: query)
             }
         }
-        // The foot of the sidebar: Take Notes, the day it shows, and hiding
-        // the sidebar — everything the toolbar held.
+        // The foot of the sidebar: Take Notes and the day it shows.
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
                 Button("Take Notes", systemImage: "record.circle") { coordinator.startMeeting() }
@@ -171,14 +166,6 @@ struct LibraryView: View {
                 .frame(height: 32)
                 .glassSurface(Capsule())
                 .fixedSize()
-                Spacer(minLength: 0)
-                Button("Hide Sidebar", systemImage: "sidebar.left") { toggleSidebar() }
-                    .labelStyle(.iconOnly)
-                    .buttonBorderShape(.circle)
-                    .controlSize(.large)
-                    .glassButton()
-                    .help("Hide the sidebar (⌃⌘S)")
-                    .keyboardShortcut("s", modifiers: [.control, .command])
             }
             .padding(12)
             // What scrolls under the foot fades into frost before it
@@ -217,6 +204,20 @@ struct LibraryView: View {
         if calendar.isDateInYesterday(day) { return "Yesterday" }
         if calendar.isDateInTomorrow(day) { return "Tomorrow" }
         return day.formatted(.dateTime.day().month(.abbreviated))
+    }
+
+    private var sidebarToggle: some View {
+        let hidden = columns == .detailOnly
+        return Button(hidden ? "Show Sidebar" : "Hide Sidebar", systemImage: "sidebar.left") {
+            toggleSidebar()
+        }
+        .labelStyle(.iconOnly)
+        .buttonBorderShape(.circle)
+        .glassButton()
+        .help(hidden ? "Show the sidebar (⌃⌘S)" : "Hide the sidebar (⌃⌘S)")
+        .keyboardShortcut("s", modifiers: [.control, .command])
+        .padding(.leading, 80)
+        .padding(.top, 8)
     }
 
     private func toggleSidebar() {
