@@ -253,12 +253,13 @@ writes the real version; `build-app.sh` runs it before signing. For the
 after building, then run `.build/debug/Clio` directly. Check with
 `otool -l <binary> | grep -A5 LC_BUILD_VERSION`.
 
-**The library window has no toolbar, on purpose.** It once had one, bridged
-from SwiftUI, and that was first blamed for the compatibility look (the SDK
-version above was the real cause). Now the title bar is transparent with
-nothing in it, `sceneBridgingOptions` is empty so SwiftUI adds no toolbar of
-its own, the sidebar's controls sit along its foot (`safeAreaInset`) and a
-document's along its own bottom (`DocumentBar`), floating over the page.
+**The library's toolbar holds only the sidebar button.** The window keeps
+an `NSToolbar` with SwiftUI's toolbars bridged in so the split view's own
+sidebar button is drawn by the system, beside the traffic lights, in glass.
+Nothing else goes in it: the sidebar's controls sit along its foot
+(`safeAreaInset`) and a document's along its own bottom (`DocumentBar`),
+floating over the page. The button was drawn by hand as an overlay for one
+commit; laid out past the title bar's safe area it sat wrong and looked it.
 
 **`scrollEdgeEffectStyle` does nothing on the sidebar's `List`.** Rows
 scrolled straight through the foot's controls, and under the search field,

@@ -37,14 +37,17 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 680, height: 440)
-        // No toolbar: just the traffic lights, over a title bar the page
-        // shows through. The sidebar's controls are along its foot, a
-        // document's along its own. Nothing is bridged, or SwiftUI would
-        // make a toolbar of its own for the split view's sidebar button.
-        window.titlebarAppearsTransparent = true
+        // A toolbar holding nothing but the split view's own sidebar
+        // button, drawn by the system beside the traffic lights. Every
+        // other control is along the sidebar's foot or a document's. Drawn
+        // by hand as an overlay, the button sat wrong and looked it.
+        let toolbar = NSToolbar(identifier: "ClioLibrary")
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .none
         let host = NSHostingView(rootView: LibraryView(coordinator: coordinator))
-        host.sceneBridgingOptions = []
+        host.sceneBridgingOptions = [.toolbars]
         window.contentView = host
         window.setFrameAutosaveName("ClioLibraryWindow")
         if !window.setFrameUsingName("ClioLibraryWindow") { window.center() }
@@ -87,14 +90,6 @@ struct LibraryView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 380)
         } detail: {
             detail
-        }
-        // The sidebar button stays where the toolbar had it: top left, after
-        // the traffic lights, over whichever column is there. The window's
-        // title bar is a safe area, so the overlay is laid out past it.
-        .overlay(alignment: .topLeading) {
-            GeometryReader { geometry in
-                sidebarToggle.offset(y: -geometry.safeAreaInsets.top)
-            }
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
         // A meeting that has just finished is a file now; follow it there.
@@ -206,24 +201,6 @@ struct LibraryView: View {
         return day.formatted(.dateTime.day().month(.abbreviated))
     }
 
-    private var sidebarToggle: some View {
-        let hidden = columns == .detailOnly
-        return Button(hidden ? "Show Sidebar" : "Hide Sidebar", systemImage: "sidebar.left") {
-            toggleSidebar()
-        }
-        .labelStyle(.iconOnly)
-        .buttonBorderShape(.circle)
-        .glassButton()
-        .help(hidden ? "Show the sidebar (⌃⌘S)" : "Hide the sidebar (⌃⌘S)")
-        .keyboardShortcut("s", modifiers: [.control, .command])
-        .padding(.leading, 80)
-        .padding(.top, 8)
-    }
-
-    private func toggleSidebar() {
-        withAnimation { columns = columns == .detailOnly ? .all : .detailOnly }
-    }
-
     private func move(_ days: Int) {
         coordinator.libraryDay = DayAgenda.step(coordinator.libraryDay, by: days)
     }
@@ -234,9 +211,9 @@ struct LibraryView: View {
                        dictations: coordinator.libraryDictations)
     }
 
-    /// A section's title, in from the edge by the same 8pt the rows are.
+    /// A section's title, 12pt in from the edge.
     private func header(_ title: String) -> some View {
-        Text(title).padding(.leading, 8)
+        Text(title).padding(.leading, 12)
     }
 
     @ViewBuilder
