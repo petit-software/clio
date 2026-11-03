@@ -102,18 +102,38 @@ struct MeetingView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                statusDot
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(statusLine)
-                        .font(.system(size: 12, weight: .medium))
-                        .monospacedDigit()
+                HStack(spacing: 8) {
+                    statusDot
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        Text(statusLine)
+                            .font(.system(size: 12, weight: .medium))
+                            .monospacedDigit()
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                // The one live thing on the page, on glass; faintly red while
+                // it is listening.
+                .glassSurface(Capsule(), tint: meeting.isActive ? .red.opacity(0.18) : nil)
+
+                // Stop, beside what it stops.
+                if meeting.isActive {
+                    Button {
+                        meeting.setTitle(title)
+                        meeting.setNotes(notes)
+                        coordinator.stopMeeting()
+                    } label: {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonBorderShape(.circle)
+                    .glassButton(prominent: true, tint: .red)
+                    .keyboardShortcut(".", modifiers: .command)
+                    .help("Stop recording (⌘.)")
+                    .accessibilityLabel("Stop Recording")
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            // The one live thing on the page, on glass; faintly red while
-            // it is listening.
-            .glassSurface(Capsule(), tint: meeting.isActive ? .red.opacity(0.18) : nil)
 
             if !meeting.record.attendees.isEmpty {
                 Text(meeting.record.attendees
@@ -262,8 +282,9 @@ struct MeetingView: View {
 
     // MARK: Footer
 
-    /// The meeting's actions, floating on glass over the notes: what to do
-    /// with the file on the left, Stop on the right.
+    /// The meeting's actions, floating on glass over the notes: the pane
+    /// on the left, what to do with the file on the right. Stop is up by
+    /// the recording indicator.
     private var actionBar: some View {
         DocumentBar {
             GlassSegments(items: panes, selection: $pane) { $0.rawValue }
@@ -283,15 +304,7 @@ struct MeetingView: View {
                     }
                     .disabled(meeting.record.lines.isEmpty)
                 }
-                if meeting.isActive {
-                    Button("Stop Recording", systemImage: "stop.fill") {
-                        meeting.setTitle(title)
-                        meeting.setNotes(notes)
-                        coordinator.stopMeeting()
-                    }
-                    .keyboardShortcut(".", modifiers: .command)
-                    .glassButton(prominent: true, tint: .red)
-                } else if meeting.phase == .finished, let url = meeting.fileURL {
+                if meeting.phase == .finished, let url = meeting.fileURL {
                     Button("Open Notes", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
                         .glassButton(prominent: true)
                 }
