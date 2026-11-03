@@ -642,11 +642,14 @@ private struct EventView: View {
                           systemImage: event.joinURL != nil ? "video.fill" : "record.circle")
                         .font(.system(size: 15, weight: .medium))
                         .lineLimit(1)
-                        .padding(.horizontal, 7)
-                        .frame(minWidth: 260, maxWidth: 260, minHeight: 34)
+                        .padding(.horizontal, 22)
+                        .frame(minHeight: 34)
                 }
                 .inkButton()
                 .buttonBorderShape(.capsule)
+                // The page's only control: it would take the window's
+                // focus ring just for being there.
+                .focusEffectDisabled()
             } else {
                 Text("No notes were taken for this meeting.")
                     .font(.system(size: 13))

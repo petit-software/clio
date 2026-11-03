@@ -34,6 +34,16 @@ extension View {
         }
     }
 
+    /// The same in a capsule.
+    @ViewBuilder
+    func glassCapsule() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: Capsule())
+        } else {
+            background(.regularMaterial, in: Capsule())
+        }
+    }
+
     /// Glass behind this view, in `shape`; a material before macOS 26.
     @ViewBuilder
     func glassSurface<S: Shape>(_ shape: S, tint: Color? = nil) -> some View {
@@ -92,8 +102,9 @@ struct TrailingToolbarActions<Content: View>: ToolbarContent {
     }
 }
 
-/// Which of a meeting's panes is showing, as a pull-down: the name and one
-/// chevron, not the popup's pair.
+/// Which of a meeting's panes is showing, as a pull-down on glass: the
+/// name and one chevron, not the popup's pair. Glass drawn around a plain
+/// menu, as the ⋯ is, since a Menu ignores the glass button style.
 struct PaneMenu: View {
     let panes: [MeetingView.Pane]
     @Binding var pane: MeetingView.Pane
@@ -106,14 +117,22 @@ struct PaneMenu: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 Text(pane.rawValue)
+                    .font(.system(size: 13, weight: .medium))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
             }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .frame(height: 35)
+            .contentShape(Capsule())
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+        .glassCapsule()
     }
 }
 
