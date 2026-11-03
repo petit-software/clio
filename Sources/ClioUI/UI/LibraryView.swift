@@ -527,18 +527,20 @@ private struct EventView: View {
                         .font(.system(size: 12))
                 }
                 if !isOver {
-                    HStack(spacing: 10) {
+                    // One button: joining the call when there is one to join,
+                    // just the notes when there is not (a meeting in a room).
+                    Group {
                         if event.joinURL != nil {
                             Button("Join & Take Notes", systemImage: "video.fill") {
                                 coordinator.startMeeting(event: event, join: true)
                             }
-                            .glassButton(prominent: true)
+                        } else {
+                            Button("Take Notes", systemImage: "record.circle") {
+                                coordinator.startMeeting(event: event)
+                            }
                         }
-                        Button("Take Notes", systemImage: "record.circle") {
-                            coordinator.startMeeting(event: event)
-                        }
-                        .glassButton(prominent: event.joinURL == nil)
                     }
+                    .glassButton(prominent: true)
                     .controlSize(.large)
                     .padding(.top, 14)
                 } else {
