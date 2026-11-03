@@ -82,26 +82,6 @@ struct LibraryView: View {
             detail
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
-        // The day being shown: at the leading edge of the toolbar, where
-        // the sidebar ends. Over the sidebar itself there was
-        // room for half of it, and the rest went to the overflow menu.
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                ControlGroup {
-                    Button("Previous Day", systemImage: "chevron.compact.backward") { move(-1) }
-                        .help("Previous day (⌘[)")
-                        .keyboardShortcut("[", modifiers: .command)
-                    Button(dayTitle) { coordinator.libraryDay = Self.today }
-                        .help(isToday ? "Today" : "Back to today")
-                    Button("Next Day", systemImage: "chevron.compact.forward") { move(1) }
-                        .help("Next day (⌘])")
-                        .keyboardShortcut("]", modifiers: .command)
-                }
-                .controlGroupStyle(.navigation)
-                .fixedSize()
-            }
-        }
-        .softTopEdge()
         // A meeting that has just finished is a file now; follow it there.
         .onChange(of: coordinator.meeting?.phase) { _, phase in
             guard phase == .finished else { return }
@@ -140,19 +120,36 @@ struct LibraryView: View {
                 ContentUnavailableView.search(text: query)
             }
         }
+        // The bottom of the sidebar: the day it shows, and Take Notes.
         .safeAreaInset(edge: .bottom) {
-            if liveMeeting == nil {
-                Button {
-                    coordinator.startMeeting()
-                } label: {
-                    Label("Take Notes", systemImage: "record.circle")
+            VStack(spacing: 10) {
+                ControlGroup {
+                    Button("Previous Day", systemImage: "chevron.compact.backward") { move(-1) }
+                        .help("Previous day (⌘[)")
+                        .keyboardShortcut("[", modifiers: .command)
+                    Button(dayTitle) { coordinator.libraryDay = Self.today }
+                        .help(isToday ? "Today" : "Back to today")
                         .frame(maxWidth: .infinity)
+                    Button("Next Day", systemImage: "chevron.compact.forward") { move(1) }
+                        .help("Next day (⌘])")
+                        .keyboardShortcut("]", modifiers: .command)
                 }
+                .controlGroupStyle(.navigation)
                 .controlSize(.large)
-                .inkButton()
-                .help("Take notes for the meeting on now")
-                .padding(12)
+                .frame(maxWidth: .infinity)
+                if liveMeeting == nil {
+                    Button {
+                        coordinator.startMeeting()
+                    } label: {
+                        Label("Take Notes", systemImage: "record.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
+                    .inkButton()
+                    .help("Take notes for the meeting on now")
+                }
             }
+            .padding(12)
         }
         // The day's events, read again when the day or the calendar changes.
         .task(id: DayKey(day: coordinator.libraryDay, revision: coordinator.calendar.revision)) {
