@@ -298,12 +298,7 @@ struct MeetingView: View {
     // MARK: Footer
 
     private var panePicker: some View {
-        Picker("Show", selection: $pane) {
-            ForEach(panes) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .fixedSize()
+        PaneMenu(panes: panes, pane: $pane)
     }
 
     /// Along the foot: the pane on the left, what to do with the file on

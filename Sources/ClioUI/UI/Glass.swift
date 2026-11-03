@@ -92,6 +92,31 @@ struct TrailingToolbarActions<Content: View>: ToolbarContent {
     }
 }
 
+/// Which of a meeting's panes is showing, as a pull-down: the name and one
+/// chevron, not the popup's pair.
+struct PaneMenu: View {
+    let panes: [MeetingView.Pane]
+    @Binding var pane: MeetingView.Pane
+
+    var body: some View {
+        Menu {
+            Picker("Show", selection: $pane) {
+                ForEach(panes) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            HStack(spacing: 5) {
+                Text(pane.rawValue)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+            }
+        }
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+}
+
 /// Who was invited, under the chevron beside the title: each one copies
 /// their address, and all of them together.
 struct AttendeesMenu: View {

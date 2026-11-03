@@ -830,12 +830,7 @@ struct MeetingDocumentView: View {
         // What it shows, and what to do with it, along its foot.
         .overlay(alignment: .bottom) {
             DocumentBar {
-                Picker("Show", selection: $pane) {
-                    ForEach(panes(record)) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
+                PaneMenu(panes: panes(record), pane: $pane)
             } trailing: {
                 CopyButton(help: "Copy the whole meeting as Markdown") {
                     NSPasteboard.general.clearContents()
