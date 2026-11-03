@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 import Foundation
 @testable import ClioCore
@@ -193,7 +194,8 @@ struct MeetingRecordTests {
         var record = MeetingRecord(title: "Weekly sync",
                                    startDate: Date(timeIntervalSince1970: 1_800_000_000))
         record.endDate = record.startDate.addingTimeInterval(1800)
-        record.attendees = [MeetingAttendee(name: "Ana"), MeetingAttendee(name: "Bo", declined: true)]
+        record.attendees = [MeetingAttendee(name: "Ana", email: "ana@example.com"),
+                            MeetingAttendee(name: "Bo", declined: true)]
         record.notes = "- ship it"
         record.add(line(.me, 1, "Hello."))
         record.add(line(.me, 5.5, "Can you hear me?"))
@@ -203,7 +205,7 @@ struct MeetingRecordTests {
 
         #expect(markdown.hasPrefix("---\nclio: 1\nstart: "))
         #expect(markdown.contains("---\n\n# Weekly sync\n"))
-        #expect(markdown.contains("**Attendees:** Ana, Bo (declined)"))
+        #expect(markdown.contains("**Attendees:** Ana <ana@example.com>, Bo (declined)"))
         #expect(markdown.contains("## Notes\n\n- ship it"))
         #expect(markdown.contains("**[00:01] Me:** Hello. Can you hear me?"))
         #expect(markdown.contains("**[00:12] Others:** Yes."))
@@ -216,7 +218,9 @@ struct MeetingRecordTests {
         var record = MeetingRecord(title: "Weekly sync: Q3",
                                    startDate: Date(timeIntervalSince1970: 1_800_000_000))
         record.endDate = record.startDate.addingTimeInterval(1800)
-        record.attendees = [MeetingAttendee(name: "Ana Ruiz"), MeetingAttendee(name: "Bo", declined: true)]
+        record.attendees = [MeetingAttendee(name: "Ana Ruiz", email: "ana@example.com"),
+                            MeetingAttendee(name: "Bo", declined: true, email: "bo@example.com"),
+                            MeetingAttendee(name: "Kit")]
         record.joinURL = URL(string: "https://zoom.us/j/123")
         record.notes = "- ship it\n- **bold** idea"
         record.summary = "### Beta\n- Thursday"
@@ -834,5 +838,19 @@ struct DayAgendaTests {
         record.eventID = "ABC-123:2026"
         let read = try #require(MeetingMarkdown.parse(MeetingMarkdown.render(record)))
         #expect(read.eventID == "ABC-123:2026")
+    }
+}
+
+@Suite("Calendar colour")
+struct CalendarColorTests {
+    @Test("A calendar's colour comes through as sRGB, whatever space it was in")
+    func converts() {
+        let blue = CGColor(srgbRed: 0.2, green: 0.5, blue: 0.9, alpha: 1)
+        #expect(CalendarColor(blue) == CalendarColor(red: 0.2, green: 0.5, blue: 0.9))
+        // Generic grey is gamma-encoded on the way to sRGB: still grey.
+        let grey = CalendarColor(CGColor(gray: 0.5, alpha: 1))
+        #expect(grey != nil)
+        #expect(grey?.red == grey?.green && grey?.green == grey?.blue)
+        #expect(CalendarColor(nil) == nil)
     }
 }

@@ -283,11 +283,17 @@ extension AppCoordinator {
 #if DEBUG
 extension AppCoordinator {
     /// For CLIO_MEETING_SHOW.
+    /// A sample attendee with the address the calendar would have given.
+    private func samplePerson(_ name: String, declined: Bool = false) -> MeetingAttendee {
+        let address = name.lowercased().replacingOccurrences(of: " ", with: ".") + "@example.com"
+        return MeetingAttendee(name: name, declined: declined, email: address)
+    }
+
     public func showSimulatedMeeting(_ which: String) {
         var record = MeetingRecord(title: "Weekly product sync",
                                    startDate: Date().addingTimeInterval(-1_520))
-        record.attendees = [MeetingAttendee(name: "Ana Ruiz"), MeetingAttendee(name: "Bo Chen"),
-                            MeetingAttendee(name: "Kit Lee", declined: true)]
+        record.attendees = [samplePerson("Ana Ruiz"), samplePerson("Bo Chen"),
+                            samplePerson("Kit Lee", declined: true)]
         record.notes = "- iOS beta date?\n- pricing page copy"
         let lines: [(MeetingSpeaker, TimeInterval, String)] = [
             (.others, 4, "Okay, I think everyone's here. Let's start with the beta."),
@@ -340,7 +346,7 @@ extension AppCoordinator {
                      notes: String, summary: String?, lines: [(MeetingSpeaker, String)]) {
             var record = MeetingRecord(title: title, startDate: now.addingTimeInterval(-hoursAgo * 3600))
             record.endDate = record.startDate.addingTimeInterval(minutes * 60)
-            record.attendees = people.map { MeetingAttendee(name: $0) }
+            record.attendees = people.map { samplePerson($0) }
             record.notes = notes
             record.summary = summary
             for (index, line) in lines.enumerated() {
@@ -374,21 +380,26 @@ extension AppCoordinator {
         // A day of events around the samples: two with notes (matched by
         // time and title), one that passed without notes, one still to come
         // with a call to join.
+        let work = CalendarColor(red: 0.20, green: 0.48, blue: 0.97)
+        let personal = CalendarColor(red: 0.98, green: 0.58, blue: 0.12)
         func event(_ id: String, _ title: String, hoursAgo: Double, minutes: Double,
-                   link: Bool = false, people: [String] = []) -> MeetingEvent {
+                   link: Bool = false, people: [String] = [],
+                   on calendar: CalendarColor) -> MeetingEvent {
             let start = now.addingTimeInterval(-hoursAgo * 3600)
             return MeetingEvent(id: id, title: title, start: start,
                                 end: start.addingTimeInterval(minutes * 60),
-                                attendees: people.map { MeetingAttendee(name: $0) },
-                                joinURL: link ? URL(string: "https://zoom.us/j/123456789") : nil)
+                                attendees: people.map { samplePerson($0) },
+                                joinURL: link ? URL(string: "https://zoom.us/j/123456789") : nil,
+                                calendarColor: calendar)
         }
         libraryEventsOverride = [
             event("sync", "Weekly product sync", hoursAgo: 2, minutes: 30, link: true,
-                  people: ["Ana Ruiz", "Bo Chen"]),
-            event("lunch", "Team lunch", hoursAgo: 0.75, minutes: 30),
+                  people: ["Ana Ruiz", "Bo Chen"], on: work),
+            event("lunch", "Team lunch", hoursAgo: 0.75, minutes: 30, on: personal),
             event("pricing", "Pricing call", hoursAgo: -0.75, minutes: 30, link: true,
-                  people: ["Kit Lee", "Ana Ruiz"]),
-            event("review", "Roadmap review", hoursAgo: -3, minutes: 60, people: ["Bo Chen"]),
+                  people: ["Kit Lee", "Ana Ruiz"], on: work),
+            event("review", "Roadmap review", hoursAgo: -3, minutes: 60, people: ["Bo Chen"],
+                  on: work),
         ]
         libraryDay = Calendar.current.startOfDay(for: now)
 
@@ -401,7 +412,7 @@ extension AppCoordinator {
         ]
         if which == "live" {
             var record = MeetingRecord(title: "Pricing call", startDate: now.addingTimeInterval(-754))
-            record.attendees = [MeetingAttendee(name: "Kit Lee")]
+            record.attendees = [samplePerson("Kit Lee")]
             record.add(MeetingLine(speaker: .others, start: 4, end: 9,
                                    text: "Can we talk about the starter tier first?"))
             record.add(MeetingLine(speaker: .me, start: 12, end: 18,

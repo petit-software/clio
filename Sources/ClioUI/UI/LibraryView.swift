@@ -34,13 +34,18 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.title = "Clio"
+        // The name is drawn by the document itself (`DocumentTitle`), so
+        // its chevron can sit right after it; the window's own stays for
+        // the Window menu and Mission Control.
+        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 680, height: 440)
         // A toolbar holding the split view's own sidebar button, drawn by
-        // the system beside the traffic lights, and the document's title
-        // and date over the page (`navigationTitle`, bridged). Every other
-        // control is along the sidebar's foot or a document's. Drawn by
-        // hand as an overlay, the button sat wrong and looked it.
+        // the system beside the traffic lights, the document's name and
+        // date at the page's leading edge, and the pane picker at its
+        // trailing one. Every other control is along the sidebar's foot
+        // or a document's. Drawn by hand as an overlay, the sidebar button
+        // sat wrong and looked it.
         let toolbar = NSToolbar(identifier: "ClioLibrary")
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
@@ -493,7 +498,6 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Clio")
-        .navigationSubtitle("")
     }
 }
 
@@ -554,11 +558,12 @@ private struct MeetingRow: View {
 /// the titles line up whatever the symbol.
 private struct RowIcon: View {
     let symbol: String
+    var color: Color = .secondary
 
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(color)
             .frame(width: 18)
             .accessibilityHidden(true)
     }
@@ -580,6 +585,12 @@ private struct EventRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
+            // The meeting icon, in the colour of the calendar it is on.
+            // Here only; the page is not coloured.
+            RowIcon(symbol: "calendar.day",
+                    color: event.calendarColor.map {
+                        Color(red: $0.red, green: $0.green, blue: $0.blue)
+                    } ?? .secondary)
             Text(event.start, format: .dateTime.hour().minute())
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -620,14 +631,6 @@ private struct EventView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                if !event.attendees.isEmpty {
-                    Text(event.attendees
-                        .map { $0.declined ? "\($0.name) (declined)" : $0.name }
-                        .joined(separator: ", "))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
                 if let url = event.joinURL {
                     Link(url.host ?? url.absoluteString, destination: url)
                         .font(.system(size: 12))
@@ -662,7 +665,12 @@ private struct EventView: View {
         }
         .softTopEdge()
         .navigationTitle(event.title)
-        .navigationSubtitle(Self.when(event))
+        .toolbar {
+            TitleItem {
+                DocumentTitle(title: .constant(event.title), isEditable: false,
+                              subtitle: Self.when(event), attendees: event.attendees)
+            }
+        }
     }
 
     static func when(_ event: MeetingEvent) -> String {
@@ -753,24 +761,12 @@ struct MeetingDocumentView: View {
     }
 
     /// The meeting as one page that scrolls under the window's glass
-    /// toolbar, which carries its title (edited there) and date; then the
-    /// pane picked along its foot.
+    /// toolbar, which carries its title (edited there), its date, and the
+    /// pane picked top right.
     private func document(_ record: MeetingRecord) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if !record.attendees.isEmpty {
-                    Text(record.attendees
-                        .map { $0.declined ? "\($0.name) (declined)" : $0.name }
-                        .joined(separator: ", "))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .padding(.horizontal, 28)
-                        .padding(.top, 12)
-                        .padding(.bottom, 14)
-                } else {
-                    Color.clear.frame(height: 12)
-                }
+                Color.clear.frame(height: 12)
 
                 switch pane {
                 case .notes:
@@ -789,8 +785,20 @@ struct MeetingDocumentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .softTopEdge()
-        .navigationTitle(binding(\.title))
-        .navigationSubtitle(Self.when(record))
+        .navigationTitle(record.title)
+        .toolbar {
+            TitleItem {
+                DocumentTitle(title: binding(\.title), subtitle: Self.when(record),
+                              attendees: record.attendees)
+            }
+            TrailingToolbarActions {
+                Picker("Show", selection: $pane) {
+                    ForEach(panes(record)) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            }
+        }
         #if DEBUG
         // For the tools: open scrolled to the end, so the toolbar has the
         // document passing under it to be judged against.
@@ -800,7 +808,7 @@ struct MeetingDocumentView: View {
         // What it shows, and what to do with it, along its foot.
         .overlay(alignment: .bottom) {
             DocumentBar {
-                GlassSegments(items: panes(record), selection: $pane) { $0.rawValue }
+                EmptyView()
             } trailing: {
                 CopyButton(help: "Copy the whole meeting as Markdown") {
                     NSPasteboard.general.clearContents()
@@ -891,7 +899,12 @@ private struct DictationView: View {
         }
         .softTopEdge()
         .navigationTitle("Dictation")
-        .navigationSubtitle(entry.date.formatted(date: .complete, time: .shortened))
+        .toolbar {
+            TitleItem {
+                DocumentTitle(title: .constant("Dictation"), isEditable: false,
+                              subtitle: entry.date.formatted(date: .complete, time: .shortened))
+            }
+        }
         .overlay(alignment: .bottom) {
             DocumentBar {
                 EmptyView()

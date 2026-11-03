@@ -1,4 +1,5 @@
 import SwiftUI
+import ClioCore
 
 // Liquid Glass, where macOS has it (26 and later), and the nearest thing
 // before it: the pill, the cards and the windows all ask for glass through
@@ -73,10 +74,9 @@ struct GlassGroup<Content: View>: View {
     }
 }
 
-/// A document's actions, top right of the window — the same spot whether a
-/// meeting or a dictation is showing. A flexible space pushes them there:
-/// on macOS a placement alone puts them at the leading edge, next to the
-/// sidebar.
+/// A document's pane picker, top right of the window. A flexible space
+/// pushes it there: on macOS a placement alone puts it at the leading edge,
+/// beside the title.
 struct TrailingToolbarActions<Content: View>: ToolbarContent {
     @ViewBuilder var content: Content
 
@@ -85,6 +85,34 @@ struct TrailingToolbarActions<Content: View>: ToolbarContent {
             ToolbarSpacer(.flexible)
         }
         ToolbarItemGroup(placement: .automatic) { content }
+    }
+}
+
+/// Who was invited, under the chevron beside the title: each one copies
+/// their address, and all of them together.
+struct AttendeesMenu: View {
+    let attendees: [MeetingAttendee]
+
+    private var emails: [String] { attendees.compactMap(\.email) }
+
+    var body: some View {
+        if attendees.isEmpty {
+            Text("No one else invited")
+        } else {
+            ForEach(Array(attendees.enumerated()), id: \.offset) { _, person in
+                if let email = person.email {
+                    Button(person.declined ? "\(person.name) (declined)" : person.name) {
+                        TextInjector.copy(email)
+                    }
+                } else {
+                    Text(person.declined ? "\(person.name) (declined)" : person.name)
+                }
+            }
+            if emails.count > 1 {
+                Divider()
+                Button("Copy All Emails") { TextInjector.copy(emails.joined(separator: ", ")) }
+            }
+        }
     }
 }
 
@@ -158,44 +186,6 @@ struct CopyButton: View {
 }
 
 /// A document's controls, along its foot on glass: what it shows on the
-/// A segmented control on glass: one capsule, the chosen segment an
-/// accent pill that slides between the titles. The stock segmented picker
-/// draws its own bezel, which is not glass however it is placed.
-struct GlassSegments<Item: Hashable>: View {
-    let items: [Item]
-    @Binding var selection: Item
-    let title: (Item) -> String
-    @Namespace private var pill
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(items, id: \.self) { item in
-                let chosen = item == selection
-                Button {
-                    withAnimation(.snappy(duration: 0.25)) { selection = item }
-                } label: {
-                    Text(title(item))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(chosen ? Color.white : .primary)
-                        .padding(.horizontal, 14)
-                        .frame(height: 28)
-                        .contentShape(Capsule())
-                        .background {
-                            if chosen {
-                                Capsule().fill(Color.accentColor)
-                                    .matchedGeometryEffect(id: "pill", in: pill)
-                            }
-                        }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(3)
-        .glassSurface(Capsule())
-        .fixedSize()
-    }
-}
-
 /// left, what to do with it on the right. There is no toolbar; this is
 /// where the toolbar's things went.
 struct DocumentBar<Leading: View, Trailing: View>: View {

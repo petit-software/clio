@@ -48,10 +48,32 @@ public struct MeetingLine: Codable, Sendable, Equatable, Identifiable {
 public struct MeetingAttendee: Codable, Sendable, Equatable, Hashable {
     public var name: String
     public var declined: Bool
+    /// From the calendar, when it had one; what Copy Email copies.
+    public var email: String?
 
-    public init(name: String, declined: Bool = false) {
+    public init(name: String, declined: Bool = false, email: String? = nil) {
         self.name = name
         self.declined = declined
+        self.email = email
+    }
+
+    /// `Ana Ruiz <ana@example.com> (declined)`: how the Markdown has it.
+    var markdown: String {
+        var text = name
+        if let email { text += " <\(email)>" }
+        if declined { text += " (declined)" }
+        return text
+    }
+
+    init(markdown: String) {
+        var text = markdown.trimmingCharacters(in: .whitespaces)
+        declined = text.hasSuffix(" (declined)")
+        if declined { text = String(text.dropLast(" (declined)".count)) }
+        if text.hasSuffix(">"), let open = text.lastIndex(of: "<") {
+            email = String(text[text.index(after: open)..<text.index(before: text.endIndex)])
+            text = String(text[..<open]).trimmingCharacters(in: .whitespaces)
+        }
+        name = text
     }
 }
 
@@ -188,8 +210,7 @@ public enum MeetingMarkdown {
             out.append("**Date:** \(day.string(from: record.startDate)) (in progress)  ")
         }
         if !record.attendees.isEmpty {
-            let names = record.attendees.map { $0.declined ? "\($0.name) (declined)" : $0.name }
-            out.append("**Attendees:** \(names.joined(separator: ", "))  ")
+            out.append("**Attendees:** \(record.attendees.map(\.markdown).joined(separator: ", "))  ")
         }
         if let url = record.joinURL {
             out.append("**Link:** <\(url.absoluteString)>  ")
@@ -282,12 +303,7 @@ public enum MeetingMarkdown {
                     .trimmingCharacters(in: .whitespaces)
                     .components(separatedBy: ", ")
                     .filter { !$0.isEmpty }
-                    .map { name in
-                        name.hasSuffix(" (declined)")
-                            ? MeetingAttendee(name: String(name.dropLast(" (declined)".count)),
-                                              declined: true)
-                            : MeetingAttendee(name: name)
-                    }
+                    .map(MeetingAttendee.init(markdown:))
                 continue
             }
             if let section { sections[section, default: []].append(line) }

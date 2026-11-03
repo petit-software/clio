@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import EventKit
 import Foundation
 import Observation
@@ -14,10 +15,13 @@ public struct MeetingEvent: Sendable, Equatable, Identifiable {
     public var joinURL: URL?
     /// The user said no to it.
     public var declinedByMe: Bool
+    /// The colour of the calendar it is on, for telling calendars apart.
+    public var calendarColor: CalendarColor?
 
     public init(id: String, title: String, start: Date, end: Date,
                 isAllDay: Bool = false, attendees: [MeetingAttendee] = [],
-                joinURL: URL? = nil, declinedByMe: Bool = false) {
+                joinURL: URL? = nil, declinedByMe: Bool = false,
+                calendarColor: CalendarColor? = nil) {
         self.id = id
         self.title = title
         self.start = start
@@ -26,10 +30,35 @@ public struct MeetingEvent: Sendable, Equatable, Identifiable {
         self.attendees = attendees
         self.joinURL = joinURL
         self.declinedByMe = declinedByMe
+        self.calendarColor = calendarColor
     }
 
     /// Something to call, not just a block of time: a link, or other people.
     var isCall: Bool { joinURL != nil || attendees.count > 1 }
+}
+
+/// A calendar's colour as sRGB components, 0–1: a value, so an event
+/// can cross to the main actor and be compared without CoreGraphics.
+public struct CalendarColor: Sendable, Equatable, Hashable {
+    public var red: Double
+    public var green: Double
+    public var blue: Double
+
+    public init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
+    /// Nil when the colour cannot be expressed in sRGB (a pattern, say).
+    public init?(_ color: CGColor?) {
+        guard let color,
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let converted = color.converted(to: space, intent: .defaultIntent, options: nil),
+              let parts = converted.components, parts.count >= 3
+        else { return nil }
+        self.init(red: Double(parts[0]), green: Double(parts[1]), blue: Double(parts[2]))
+    }
 }
 
 /// Which event a meeting starting now belongs to, and where its call is.
@@ -209,7 +238,8 @@ public final class MeetingCalendar {
                 ?? email.components(separatedBy: "@").first
             guard let shown, !shown.isEmpty else { return nil }
             return MeetingAttendee(name: shown,
-                                   declined: participant.participantStatus == .declined)
+                                   declined: participant.participantStatus == .declined,
+                                   email: email.contains("@") ? email : nil)
         }
         let declinedByMe = participants.contains {
             $0.isCurrentUser && $0.participantStatus == .declined
@@ -224,6 +254,7 @@ public final class MeetingCalendar {
             joinURL: MeetingEventMatching.joinURL(url: event.url,
                                                   location: event.location,
                                                   notes: event.notes),
-            declinedByMe: declinedByMe)
+            declinedByMe: declinedByMe,
+            calendarColor: CalendarColor(event.calendar?.cgColor))
     }
 }

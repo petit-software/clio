@@ -58,9 +58,17 @@ struct MeetingView: View {
             }
         }
         .overlay(alignment: .bottom) { actionBar }
-        // The title is edited in the toolbar, where the window shows it.
-        .navigationTitle($title)
-        .navigationSubtitle(meeting.record.startDate.formatted(date: .complete, time: .shortened))
+        // The name and date are drawn in the toolbar, the name edited
+        // there; the pane is picked there too, top right.
+        .toolbar {
+            TitleItem {
+                DocumentTitle(title: $title,
+                              subtitle: meeting.record.startDate.formatted(date: .complete, time: .shortened),
+                              attendees: meeting.record.attendees)
+            }
+            TrailingToolbarActions { panePicker }
+        }
+        .navigationTitle(title)
         .frame(minWidth: 420, minHeight: 420)
         .onAppear {
             title = meeting.record.title
@@ -133,16 +141,6 @@ struct MeetingView: View {
                     .help("Stop recording (⌘.)")
                     .accessibilityLabel("Stop Recording")
                 }
-            }
-
-            if !meeting.record.attendees.isEmpty {
-                Text(meeting.record.attendees
-                    .map { $0.declined ? "\($0.name) (declined)" : $0.name }
-                    .joined(separator: ", "))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .help("Invited, from your calendar")
             }
         }
     }
@@ -282,12 +280,19 @@ struct MeetingView: View {
 
     // MARK: Footer
 
-    /// The meeting's actions, floating on glass over the notes: the pane
-    /// on the left, what to do with the file on the right. Stop is up by
-    /// the recording indicator.
+    private var panePicker: some View {
+        Picker("Show", selection: $pane) {
+            ForEach(panes) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+    }
+
+    /// What to do with the file, floating on glass over the notes, bottom
+    /// right. Stop is up by the recording indicator.
     private var actionBar: some View {
         DocumentBar {
-            GlassSegments(items: panes, selection: $pane) { $0.rawValue }
+            EmptyView()
         } trailing: {
                 CopyButton(help: "Copy the meeting so far as Markdown") {
                     NSPasteboard.general.clearContents()

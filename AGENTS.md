@@ -253,11 +253,15 @@ writes the real version; `build-app.sh` runs it before signing. For the
 after building, then run `.build/debug/Clio` directly. Check with
 `otool -l <binary> | grep -A5 LC_BUILD_VERSION`.
 
-**The library's toolbar holds the sidebar button and the document's title.**
+**The library's toolbar: the sidebar button, the document's name, the pane.**
 The window keeps an `NSToolbar` with SwiftUI's toolbars and title bridged in,
 so the split view's own sidebar button is drawn by the system beside the
-traffic lights, and `navigationTitle`/`navigationSubtitle` put a document's
-title and date over the page — the title bound, so it is renamed there.
+traffic lights. The document's name and date are a toolbar item of Clio's
+own (`DocumentTitle`, at `.navigation`, its glass hidden): the window's title
+is hidden because, bridged, it could not take a menu — `toolbarTitleMenu`
+drew nothing — and the chevron for who was invited has to follow the name.
+The pane picker is pushed to the trailing edge by a flexible space
+(`TrailingToolbarActions`); a placement alone lands beside the title.
 Nothing else goes in it: the sidebar's controls sit along its foot
 (`safeAreaInset`) and a document's along its own bottom (`DocumentBar`),
 floating over the page. The button was drawn by hand as an overlay for one
