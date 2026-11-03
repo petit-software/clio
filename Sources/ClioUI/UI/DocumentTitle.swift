@@ -15,16 +15,19 @@ struct DocumentTitle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            if isEditable {
-                TextField("Meeting", text: $title)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .bold))
-                    .fixedSize()
-            } else {
-                Text(title)
-                    .font(.system(size: 13, weight: .bold))
-                    .lineLimit(1)
+            // Ink, whatever the toolbar would make of it.
+            Group {
+                if isEditable {
+                    TextField("Meeting", text: $title)
+                        .textFieldStyle(.plain)
+                        .fixedSize()
+                } else {
+                    Text(title)
+                        .lineLimit(1)
+                }
             }
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(Color.primary)
             HStack(spacing: 5) {
                 Text(subtitle)
                     .lineLimit(1)
