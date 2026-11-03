@@ -140,10 +140,11 @@ struct LibraryView: View {
             }
             .padding(12)
         }
-        // Take Notes, at the top of the sidebar: just the words.
+        // Take Notes, at the top of the sidebar: just the symbol.
         .toolbar {
             ToolbarItem {
-                Button("Take Notes") { coordinator.startMeeting() }
+                Button("Take Notes", systemImage: "record.circle") { coordinator.startMeeting() }
+                    .labelStyle(.iconOnly)
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
             }
         }
