@@ -269,12 +269,7 @@ struct MeetingView: View {
     /// with the file on the left, Stop on the right.
     private var actionBar: some View {
         DocumentBar {
-            Picker("Show", selection: $pane) {
-                ForEach(panes) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+            GlassSegments(items: panes, selection: $pane) { $0.rawValue }
         } trailing: {
                 CopyButton(help: "Copy the meeting so far as Markdown") {
                     NSPasteboard.general.clearContents()
