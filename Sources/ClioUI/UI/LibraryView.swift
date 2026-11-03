@@ -232,7 +232,7 @@ struct LibraryView: View {
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.top, 4)
-        .padding(.bottom, 8)
+        .padding(.bottom, 14)
         // Rows scrolling up fade into frost before they reach the field,
         // as they do at the foot.
         .background {
@@ -294,6 +294,9 @@ struct LibraryView: View {
             Section { selectable(.live) { LiveRow(meeting: meeting) } } header: { header("Now") }
         }
 
+        // An empty day shows no Calendar section at all; the section is
+        // there to offer access when there is none.
+        if coordinator.libraryCalendarAccess != .granted || !agenda.events.isEmpty {
         Section {
             switch coordinator.libraryCalendarAccess {
             case .notDetermined:
@@ -307,10 +310,6 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.link)
             case .granted:
-                if agenda.events.isEmpty {
-                    Text("Nothing on the calendar")
-                        .foregroundStyle(.secondary)
-                }
                 ForEach(agenda.events) { item in
                     selectable(eventSelection(item)) {
                         EventRow(item: item, isToday: isToday) {
@@ -323,6 +322,7 @@ struct LibraryView: View {
                 }
             }
         } header: { header("Calendar") }
+        }
 
         if !agenda.otherNotes.isEmpty {
             Section {
@@ -629,39 +629,31 @@ private struct EventView: View {
     private var isOver: Bool { event.end < Date() }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                // No link on the page: Join & Take Notes is the way in, and
-                // the address itself is under the ⋯.
-                if !isOver {
-                    // One button: joining the call when there is one to join,
-                    // just the notes when there is not (a meeting in a room).
-                    Group {
-                        if event.joinURL != nil {
-                            Button("Join & Take Notes", systemImage: "video.fill") {
-                                coordinator.startMeeting(event: event, join: true)
-                            }
-                        } else {
-                            Button("Take Notes", systemImage: "record.circle") {
-                                coordinator.startMeeting(event: event)
-                            }
-                        }
-                    }
-                    .inkButton()
-                    .controlSize(.large)
-                    .padding(.top, 14)
-                } else {
-                    Text("No notes were taken for this meeting.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 14)
+        // The page is the one button, in the middle, the size of the
+        // onboarding card's: no link — the address is under the ⋯.
+        Group {
+            if !isOver {
+                // One button: joining the call when there is one to join,
+                // just the notes when there is not (a meeting in a room).
+                Button {
+                    coordinator.startMeeting(event: event, join: event.joinURL != nil)
+                } label: {
+                    Label(event.joinURL != nil ? "Join & Take Notes" : "Take Notes",
+                          systemImage: event.joinURL != nil ? "video.fill" : "record.circle")
+                        .font(.system(size: 15, weight: .medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .frame(minWidth: 260, maxWidth: 260, minHeight: 34)
                 }
+                .inkButton()
+                .buttonBorderShape(.capsule)
+            } else {
+                Text("No notes were taken for this meeting.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .softTopEdge()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(event.title)
         .toolbar {
             TitleItem {
