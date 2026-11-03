@@ -34,20 +34,20 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.title = "Clio"
-        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 680, height: 440)
-        // A toolbar holding nothing but the split view's own sidebar
-        // button, drawn by the system beside the traffic lights. Every
-        // other control is along the sidebar's foot or a document's. Drawn
-        // by hand as an overlay, the button sat wrong and looked it.
+        // A toolbar holding the split view's own sidebar button, drawn by
+        // the system beside the traffic lights, and the document's title
+        // and date over the page (`navigationTitle`, bridged). Every other
+        // control is along the sidebar's foot or a document's. Drawn by
+        // hand as an overlay, the button sat wrong and looked it.
         let toolbar = NSToolbar(identifier: "ClioLibrary")
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
         window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .none
         let host = NSHostingView(rootView: LibraryView(coordinator: coordinator))
-        host.sceneBridgingOptions = [.toolbars]
+        host.sceneBridgingOptions = [.toolbars, .title]
         window.contentView = host
         window.setFrameAutosaveName("ClioLibraryWindow")
         if !window.setFrameUsingName("ClioLibraryWindow") { window.center() }
@@ -492,6 +492,8 @@ struct LibraryView: View {
                 Image(systemName: "calendar.day")
             }
         }
+        .navigationTitle("Clio")
+        .navigationSubtitle("")
     }
 }
 
@@ -618,12 +620,6 @@ private struct EventView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                Text(event.title)
-                    .font(.system(size: 26, weight: .bold))
-                    .textSelection(.enabled)
-                Text(Self.when(event))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
                 if !event.attendees.isEmpty {
                     Text(event.attendees
                         .map { $0.declined ? "\($0.name) (declined)" : $0.name }
@@ -665,6 +661,8 @@ private struct EventView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .softTopEdge()
+        .navigationTitle(event.title)
+        .navigationSubtitle(Self.when(event))
     }
 
     static func when(_ event: MeetingEvent) -> String {
@@ -755,29 +753,24 @@ struct MeetingDocumentView: View {
     }
 
     /// The meeting as one page that scrolls under the window's glass
-    /// toolbar: what it was, then the pane picked in the toolbar.
+    /// toolbar, which carries its title (edited there) and date; then the
+    /// pane picked along its foot.
     private func document(_ record: MeetingRecord) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    TextField("Meeting", text: binding(\.title))
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 26, weight: .bold))
-                    Text(Self.when(record))
+                if !record.attendees.isEmpty {
+                    Text(record.attendees
+                        .map { $0.declined ? "\($0.name) (declined)" : $0.name }
+                        .joined(separator: ", "))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    if !record.attendees.isEmpty {
-                        Text(record.attendees
-                            .map { $0.declined ? "\($0.name) (declined)" : $0.name }
-                            .joined(separator: ", "))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
+                        .lineLimit(2)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 12)
+                        .padding(.bottom, 14)
+                } else {
+                    Color.clear.frame(height: 12)
                 }
-                .padding(.horizontal, 28)
-                .padding(.top, 12)
-                .padding(.bottom, 22)
 
                 switch pane {
                 case .notes:
@@ -796,6 +789,8 @@ struct MeetingDocumentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .softTopEdge()
+        .navigationTitle(binding(\.title))
+        .navigationSubtitle(Self.when(record))
         #if DEBUG
         // For the tools: open scrolled to the end, so the toolbar has the
         // document passing under it to be judged against.
@@ -890,17 +885,13 @@ private struct DictationView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(entry.date.formatted(date: .complete, time: .shortened))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
-                MarkdownEditor(text: .constant(entry.text), isEditable: false, minHeight: 0)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 12)
+            MarkdownEditor(text: .constant(entry.text), isEditable: false, minHeight: 0)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 12)
         }
         .softTopEdge()
+        .navigationTitle("Dictation")
+        .navigationSubtitle(entry.date.formatted(date: .complete, time: .shortened))
         .overlay(alignment: .bottom) {
             DocumentBar {
                 EmptyView()

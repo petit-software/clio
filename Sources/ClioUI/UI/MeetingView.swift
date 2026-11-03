@@ -58,6 +58,9 @@ struct MeetingView: View {
             }
         }
         .overlay(alignment: .bottom) { actionBar }
+        // The title is edited in the toolbar, where the window shows it.
+        .navigationTitle($title)
+        .navigationSubtitle(meeting.record.startDate.formatted(date: .complete, time: .shortened))
         .frame(minWidth: 420, minHeight: 420)
         .onAppear {
             title = meeting.record.title
@@ -74,6 +77,16 @@ struct MeetingView: View {
         .onChange(of: meeting.record.title) { _, new in
             if new != title { title = new }
         }
+        // Saved as typed in the toolbar, a beat later, and on leaving.
+        .onChange(of: title) { _, new in
+            titleSave?.cancel()
+            titleSave = Task {
+                try? await Task.sleep(for: .milliseconds(800))
+                guard !Task.isCancelled else { return }
+                meeting.setTitle(new)
+            }
+        }
+        .onDisappear { meeting.setTitle(title) }
         .onChange(of: meeting.phase) { _, phase in
             if phase == .finished, meeting.record.summary != nil { pane = .summary }
         }
@@ -88,22 +101,6 @@ struct MeetingView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Meeting", text: $title)
-                .textFieldStyle(.plain)
-                .font(.system(size: 26, weight: .bold))
-                .onSubmit { meeting.setTitle(title) }
-                // Saved as typed, a beat later, and on leaving — not only
-                // on Return, which nobody presses in a title.
-                .onChange(of: title) { _, new in
-                    titleSave?.cancel()
-                    titleSave = Task {
-                        try? await Task.sleep(for: .milliseconds(800))
-                        guard !Task.isCancelled else { return }
-                        meeting.setTitle(new)
-                    }
-                }
-                .onDisappear { meeting.setTitle(title) }
-
             HStack(spacing: 8) {
                 statusDot
                 TimelineView(.periodic(from: .now, by: 1)) { _ in

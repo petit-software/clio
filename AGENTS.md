@@ -253,9 +253,11 @@ writes the real version; `build-app.sh` runs it before signing. For the
 after building, then run `.build/debug/Clio` directly. Check with
 `otool -l <binary> | grep -A5 LC_BUILD_VERSION`.
 
-**The library's toolbar holds only the sidebar button.** The window keeps
-an `NSToolbar` with SwiftUI's toolbars bridged in so the split view's own
-sidebar button is drawn by the system, beside the traffic lights, in glass.
+**The library's toolbar holds the sidebar button and the document's title.**
+The window keeps an `NSToolbar` with SwiftUI's toolbars and title bridged in,
+so the split view's own sidebar button is drawn by the system beside the
+traffic lights, and `navigationTitle`/`navigationSubtitle` put a document's
+title and date over the page — the title bound, so it is renamed there.
 Nothing else goes in it: the sidebar's controls sit along its foot
 (`safeAreaInset`) and a document's along its own bottom (`DocumentBar`),
 floating over the page. The button was drawn by hand as an overlay for one
