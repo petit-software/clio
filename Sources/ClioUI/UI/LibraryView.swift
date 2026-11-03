@@ -142,17 +142,21 @@ struct LibraryView: View {
                 Spacer(minLength: 0)
                 // Three buttons on one piece of glass, nothing drawn
                 // between them.
-                HStack(spacing: 0) {
+                HStack(spacing: 8) {
                     Button("Previous Day", systemImage: "chevron.compact.backward") { move(-1) }
                         .help("Previous day (⌘[)")
                         .keyboardShortcut("[", modifiers: .command)
+                        .fontWeight(.bold)
                     Button(dayTitle) { coordinator.libraryDay = Self.today }
                         .help(isToday ? "Today" : "Back to today")
                         .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 4)
+                        // Wide enough for "Yesterday", so the control keeps
+                        // its width whatever day it shows.
+                        .frame(width: 72)
                     Button("Next Day", systemImage: "chevron.compact.forward") { move(1) }
                         .help("Next day (⌘])")
                         .keyboardShortcut("]", modifiers: .command)
+                        .fontWeight(.bold)
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
