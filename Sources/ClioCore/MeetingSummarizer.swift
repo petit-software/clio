@@ -3,27 +3,44 @@ import Foundation
 import FoundationModels
 #endif
 
-/// A summary of a meeting, written by the language model built into macOS.
+/// A language model that can answer one prompt, for the summarizer.
 ///
-/// Apple's on-device model, not one Clio downloads: nothing to fetch, nothing
+/// Two of them: the model built into macOS (`SystemSummaryModel`) and a
+/// downloaded GGUF run by llama.cpp (`LocalSummaryModel`). The summarizer
+/// does not care which; it only needs to know how much it may send at once.
+public protocol SummaryLanguageModel: Sendable {
+    /// Characters of transcript per request, leaving room for the
+    /// instructions and the answer.
+    var pieceLimit: Int { get }
+    /// One answer to one prompt. Nothing carries over between calls.
+    func respond(instructions: String, prompt: String) async throws -> String
+}
+
+/// A summary of a meeting, written by a language model on this Mac.
+///
+/// By default that is Apple's on-device model: nothing to fetch, nothing
 /// leaves the Mac, and on a Mac without Apple Intelligence the meeting simply
 /// has no summary. Its context is about four thousand tokens, so a long
 /// transcript is summarised a piece at a time and the pieces combined — with
-/// the user's own notes, which say what mattered, given the final word.
+/// the user's own notes, which say what mattered, given the final word. A
+/// downloaded model holds the whole transcript of most meetings, so it
+/// usually writes the summary from all of it in one go.
 public enum MeetingSummarizer {
 
-    /// Whether this Mac can write one right now.
-    public static var isAvailable: Bool {
+    /// Whether this Mac has the built-in model, right now.
+    public static var isAvailable: Bool { SystemSummaryModel.isAvailable }
+
+    /// The built-in model, where there is one.
+    public static var system: (any SummaryLanguageModel)? {
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
-            return SystemLanguageModel.default.isAvailable
+        if #available(macOS 26.0, *), SystemLanguageModel.default.isAvailable {
+            return SystemSummaryModel()
         }
         #endif
-        return false
+        return nil
     }
 
-    /// Characters per piece: about 1,500 tokens, leaving room for the
-    /// instructions and the answer.
+    /// The built-in model's piece: about 1,500 tokens.
     static let pieceLimit = 5_000
 
     static let pieceInstructions = """
@@ -49,13 +66,34 @@ public enum MeetingSummarizer {
         No introduction, no conclusion, nothing that was not said.
         """
 
+    /// With the built-in model. Nil where there is none.
     public static func summarize(_ record: MeetingRecord) async -> String? {
-        #if canImport(FoundationModels)
-        if #available(macOS 26.0, *), SystemLanguageModel.default.isAvailable {
-            return await summarizeWithSystemModel(record)
+        guard let system else { return nil }
+        return await summarize(record, with: system)
+    }
+
+    /// With `model`. Nil when it had nothing to say, or failed throughout.
+    public static func summarize(_ record: MeetingRecord,
+                                 with model: any SummaryLanguageModel) async -> String? {
+        let limit = max(1_000, model.pieceLimit)
+        var material = record.transcriptText
+        var label = "Transcript"
+        // Map, then reduce again if the bullets are still too long.
+        for _ in 0..<3 where material.count > limit {
+            var bullets: [String] = []
+            for piece in pieces(of: material, limit: limit) {
+                if Task.isCancelled { return nil }
+                if let answer = await respond(model, instructions: pieceInstructions, prompt: piece) {
+                    bullets.append(answer)
+                }
+            }
+            guard !bullets.isEmpty else { return nil }
+            material = bullets.joined(separator: "\n")
+            label = "Bullet points from the transcript"
         }
-        #endif
-        return nil
+        if Task.isCancelled { return nil }
+        let prompt = finalPrompt(notes: record.notes, material: material, label: label, limit: limit)
+        return await respond(model, instructions: finalInstructions, prompt: prompt)
     }
 
     /// How much of the user's notes goes in. They are the guide — what
@@ -67,14 +105,15 @@ public enum MeetingSummarizer {
 
     /// The last prompt: the notes, capped, then the material, capped — so it
     /// always fits, however much was written or said.
-    static func finalPrompt(notes: String, material: String, label: String) -> String {
+    static func finalPrompt(notes: String, material: String, label: String,
+                            limit: Int = pieceLimit) -> String {
         let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         var block = ""
         if !notes.isEmpty {
             let kept = notes.count > notesLimit ? String(notes.prefix(notesLimit)) + "…" : notes
             block = "Notes written during the meeting:\n\(kept)\n\n"
         }
-        return "\(block)\(label):\n\(String(material.prefix(pieceLimit)))"
+        return "\(block)\(label):\n\(String(material.prefix(limit)))"
     }
 
     /// Splits text into pieces at line breaks, none over `limit`.
@@ -93,39 +132,77 @@ public enum MeetingSummarizer {
         return pieces
     }
 
-    #if canImport(FoundationModels)
-    @available(macOS 26.0, *)
-    private static func summarizeWithSystemModel(_ record: MeetingRecord) async -> String? {
-        var material = record.transcriptText
-        var label = "Transcript"
-        // Map, then reduce again if the bullets are still too long.
-        for _ in 0..<3 where material.count > pieceLimit {
-            var bullets: [String] = []
-            for piece in pieces(of: material) {
-                if let answer = await respond(instructions: pieceInstructions, prompt: piece) {
-                    bullets.append(answer)
-                }
-            }
-            guard !bullets.isEmpty else { return nil }
-            material = bullets.joined(separator: "\n")
-            label = "Bullet points from the transcript"
-        }
-
-        let prompt = finalPrompt(notes: record.notes, material: material, label: label)
-        return await respond(instructions: finalInstructions, prompt: prompt)
-    }
-
-    @available(macOS 26.0, *)
-    private static func respond(instructions: String, prompt: String) async -> String? {
-        // A session per request: nothing carries over to fill the context.
-        let session = LanguageModelSession(instructions: instructions)
+    private static func respond(_ model: any SummaryLanguageModel,
+                                instructions: String, prompt: String) async -> String? {
         do {
-            let answer = try await session.respond(to: prompt).content
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let answer = clean(try await model.respond(instructions: instructions, prompt: prompt))
             return answer.isEmpty ? nil : answer
         } catch {
             return nil
         }
     }
-    #endif
+
+    /// The answer as notes: a model's thinking, where it has a mode for it,
+    /// is cut out, and a Markdown fence around the whole answer is opened.
+    static func clean(_ answer: String) -> String {
+        var text = answer
+        while let open = text.range(of: "<think>") {
+            guard let close = text.range(of: "</think>", range: open.upperBound..<text.endIndex) else {
+                text.removeSubrange(open.lowerBound...)
+                break
+            }
+            text.removeSubrange(open.lowerBound..<close.upperBound)
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```"), text.hasSuffix("```"), text.count > 6 {
+            var lines = text.components(separatedBy: "\n")
+            lines.removeFirst()
+            lines.removeLast()
+            text = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return text
+    }
+}
+
+/// The model built into macOS 26, through FoundationModels.
+public struct SystemSummaryModel: SummaryLanguageModel {
+    public var pieceLimit: Int { MeetingSummarizer.pieceLimit }
+
+    public init() {}
+
+    public static var isAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            return SystemLanguageModel.default.isAvailable
+        }
+        #endif
+        return false
+    }
+
+    public func respond(instructions: String, prompt: String) async throws -> String {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            // A session per request: nothing carries over to fill the context.
+            let session = LanguageModelSession(instructions: instructions)
+            return try await session.respond(to: prompt).content
+        }
+        #endif
+        throw SummaryError.unavailable
+    }
+}
+
+public enum SummaryError: LocalizedError {
+    case unavailable
+    case modelFailedToLoad(String)
+    case promptTooLong
+    case generationFailed
+
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable: return "No model is available to write a summary."
+        case .modelFailedToLoad(let name): return "The model \(name) could not be loaded."
+        case .promptTooLong: return "The transcript is too long for the model's context."
+        case .generationFailed: return "The model stopped before finishing."
+        }
+    }
 }

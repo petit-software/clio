@@ -81,7 +81,6 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
 struct LibraryView: View {
     @Bindable var coordinator: AppCoordinator
     @State private var query = ""
-    @FocusState private var searchFocused: Bool
     @State private var dayEvents: [MeetingEvent] = []
     /// Whether the sidebar shows. The system's button for it lived in the
     /// toolbar, which is gone; ours is in the sidebar's foot, and beside
@@ -97,6 +96,9 @@ struct LibraryView: View {
         } detail: {
             detail
         }
+        // The system's own field, glass, at the head of the sidebar — with
+        // ⌘F, Escape to clear and the sidebar's inset handled for it.
+        .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
         // A meeting that has just finished is a file now; follow it there.
         .onChange(of: coordinator.meeting?.phase) { _, phase in
             guard phase == .finished else { return }
@@ -126,9 +128,6 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
-        // Search at the head of the sidebar, flat: the system's own field
-        // is glass, and glass is for what floats over the page.
-        .safeAreaInset(edge: .top, spacing: 0) { searchField }
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.downArrow) { step(1) }
@@ -202,54 +201,6 @@ struct LibraryView: View {
         // The day's events, read again when the day or the calendar changes.
         .task(id: DayKey(day: coordinator.libraryDay, revision: coordinator.calendar.revision)) {
             dayEvents = coordinator.dayEvents(on: coordinator.libraryDay)
-        }
-    }
-
-    // MARK: Search field
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search meetings", text: $query)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-                .onKeyPress(.escape) {
-                    guard !query.isEmpty else { return .ignored }
-                    query = ""
-                    return .handled
-                }
-            if !query.isEmpty {
-                Button("Clear", systemImage: "xmark.circle.fill") { query = "" }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .background(Color.primary.opacity(0.06),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.top, 4)
-        .padding(.bottom, 14)
-        // Rows scrolling up fade into frost before they reach the field,
-        // as they do at the foot.
-        .background {
-            Rectangle()
-                .fill(.regularMaterial)
-                .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0.5),
-                                           .init(color: .clear, location: 1)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
-                .padding(.bottom, -24)
-        }
-        // ⌘F finds, as the system field's did.
-        .background {
-            Button("Find") { searchFocused = true }
-                .keyboardShortcut("f", modifiers: .command)
-                .hidden()
         }
     }
 
@@ -465,7 +416,7 @@ struct LibraryView: View {
             }
         case .meeting(let url):
             if let library {
-                MeetingDocumentView(url: url, library: library,
+                MeetingDocumentView(url: url, library: library, coordinator: coordinator,
                                     selection: $coordinator.librarySelection)
                     .id(url)
             }
@@ -705,6 +656,9 @@ private struct DictationRow: View {
 /// edited, and every edit is written back to the file a moment later.
 struct MeetingDocumentView: View {
     let library: MeetingLibrary
+    /// For the summary: which model writes it, and whether it is being
+    /// written for this file now.
+    let coordinator: AppCoordinator
     @Binding var selection: LibrarySelection?
 
     @State private var url: URL
@@ -717,11 +671,15 @@ struct MeetingDocumentView: View {
     /// that was just trashed must not bring it back.
     @State private var isDirty = false
 
-    init(url: URL, library: MeetingLibrary, selection: Binding<LibrarySelection?>) {
+    init(url: URL, library: MeetingLibrary, coordinator: AppCoordinator,
+         selection: Binding<LibrarySelection?>) {
         self.library = library
+        self.coordinator = coordinator
         _selection = selection
         _url = State(initialValue: url)
     }
+
+    private var isSummarizing: Bool { coordinator.isSummarizing(url) }
 
     var body: some View {
         Group {
@@ -735,11 +693,20 @@ struct MeetingDocumentView: View {
         .onAppear(perform: load)
         // Leaving the document saves what is pending at once.
         .onDisappear { flush() }
+        // A new summary landed in the file: take it, and only it — the
+        // notes here may be newer than the file's.
+        .onChange(of: isSummarizing) { was, now in
+            guard was, !now, let fresh = library.record(at: url)?.summary else { return }
+            record?.summary = fresh
+            if isDirty { flush() }
+            pane = .summary
+        }
         .confirmationDialog("Move “\(record?.title ?? "this meeting")” to the Trash?",
                             isPresented: $confirmingTrash) {
             Button("Move to Trash", role: .destructive) {
                 save?.cancel()
                 isDirty = false
+                coordinator.cancelSummary(url)
                 try? library.trash(url)
                 selection = nil
             }
@@ -750,7 +717,7 @@ struct MeetingDocumentView: View {
 
     private func load() {
         record = library.record(at: url)
-        if record?.summary == nil { pane = .notes }
+        if record?.summary == nil, !isSummarizing { pane = .notes }
         #if DEBUG
         if let name = ProcessInfo.processInfo.environment["CLIO_MEETING_PANE"],
            let chosen = MeetingView.Pane.allCases.first(where: { $0.rawValue.lowercased() == name }) {
@@ -773,6 +740,20 @@ struct MeetingDocumentView: View {
                                    minHeight: 320)
                         .padding(.horizontal, 8)
                 case .summary:
+                    if isSummarizing {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Writing the summary with \(coordinator.summaryModelName)…")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 12)
+                    } else if let problem = coordinator.summaryProblem, record.summary == nil {
+                        Text(problem)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 12)
+                    }
                     MarkdownEditor(text: .constant(record.summary ?? ""), isEditable: false,
                                    minHeight: 0)
                         .padding(.horizontal, 8)
@@ -783,7 +764,7 @@ struct MeetingDocumentView: View {
             .padding(.bottom, 80)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .softTopEdge()
+        .nativeTopEdge()
         .navigationTitle(record.title)
         .toolbar {
             TitleItem {
@@ -809,6 +790,17 @@ struct MeetingDocumentView: View {
                             TextInjector.copy(link.absoluteString)
                         }
                     }
+                    Divider()
+                    // With the model Settings ▸ Model names now — so a
+                    // meeting summarised by Apple's model can be done again
+                    // by a downloaded one, or after the notes were edited.
+                    Button(record.summary == nil ? "Write Summary" : "Summarize Again",
+                           systemImage: "text.badge.star") {
+                        flush()
+                        coordinator.resummarize(url)
+                        pane = .summary
+                    }
+                    .disabled(record.lines.isEmpty || isSummarizing || !coordinator.canSummarize)
                     Divider()
                     Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
                         confirmingTrash = true
@@ -836,7 +828,7 @@ struct MeetingDocumentView: View {
     }
 
     private func panes(_ record: MeetingRecord) -> [MeetingView.Pane] {
-        record.summary == nil ? [.notes, .transcript] : [.summary, .notes, .transcript]
+        record.summary == nil && !isSummarizing ? [.notes, .transcript] : [.summary, .notes, .transcript]
     }
 
     /// An editable field of the record that saves itself a beat after typing.
@@ -903,7 +895,7 @@ private struct DictationView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 12)
         }
-        .softTopEdge()
+        .nativeTopEdge()
         .navigationTitle("Dictation")
         .toolbar {
             TitleItem {

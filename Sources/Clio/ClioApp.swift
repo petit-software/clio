@@ -123,6 +123,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        // Summarize Again on one meeting file, with the model Settings names,
+        // then quit. From the bundle, like the meeting test: the summary
+        // model is chosen by the settings the signed bundle reads.
+        if let path = ProcessInfo.processInfo.environment["CLIO_SUMMARIZE"] {
+            Task { @MainActor in
+                let report = await coordinator.runSummaryCheck(
+                    file: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+                FileHandle.standardError.write(Data((report + "\n").utf8))
+                exit(report.contains("FAILED") ? 1 : 0)
+            }
+            return
+        }
         #if DEBUG
         // The meeting window, filled with a meeting that never happened, in
         // the state named: recording, finishing, finished, silent.

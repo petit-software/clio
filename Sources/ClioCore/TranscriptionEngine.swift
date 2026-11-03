@@ -31,12 +31,38 @@ public struct InstalledModel: Sendable, Equatable, Identifiable {
     public var displayName: String
     public var sizeBytes: Int64
     public var url: URL
+    /// Told apart on disk: a folder of compiled Core ML models is speech, a
+    /// folder holding a GGUF is language. The two must never be confused —
+    /// a GGUF handed to WhisperKit as the fallback model is a dictation that
+    /// fails.
+    public var kind: ModelKind
+    /// A model somewhere else on disk that the user pointed Clio at: a
+    /// symbolic link in the models folder, to a folder or to a GGUF.
+    /// Deleting one removes the link and leaves the model where it was.
+    public var isLinked: Bool
 
-    public init(id: String, displayName: String, sizeBytes: Int64, url: URL) {
+    public init(id: String, displayName: String, sizeBytes: Int64, url: URL,
+                kind: ModelKind = .speech, isLinked: Bool = false) {
         self.id = id
         self.displayName = displayName
         self.sizeBytes = sizeBytes
         self.url = url
+        self.kind = kind
+        self.isLinked = isLinked
+    }
+
+    /// Where the model's files really are — through the link, for a
+    /// linked one.
+    public var resolvedURL: URL {
+        (weightsFile ?? url).resolvingSymlinksInPath()
+    }
+
+    /// The GGUF inside a language model's folder; nil for a speech model.
+    public var weightsFile: URL? {
+        guard kind == .language else { return nil }
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        return contents.first { $0.lowercased().hasSuffix(".gguf") }
+            .map { url.appendingPathComponent($0) }
     }
 }
 

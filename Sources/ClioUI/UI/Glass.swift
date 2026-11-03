@@ -59,10 +59,24 @@ extension View {
 extension View {
     /// Content scrolling under the toolbar fades into it rather than being
     /// cut off at a line — the soft edge macOS 26 draws. Nothing before it.
+    /// Settings has it; a document has `nativeTopEdge`.
     @ViewBuilder
     func softTopEdge() -> some View {
         if #available(macOS 26.0, *) {
             scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+
+    /// The toolbar's own edge: as content scrolls under it, macOS 26 draws
+    /// the translucent band every other app's toolbar has. The library's
+    /// documents had the soft fade for a while, and it read as a page
+    /// without a toolbar.
+    @ViewBuilder
+    func nativeTopEdge() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectStyle(.automatic, for: .top)
         } else {
             self
         }

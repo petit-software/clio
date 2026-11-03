@@ -48,8 +48,8 @@ extension AppCoordinator {
                         from: settings.customVocabulary)),
                 sensitivity: settings.vadSensitivity,
                 micDeviceUID: settings.inputDeviceUID)
-            if settings.meetingSummaries, MeetingSummarizer.isAvailable {
-                session.summarize = { await MeetingSummarizer.summarize($0) }
+            if settings.meetingSummaries, let model = summaryModel {
+                session.summarize = { await MeetingSummarizer.summarize($0, with: model) }
             }
             session.currentModel = { [weak self] in self?.activeModel }
             if let event { session.apply(event) }
@@ -245,8 +245,8 @@ extension AppCoordinator {
             title: "Meeting check", folder: folder, queue: engine, model: model,
             options: TranscribeOptions(language: settings.language),
             sensitivity: settings.vadSensitivity, micDeviceUID: settings.inputDeviceUID)
-        if MeetingSummarizer.isAvailable {
-            session.summarize = { await MeetingSummarizer.summarize($0) }
+        if let model = summaryModel {
+            session.summarize = { await MeetingSummarizer.summarize($0, with: model) }
         }
         let began = Date()
         await session.start()
@@ -257,7 +257,7 @@ extension AppCoordinator {
         let markdown = session.fileURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
         return """
             [meeting] system audio: \(session.systemAudio), lines: \(session.record.lines.count), \
-            summary: \(session.record.summary == nil ? "none" : "yes"), \
+            summary: \(session.record.summary == nil ? "none" : "yes, by \(summaryModelName)"), \
             stop took \(String(format: "%.1f", Date().timeIntervalSince(stopping))) s \
             of \(String(format: "%.1f", Date().timeIntervalSince(began))) s
             [meeting] file: \(session.fileURL?.path ?? "none")

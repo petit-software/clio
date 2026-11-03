@@ -1,6 +1,7 @@
 import Carbon.HIToolbox
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 import ClioCore
 
 /// The tabs from §6. Model and Audio-device pickers are intentionally thin
@@ -183,17 +184,78 @@ private struct ModelTab: View {
     var body: some View {
         Form {
             Section {
-                ForEach(models.listedCatalog) { model in
+                ForEach(models.otherInstalled(.speech)) { installed in
+                    LocalModelRow(coordinator: coordinator, installed: installed,
+                                  isActive: coordinator.settingsStore.settings.activeModelID == installed.id,
+                                  makeActive: { coordinator.settingsStore.settings.activeModelID = installed.id },
+                                  deleted: {
+                                      if coordinator.settingsStore.settings.activeModelID == installed.id {
+                                          coordinator.settingsStore.settings.activeModelID = nil
+                                      }
+                                  },
+                                  deleteError: $deleteError)
+                }
+                ForEach(models.listedCatalog(.speech)) { model in
                     ModelRow(coordinator: coordinator,
                              model: model,
+                             isActive: coordinator.settingsStore.settings.activeModelID == model.id,
+                             makeActive: { coordinator.settingsStore.settings.activeModelID = model.id },
+                             deleted: {
+                                 if coordinator.settingsStore.settings.activeModelID == model.id {
+                                     coordinator.settingsStore.settings.activeModelID = nil
+                                 }
+                             },
                              deleteError: $deleteError)
                 }
+                AddModelButton(coordinator: coordinator, kind: .speech, problem: $deleteError)
             } header: {
-                Text("Models")
+                Text("Transcription model")
             } footer: {
-                Text("Models are downloaded once and run entirely on this Mac. "
-                     + "Clio also finds models other tools have already "
-                     + "downloaded to the shared Hugging Face cache.")
+                Text("What dictation and meetings are transcribed with, on the Neural Engine. "
+                     + "Models are downloaded once and run entirely on this Mac. Clio also "
+                     + "finds models other tools have already downloaded to the shared "
+                     + "Hugging Face cache, and a WhisperKit model folder anywhere on disk "
+                     + "can be added without copying it.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                SystemSummaryModelRow(coordinator: coordinator)
+                ForEach(models.otherInstalled(.language)) { installed in
+                    LocalModelRow(coordinator: coordinator, installed: installed,
+                                  isActive: coordinator.settingsStore.settings.summaryModelID == installed.id,
+                                  makeActive: { coordinator.settingsStore.settings.summaryModelID = installed.id },
+                                  deleted: {
+                                      if coordinator.settingsStore.settings.summaryModelID == installed.id {
+                                          coordinator.settingsStore.settings.summaryModelID = nil
+                                      }
+                                  },
+                                  deleteError: $deleteError)
+                }
+                ForEach(models.listedCatalog(.language)) { model in
+                    ModelRow(coordinator: coordinator,
+                             model: model,
+                             isActive: coordinator.settingsStore.settings.summaryModelID == model.id,
+                             makeActive: { coordinator.settingsStore.settings.summaryModelID = model.id },
+                             deleted: {
+                                 if coordinator.settingsStore.settings.summaryModelID == model.id {
+                                     coordinator.settingsStore.settings.summaryModelID = nil
+                                 }
+                             },
+                             deleteError: $deleteError)
+                }
+                AddModelButton(coordinator: coordinator, kind: .language, problem: $deleteError)
+            } header: {
+                Text("Summarization model")
+            } footer: {
+                Text("What writes a meeting's summary. Apple Intelligence needs no download "
+                     + "and reads the transcript in pieces; a downloaded model holds a whole "
+                     + "meeting at once, so its notes are more complete and better organised, "
+                     + "and the first summary after a while takes a few seconds longer while "
+                     + "it loads. Any GGUF already on disk can be added without copying it. "
+                     + "Any meeting can be summarized again with the model chosen here, from "
+                     + "the ⋯ menu in its window.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -216,7 +278,7 @@ private struct ModelTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            if models.installed.isEmpty {
+            if models.installed(.speech).isEmpty {
                 Section {
                     Label("Download a model to start dictating.",
                           systemImage: "arrow.down.circle.fill")
@@ -247,9 +309,148 @@ private struct ModelTab: View {
     }
 }
 
-private struct ModelRow: View {
+/// "Add a Model You Have…": a WhisperKit folder or a GGUF somewhere on disk,
+/// linked into the models folder rather than copied — see
+/// `ModelManager.link`.
+private struct AddModelButton: View {
+    @Bindable var coordinator: AppCoordinator
+    let kind: ModelKind
+    @Binding var problem: String?
+
+    var body: some View {
+        Button(kind == .speech ? "Add a Model Folder You Have…" : "Add a GGUF You Have…") {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = kind == .speech
+            panel.canChooseFiles = kind == .language
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Add"
+            panel.message = kind == .speech
+                ? "Choose a WhisperKit model folder: one with AudioEncoder.mlmodelc and TextDecoder.mlmodelc in it."
+                : "Choose a .gguf file. It stays where it is; Clio links to it."
+            if kind == .language, let gguf = UTType(filenameExtension: "gguf") {
+                panel.allowedContentTypes = [gguf]
+            }
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                let installed = try coordinator.models.link(url, as: kind)
+                problem = nil
+                // Whoever added it wants it.
+                switch kind {
+                case .speech: coordinator.settingsStore.settings.activeModelID = installed.id
+                case .language: coordinator.settingsStore.settings.summaryModelID = installed.id
+                }
+            } catch {
+                problem = error.localizedDescription
+            }
+        }
+    }
+}
+
+/// An installed model the catalog does not list — linked from elsewhere,
+/// or found in the shared cache: its radio, name, size and where it is,
+/// and Delete where the copy is ours to delete.
+private struct LocalModelRow: View {
+    @Bindable var coordinator: AppCoordinator
+    let installed: InstalledModel
+    let isActive: Bool
+    let makeActive: () -> Void
+    let deleted: () -> Void
+    @Binding var deleteError: String?
+
+    private var models: ModelManager { coordinator.models }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                .onTapGesture(perform: makeActive)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(installed.displayName).font(.body)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            if models.canDelete(installed) {
+                Button {
+                    do {
+                        try models.delete(installed)
+                        deleteError = nil
+                        deleted()
+                    } catch {
+                        deleteError = error.localizedDescription
+                    }
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(installed.isLinked ? "Remove from Clio; the model stays where it is"
+                                         : "Delete \(installed.displayName)")
+                .accessibilityLabel("Remove \(installed.displayName)")
+            } else {
+                Image(systemName: "externaldrive")
+                    .foregroundStyle(.tertiary)
+                    .help("In the shared Hugging Face cache, so Clio will not delete it")
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var subtitle: String {
+        let size = ModelRow.format(installed.sizeBytes)
+        if installed.isLinked {
+            let path = (installed.resolvedURL.path as NSString).abbreviatingWithTildeInPath
+            return "\(size) · Linked from \(path)"
+        }
+        return models.canDelete(installed) ? "\(size) on disk" : "\(size) · Shared Hugging Face cache"
+    }
+}
+
+/// The model built into macOS, as a row like the downloadable ones: chosen
+/// the same way, with no download to offer.
+private struct SystemSummaryModelRow: View {
+    @Bindable var coordinator: AppCoordinator
+
+    var body: some View {
+        let chosen = coordinator.settingsStore.settings.summaryModelID == nil
+        HStack(alignment: .firstTextBaseline) {
+            Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
+                .foregroundStyle(chosen ? Color.accentColor : .secondary)
+                .onTapGesture {
+                    if MeetingSummarizer.isAvailable {
+                        coordinator.settingsStore.settings.summaryModelID = nil
+                    }
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Apple Intelligence").font(.body)
+                Text(MeetingSummarizer.isAvailable
+                     ? "Built into macOS · No download · Reads the transcript in pieces"
+                     : "Not available: needs macOS 26 with Apple Intelligence turned on")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+        .opacity(MeetingSummarizer.isAvailable ? 1 : 0.6)
+    }
+}
+
+/// One model on offer: its radio, name and size, and a download, cancel or
+/// delete control. The row does not know what being chosen means — the
+/// speech model for dictation, or the language model for summaries — so the
+/// tab that shows it says.
+struct ModelRow: View {
     @Bindable var coordinator: AppCoordinator
     let model: CatalogModel
+    let isActive: Bool
+    let makeActive: () -> Void
+    /// Run after the model is deleted, to drop a selection that named it.
+    let deleted: () -> Void
     @Binding var deleteError: String?
 
     private var models: ModelManager { coordinator.models }
@@ -341,10 +542,6 @@ private struct ModelRow: View {
         models.installed.first { $0.id == model.id }
     }
 
-    private var isActive: Bool {
-        coordinator.settingsStore.settings.activeModelID == model.id
-    }
-
     private var subtitle: String {
         var parts = [model.tier.label, model.languages.label]
         if let installed {
@@ -362,23 +559,17 @@ private struct ModelRow: View {
         + "\(progress.completedFiles + 1) of \(progress.totalFiles)"
     }
 
-    private func makeActive() {
-        coordinator.settingsStore.settings.activeModelID = model.id
-    }
-
     private func delete(_ installed: InstalledModel) {
         do {
             try models.delete(installed)
             deleteError = nil
-            if isActive {
-                coordinator.settingsStore.settings.activeModelID = nil
-            }
+            deleted()
         } catch {
             deleteError = error.localizedDescription
         }
     }
 
-    private static func format(_ bytes: Int64) -> String {
+    static func format(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
@@ -746,16 +937,6 @@ private struct MeetingsTab: View {
                         coordinator.meetingsFolderChanged()
                     }
                 }
-                Toggle("Write a summary when the meeting ends", isOn: Binding(
-                    get: { settings.meetingSummaries },
-                    set: { coordinator.settingsStore.settings.meetingSummaries = $0 }))
-                    .disabled(!MeetingSummarizer.isAvailable)
-                if !MeetingSummarizer.isAvailable {
-                    Text("Summaries are written by Apple Intelligence on this Mac, "
-                         + "which needs macOS 26 with Apple Intelligence turned on.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
                 Toggle("Offer to take notes when a call starts", isOn: Binding(
                     get: { settings.meetingDetection },
                     set: { coordinator.settingsStore.settings.meetingDetection = $0 }))
@@ -764,6 +945,20 @@ private struct MeetingsTab: View {
                      + "the transcript. Your side is marked Me; the call is Others.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Write a summary when the meeting ends", isOn: Binding(
+                    get: { settings.meetingSummaries },
+                    set: { coordinator.settingsStore.settings.meetingSummaries = $0 }))
+                    .disabled(!coordinator.canSummarize)
+                Text(coordinator.canSummarize
+                     ? "Written by \(coordinator.summaryModelName); choose another under Settings ▸ Model."
+                     : "Nothing can write one yet: download a summarization model under Settings ▸ Model.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Summaries")
             }
 
             Section("Access") {

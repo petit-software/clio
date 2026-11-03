@@ -75,8 +75,12 @@ public struct Settings: Codable, Equatable, Sendable {
     // Meetings
     /// Where meeting notes are written. Nil is `~/Documents/Clio Meetings`.
     public var meetingsFolderPath: String? = nil
-    /// Write a summary when a meeting ends, where macOS has a model for it.
+    /// Write a summary when a meeting ends, where there is a model to do it.
     public var meetingSummaries: Bool = true
+    /// Which model writes it: the id of an installed language model, or nil
+    /// for Apple Intelligence — the model built into macOS 26, which needs
+    /// no download and is what everyone starts on.
+    public var summaryModelID: String? = nil
     /// Offer to take notes when a call starts during a calendar event.
     public var meetingDetection: Bool = true
 
@@ -167,6 +171,7 @@ public struct Settings: Codable, Equatable, Sendable {
 
         meetingsFolderPath = readOptional(.meetingsFolderPath, String.self)
         meetingSummaries = read(.meetingSummaries, defaults.meetingSummaries)
+        summaryModelID = readOptional(.summaryModelID, String.self)
         meetingDetection = read(.meetingDetection, defaults.meetingDetection)
     }
 }

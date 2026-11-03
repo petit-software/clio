@@ -90,7 +90,9 @@ public final class ModelManager {
             found[id] = InstalledModel(id: id,
                                        displayName: displayName(for: id),
                                        sizeBytes: Self.directorySize(of: url),
-                                       url: url)
+                                       url: url,
+                                       kind: Self.kind(of: url),
+                                       isLinked: Self.isLinked(url))
         }
 
         // Ours wins on a tie: we can delete our own copy, never the shared one.
@@ -118,14 +120,34 @@ public final class ModelManager {
         return installed.first { $0.id == id }
     }
 
+    /// The installed models of one kind, in display order.
+    public func installed(_ kind: ModelKind) -> [InstalledModel] {
+        installed.filter { $0.kind == kind }
+    }
+
     /// The rows Settings shows: everything on offer, plus a retired model
     /// only while a copy of it is installed — see `CatalogModel.retired`.
     public var listedCatalog: [CatalogModel] {
         catalog.filter { !$0.retired || isInstalled($0.id) }
     }
 
-    /// A model folder is one containing at least one compiled Core ML model.
-    /// That is also what makes a half-finished download not count as installed.
+    /// The rows for one section of the Model tab: transcription models, or
+    /// summarization models.
+    public func listedCatalog(_ kind: ModelKind) -> [CatalogModel] {
+        listedCatalog.filter { $0.kind == kind }
+    }
+
+    /// Installed models of one kind that the catalog does not list: ones
+    /// the user linked from elsewhere, and ones found in the shared cache.
+    public func otherInstalled(_ kind: ModelKind) -> [InstalledModel] {
+        let listed = Set(listedCatalog.map(\.id))
+        return installed(kind).filter { !listed.contains($0.id) }
+    }
+
+    /// A model folder is one containing at least one compiled Core ML model,
+    /// or one GGUF. That is also what makes a half-finished download not
+    /// count as installed: a WhisperKit download has loose files before its
+    /// first `.mlmodelc`, and a GGUF is written as `.partial` until whole.
     static func modelDirectories(in root: URL) -> [URL] {
         let manager = FileManager.default
         guard let entries = try? manager.contentsOfDirectory(
@@ -137,8 +159,25 @@ public final class ModelManager {
             guard manager.fileExists(atPath: url.path, isDirectory: &isDirectory),
                   isDirectory.boolValue else { return false }
             let contents = (try? manager.contentsOfDirectory(atPath: url.path)) ?? []
-            return contents.contains { $0.hasSuffix(".mlmodelc") }
+            return contents.contains { $0.hasSuffix(".mlmodelc") || $0.lowercased().hasSuffix(".gguf") }
         }
+    }
+
+    /// Whether the folder, or the GGUF in it, is a symbolic link — a model
+    /// the user added from elsewhere on disk.
+    static func isLinked(_ url: URL) -> Bool {
+        func isLink(_ url: URL) -> Bool {
+            (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true
+        }
+        if isLink(url) { return true }
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        return contents.contains { $0.lowercased().hasSuffix(".gguf") && isLink(url.appendingPathComponent($0)) }
+    }
+
+    /// Speech or language, from what is in the folder.
+    static func kind(of url: URL) -> ModelKind {
+        let contents = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        return contents.contains { $0.hasSuffix(".mlmodelc") } ? .speech : .language
     }
 
     /// `~/.cache/huggingface/hub/models--<org>--<repo>/snapshots/<rev>/<model>/`
@@ -162,17 +201,83 @@ public final class ModelManager {
         return result
     }
 
+    /// Through links: a linked model's folder holds a link a few bytes
+    /// long, and the size shown is the model's.
     static func directorySize(of url: URL) -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
-            at: url, includingPropertiesForKeys: [.fileSizeKey])
+            at: url.resolvingSymlinksInPath(), includingPropertiesForKeys: [.fileSizeKey])
         else { return 0 }
 
         var total: Int64 = 0
         for case let file as URL in enumerator {
-            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            let size = (try? file.resolvingSymlinksInPath()
+                .resourceValues(forKeys: [.fileSizeKey]))?.fileSize
             total += Int64(size ?? 0)
         }
         return total
+    }
+
+    // MARK: Models from elsewhere
+
+    public enum LinkError: LocalizedError {
+        case notASpeechModel
+        case notALanguageModel
+        case alreadyInstalled(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .notASpeechModel:
+                return "That folder holds no compiled Core ML model. A WhisperKit model "
+                    + "is a folder with AudioEncoder.mlmodelc and TextDecoder.mlmodelc in it."
+            case .notALanguageModel:
+                return "A summarization model is one .gguf file."
+            case .alreadyInstalled(let id):
+                return "A model named \(id) is already installed."
+            }
+        }
+    }
+
+    /// Makes a model already on disk one of Clio's, without copying it:
+    /// a symbolic link in the models folder — to the folder, for a
+    /// WhisperKit model; to the file, inside a folder of its own, for a
+    /// GGUF — so discovery, selection and the rows in Settings see it like
+    /// any other. Delete removes the link and nothing else.
+    @discardableResult
+    public func link(_ source: URL, as kind: ModelKind) throws -> InstalledModel {
+        let manager = FileManager.default
+        let name: String
+        var isDirectory: ObjCBool = false
+        guard manager.fileExists(atPath: source.path, isDirectory: &isDirectory) else {
+            throw kind == .speech ? LinkError.notASpeechModel : LinkError.notALanguageModel
+        }
+        switch kind {
+        case .speech:
+            guard isDirectory.boolValue, Self.kind(of: source) == .speech,
+                  Self.modelDirectories(in: source.deletingLastPathComponent())
+                      .contains(where: { $0.lastPathComponent == source.lastPathComponent })
+            else { throw LinkError.notASpeechModel }
+            name = source.lastPathComponent
+        case .language:
+            guard !isDirectory.boolValue, source.pathExtension.lowercased() == "gguf"
+            else { throw LinkError.notALanguageModel }
+            name = source.deletingPathExtension().lastPathComponent
+        }
+        let destination = modelsDirectory.appendingPathComponent(name)
+        guard !manager.fileExists(atPath: destination.path),
+              (try? destination.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true
+        else { throw LinkError.alreadyInstalled(name) }
+        try manager.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+        switch kind {
+        case .speech:
+            try manager.createSymbolicLink(at: destination, withDestinationURL: source)
+        case .language:
+            try manager.createDirectory(at: destination, withIntermediateDirectories: true)
+            try manager.createSymbolicLink(at: destination.appendingPathComponent(source.lastPathComponent),
+                                           withDestinationURL: source)
+        }
+        refreshInstalled()
+        guard let installed = installedModel(id: name) else { throw LinkError.alreadyInstalled(name) }
+        return installed
     }
 
     private func displayName(for id: String) -> String {
@@ -227,8 +332,14 @@ public final class ModelManager {
         defer { tasks[model.id] = nil }
 
         do {
-            var files = try await transport.list(repo: model.repo, path: model.id)
+            var files = try await transport.list(repo: model.repo, path: model.repoPath)
                 .map { (file: $0, subdirectory: String?.none) }
+            // A single-file model: the repo's root holds every quantization
+            // of it, and one is wanted.
+            if let fileName = model.fileName {
+                files = files.filter { $0.file.path == fileName }
+                guard !files.isEmpty else { throw ModelTransportError.emptyListing }
+            }
 
             if let tokenizerRepo = model.tokenizerRepo {
                 let tokenizerFiles = try await transport.list(repo: tokenizerRepo, path: "")
@@ -328,7 +439,8 @@ public final class ModelManager {
     }
 
     /// Only ever deletes from our own models directory. A model discovered in
-    /// the shared cache belongs to whatever put it there.
+    /// the shared cache belongs to whatever put it there; a linked model's
+    /// link is ours, and the model behind it is left alone.
     public func delete(_ model: InstalledModel) throws {
         guard canDelete(model) else { throw DeleteError.notOurs }
         try FileManager.default.removeItem(at: model.url)
@@ -345,11 +457,16 @@ public final class ModelManager {
     /// paths (`/private/var/…`) where our own URL is still the symlink
     /// (`/var/…`), and `…/models` is a textual prefix of `…/models-backup`.
     /// Deleting is destructive, so it does not get to be approximately right.
+    ///
+    /// The parent is resolved, the last component is not: a linked model is
+    /// a symlink in our folder, and resolving it would point outside — at
+    /// the user's copy, which is exactly what must not be deleted, and is
+    /// not, because removing a link removes the link.
     static func isDescendant(_ url: URL, of directory: URL) -> Bool {
         let root = directory.resolvingSymlinksInPath()
             .standardizedFileURL.pathComponents
-        let target = url.resolvingSymlinksInPath()
-            .standardizedFileURL.pathComponents
+        let target = url.deletingLastPathComponent().resolvingSymlinksInPath()
+            .standardizedFileURL.pathComponents + [url.lastPathComponent]
         guard target.count > root.count else { return false }
         return Array(target.prefix(root.count)) == root
     }

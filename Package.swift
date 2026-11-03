@@ -27,8 +27,19 @@ let package = Package(
         .target(name: "ClioCore",
                 dependencies: [
                     "ClioObjC",
+                    "llama",
                     .product(name: "WhisperKit", package: "WhisperKit"),
                 ]),
+        // llama.cpp, prebuilt by its own project for every release: the
+        // runtime for a downloaded summary model (LocalSummaryModel). A
+        // binary because the alternative, MLX, compiles its Metal shaders
+        // only under Xcode, and `swift build` is how this app is built and
+        // tested. The framework is dynamic, so build-app.sh embeds it
+        // beside Sparkle.
+        .binaryTarget(
+            name: "llama",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b12069/llama-b12069-xcframework.zip",
+            checksum: "6323ec9777dd6f04f2cfb396d02989f26feec06d2e336d21c2a1b7fc1bf434e8"),
         // One Objective-C function: run a block and catch the NSException
         // it may raise. Swift cannot; AVAudioEngine throws them; see
         // ObjCException.swift in ClioCore for the why.

@@ -38,7 +38,7 @@ One meeting, end to end.
 | 4 | each stream cut at its pauses, chunks ≤ 25 s, stamped with when they were said | `ClioCore/SpeechSegmenter`, `MeetingSession.StreamFeed` |
 | 5 | transcribed one at a time behind any dictation | `ClioCore/TranscriptionQueue` |
 | 6 | added in time order, echo of the call in the mic dropped, Markdown rewritten | `ClioCore/MeetingRecord` |
-| 7 | stop: drain, then a summary by Apple's on-device model (macOS 26) | `MeetingSession.stop`, `ClioCore/MeetingSummarizer` |
+| 7 | stop: drain, then a summary — by Apple's on-device model (macOS 26), or by a downloaded GGUF run by llama.cpp, whichever Settings ▸ Model names; any saved meeting can be summarized again from its ⋯ menu | `MeetingSession.stop`, `ClioCore/MeetingSummarizer`, `LocalSummaryModel`, `ClioUI/AppCoordinator+Summaries` |
 | 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
 | 10 | the sidebar is a day: its calendar events with their notes, then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)` |
@@ -51,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 198 tests live here.
+  without standing up an app. All 214 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 198 tests, 27 suites, no network
+swift test                                  # 214 tests, 30 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -80,6 +80,7 @@ Gated suites and tools, all off by default:
 CLIO_INTEGRATION=1 swift test --filter Integration        # downloads ~81 MB
 CLIO_INTEGRATION=1 CLIO_INTEGRATION_MODEL=<catalog id> swift test --filter "Integration|LongAudio"   # prove a model before offering it
 CLIO_INTEGRATION=1 swift test --filter StartupLatency     # where start() spends time
+CLIO_INTEGRATION=1 CLIO_SUMMARY_MODEL=~/Library/Application\ Support/com.bartbak.clio/models/<id>/<file>.gguf swift test --filter SummaryModelIntegration   # a GGUF through llama.cpp: a prompt, then a whole meeting; downloads nothing
 CLIO_LONG_MEETING=60 swift test --filter LongMeeting      # an hour of meeting through a real session and an installed model; downloads nothing
 CLIO_OVERLAY_DUMP=/tmp/x swift run Clio                   # every pill state to PNG
 CLIO_OVERLAY_SHOW=recording swift run Clio                # the real panel, on screen
@@ -107,6 +108,7 @@ CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short win
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
+CLIO_SUMMARIZE="$HOME/Documents/Clio Meetings/<file>.md" Clio.app/Contents/MacOS/Clio   # Summarize Again on that file with the model Settings names; writes into it, prints the summary
 ```
 
 `CLIO_METER_DUMP` exists because the meter was twice shipped without being
@@ -231,6 +233,39 @@ decodes field by field with fallbacks — keep it that way, and add new fields t
 the root of the `.app`, falls back to a path hardcoded to the machine that
 compiled it, then calls `fatalError`. `models.json` is a plain `Bundle.main`
 resource with a compiled-in fallback.
+
+**Two kinds of model share one folder, and must never be confused.**
+`models/<id>/` holds WhisperKit folders (`.mlmodelc` inside) and summary
+models (one `.gguf` inside); `InstalledModel.kind` is read from the folder's
+contents and every fallback that reaches for "the first installed model"
+filters by it — `AppCoordinator.activeModel` once did not, and a GGUF
+offered to WhisperKit is a dictation that fails. A single-file model is
+listed from its repo's root (`CatalogModel.fileName`, `repoPath`) and still
+installed as a folder, so discovery, size, delete and the shared-cache rule
+are the same code for both.
+
+**A model from elsewhere is a symbolic link, never a copy.** "Add a Model
+You Have…" in Settings ▸ Model links a WhisperKit folder, or a GGUF inside a
+folder of its own, into `models/` (`ModelManager.link`), so discovery,
+selection, size and the rows see it like any download. `isDescendant`
+resolves the parent and not the last component for this reason: resolving
+the link would put the model outside our folder and hide Delete, when
+deleting it removes the link and nothing else. A linked WhisperKit folder
+without a `tokenizer/` beside it makes WhisperKit reach for the network on
+first load — the same trap as the shared cache.
+
+**llama.cpp is a binary target, not MLX.** MLX Swift compiles its Metal
+shaders only under Xcode, and `swift build` is how this app is built and
+tested. llama.cpp's own release ships an XCFramework; `Package.swift` pins
+one build by URL and checksum, and `build-app.sh` embeds the framework
+beside Sparkle, thinned to arm64 and re-signed — its release signature is
+ad-hoc and would fail notarization. `LocalSummaryModel` runs on a dispatch
+queue of its own (an actor with a `DispatchSerialQueue` executor): a summary
+is tens of seconds of synchronous C calls, which the cooperative pool must
+not host. It asks the model for 8k tokens of context, not its maximum — the
+KV cache is sized from that, and an 8 GB Mac has to carry it beside the
+weights — and sizes its piece at three characters a token so a transcript in
+a language that tokenizes worse than English still fits.
 
 **The tokenizer ships beside each model.** WhisperKit's CoreML folders carry no
 `tokenizer.json`, so without this the first transcription quietly reaches for
@@ -411,6 +446,11 @@ Verified by something repeatable:
   tampered copy is rejected
 - a quarantined download passes Gatekeeper
 - startup latency, measured per phase
+- the summarizer on a scripted model: one request when the transcript fits,
+  pieces then bullets when it does not, the notes leading the last prompt, a
+  model's thinking cut out of the answer (`SummaryModelTests`); the catalog's
+  summary models, their discovery, download and deletion, and models linked
+  from elsewhere — a folder, a GGUF, Delete leaving the original (`ModelTests`)
 - system audio through the process tap, on built-in speakers
   (`CLIO_SYSTEM_AUDIO_TEST`), and a whole meeting — both streams, the queue,
   WhisperKit, the Markdown and an Apple Intelligence summary
@@ -453,6 +493,13 @@ Not verified, and worth knowing:
   tested on values; nobody has granted access and seen a meeting named.
 - **a refused system-audio permission.** Assumed to deliver silence, as it
   does for a tap with nothing playing; not seen.
+- **a summary by a downloaded model.** `LocalSummaryModel` builds, links and
+  fails cleanly on a missing file, and the app bundle carries the framework;
+  but no GGUF has been run through it from this checkout, and the catalog's
+  two models (Qwen3 4B, Gemma 3 12B) have been checked for existence and
+  size on Hugging Face, not downloaded. `SummaryModelIntegration` is the
+  proof, on any GGUF; then Settings ▸ Model on a real one, and Summarize
+  Again on a meeting Apple's model wrote.
 - **the UI has no tests.** `ClioUI` is a library the test target could import,
   but nothing does yet. Previews cover the states; no assertions do.
 

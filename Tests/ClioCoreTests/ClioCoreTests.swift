@@ -184,6 +184,7 @@ func settingsSurviveAddedFields() throws {
     #expect(settings.inputDeviceUID == nil)
     #expect(settings.meetingsFolderPath == nil)
     #expect(settings.meetingSummaries == true)
+    #expect(settings.summaryModelID == nil)
     #expect(settings.meetingDetection == true)
 }
 

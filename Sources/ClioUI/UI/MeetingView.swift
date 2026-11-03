@@ -50,7 +50,7 @@ struct MeetingView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .softTopEdge()
+            .nativeTopEdge()
             // The newest line, as it arrives, while the transcript is showing.
             .onChange(of: meeting.record.lines.count) { _, _ in
                 guard pane == .transcript else { return }

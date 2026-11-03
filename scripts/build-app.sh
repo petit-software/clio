@@ -68,6 +68,23 @@ mkdir -p "$APP/Contents/Frameworks"
 # bundle that fails to load with an error naming a path that plainly exists.
 cp -R "$SPARKLE" "$APP/Contents/Frameworks/"
 
+# llama.cpp, the runtime for a downloaded summary model, is a dynamic
+# framework too (a binary target in Package.swift), and travels the same way.
+# Its release build is universal; Clio is not, so the other half is dropped
+# rather than shipped. The binary and the headers' Mach-O are all there is to
+# sign — no nested bundles, unlike Sparkle.
+LLAMA="$(find .build/artifacts -path "*macos*" -name llama.framework -maxdepth 6 -type d | head -1)"
+if [ -z "$LLAMA" ]; then
+	echo "error: llama.framework not found — run 'swift build' first" >&2
+	exit 1
+fi
+cp -R "$LLAMA" "$APP/Contents/Frameworks/"
+LLAMA_BINARY="$APP/Contents/Frameworks/llama.framework/Versions/A/llama"
+if lipo "$LLAMA_BINARY" -verify_arch x86_64 2>/dev/null; then
+	lipo "$LLAMA_BINARY" -thin arm64 -output "$LLAMA_BINARY.arm64"
+	mv "$LLAMA_BINARY.arm64" "$LLAMA_BINARY"
+fi
+
 # add_rpath errors rather than no-ops on a duplicate, and the binary is fresh
 # each build, so this is unconditional but checked.
 # Captured before matching, not piped into `grep -q` — see the note in
@@ -132,6 +149,8 @@ while IFS= read -r nested; do
 done < <(find "$SPARKLE_BUNDLE" \( -name "*.app" -o -name "*.xpc" \) | sort -r)
 
 codesign --force --sign "${SIGN[@]}" --options runtime $TIMESTAMP "$SPARKLE_BUNDLE"
+codesign --force --sign "${SIGN[@]}" --options runtime $TIMESTAMP \
+	"$APP/Contents/Frameworks/llama.framework"
 
 codesign --force --sign "${SIGN[@]}" \
 	--entitlements Resources/Clio.entitlements \

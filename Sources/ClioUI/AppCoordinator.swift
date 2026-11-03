@@ -68,6 +68,18 @@ public final class AppCoordinator {
     var callWatch = CallWatch()
     var callWatchTask: Task<Void, Never>?
     var meetingOffer: MeetingOfferController?
+    /// Meetings whose summary is being written again, by file, for the
+    /// library to show it happening.
+    public internal(set) var summarizingFiles: Set<URL> = []
+    /// Why the last summary asked for was not written. Nil once one is.
+    public internal(set) var summaryProblem: String?
+    var summaryTasks: [URL: Task<Void, Never>] = [:]
+    /// The downloaded summary models that have been used, by weights file,
+    /// so a run of summaries loads the weights once — see
+    /// `LocalSummaryModel.idleTime`.
+    var localSummaryModels: [URL: LocalSummaryModel] = [:]
+    /// The language models installed at the last look, to notice one arrive.
+    var knownLanguageModelIDs: Set<String>?
     /// Nil in previews and tests: starting a real updater would schedule
     /// network checks from a preview canvas.
     public let updates: UpdateManager?
@@ -127,9 +139,11 @@ public final class AppCoordinator {
     }
 
     /// The model transcription will use. Nil means nothing is installed.
+    /// Speech models only: the folder also holds summary models, and a GGUF
+    /// handed to WhisperKit is a dictation that fails.
     public var activeModel: InstalledModel? {
-        models.installedModel(id: settingsStore.settings.activeModelID)
-            ?? models.installed.first
+        let stored = models.installedModel(id: settingsStore.settings.activeModelID)
+        return stored?.kind == .speech ? stored : models.installed(.speech).first
     }
 
     /// Keep the stored selection pointing at a model that is actually there.
@@ -143,10 +157,11 @@ public final class AppCoordinator {
     /// being deleted, or the bundle identifier changing and moving Application
     /// Support out from under a stored id.
     public func reconcileActiveModel() {
+        reconcileSummaryModel()
         let stored = settingsStore.settings.activeModelID
-        if let stored, models.isInstalled(stored) { return }
+        if let stored, models.installedModel(id: stored)?.kind == .speech { return }
 
-        let replacement = models.installed.first?.id
+        let replacement = models.installed(.speech).first?.id
         guard replacement != stored else { return }
         settingsStore.settings.activeModelID = replacement
     }

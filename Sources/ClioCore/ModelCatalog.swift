@@ -14,6 +14,14 @@ public enum QualityTier: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// What a model is for. Clio downloads two kinds into one folder: speech
+/// models for WhisperKit, and language models — GGUF files run by llama.cpp
+/// — that write meeting summaries.
+public enum ModelKind: String, Codable, Sendable, CaseIterable {
+    case speech
+    case language
+}
+
 public enum ModelLanguages: String, Codable, Sendable {
     case english
     case multilingual
@@ -48,16 +56,26 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
     /// entry instead would leave a gigabyte on disk with no row to remove it
     /// from, still quietly in use if it was the active model.
     public var retired: Bool
+    /// Speech, unless the catalog says otherwise: every entry written
+    /// before language models existed is a Whisper model.
+    public var kind: ModelKind
+    /// One file to take from the repo's root, for a model that is a single
+    /// file — a GGUF — rather than a folder named `id`. It is installed as
+    /// `<models>/<id>/<fileName>`, so every model is still a folder.
+    public var fileName: String?
 
     public init(id: String, displayName: String, repo: String,
                 tokenizerRepo: String? = nil,
                 approximateBytes: Int64, tier: QualityTier,
                 languages: ModelLanguages, note: String? = nil,
-                retired: Bool = false) {
+                retired: Bool = false,
+                kind: ModelKind = .speech, fileName: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.repo = repo
         self.tokenizerRepo = tokenizerRepo
+        self.kind = kind
+        self.fileName = fileName
         self.approximateBytes = approximateBytes
         self.tier = tier
         self.languages = languages
@@ -79,7 +97,13 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
         languages = try c.decode(ModelLanguages.self, forKey: .languages)
         note = try c.decodeIfPresent(String.self, forKey: .note)
         retired = try c.decodeIfPresent(Bool.self, forKey: .retired) ?? false
+        kind = try c.decodeIfPresent(ModelKind.self, forKey: .kind) ?? .speech
+        fileName = try c.decodeIfPresent(String.self, forKey: .fileName)
     }
+
+    /// The folder in the repo the model's files are listed from: the model's
+    /// own for a WhisperKit folder, the root for a single file.
+    var repoPath: String { fileName == nil ? id : "" }
 }
 
 /// The list of models we offer.
@@ -173,7 +197,36 @@ public enum ModelCatalog {
             languages: .multilingual,
             note: "No longer offered. Large v3 Turbo is close in accuracy, smaller and much faster.",
             retired: true),
+
+        // Summary models: one GGUF each, 4-bit, from repos that track the
+        // model's own release. Apple's on-device model holds about four
+        // thousand tokens and writes a summary from pieces; these hold the
+        // whole transcript of most meetings and write one from all of it.
+        // Both are instruction-tuned without a "thinking" mode, so the
+        // answer is the summary and nothing has to be cut out of it.
+        CatalogModel(
+            id: "qwen3-4b-instruct-2507-q4_k_m",
+            displayName: "Qwen3 4B",
+            repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+            approximateBytes: 2_497_000_000,
+            tier: .balanced,
+            languages: .multilingual,
+            note: "Better summaries than Apple Intelligence; reads the whole transcript. Needs 8 GB of memory.",
+            kind: .language,
+            fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+        CatalogModel(
+            id: "gemma-3-12b-it-q4_k_m",
+            displayName: "Gemma 3 12B",
+            repo: "ggml-org/gemma-3-12b-it-GGUF",
+            approximateBytes: 7_300_000_000,
+            tier: .best,
+            languages: .multilingual,
+            note: "Best summaries. Slower, and needs 16 GB of memory or more.",
+            kind: .language,
+            fileName: "gemma-3-12b-it-Q4_K_M.gguf"),
     ]
 
     public static let defaultModelID = "distil-whisper_distil-large-v3_594MB"
+    /// The summary model Settings offers first, to anyone on Apple's.
+    public static let defaultSummaryModelID = "qwen3-4b-instruct-2507-q4_k_m"
 }
