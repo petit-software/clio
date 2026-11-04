@@ -15,6 +15,7 @@ struct MeetingView: View {
         var id: String { rawValue }
     }
 
+
     @State private var pane: Pane = .notes
     @State private var title = ""
     @State private var notes = ""
@@ -48,9 +49,11 @@ struct MeetingView: View {
                     // Room at the end, so the last line clears the bar.
                     Color.clear.frame(height: 90).id(Self.end)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .pageMargins()
             }
             .nativeTopEdge()
+            .pageTopFade()
+            .thinScrollers()
             // The newest line, as it arrives, while the transcript is showing.
             .onChange(of: meeting.record.lines.count) { _, _ in
                 guard pane == .transcript else { return }
@@ -72,11 +75,20 @@ struct MeetingView: View {
                         if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                     }
                     .disabled(meeting.fileURL == nil)
+                    // Each part on its own; the foot's Copy takes the pane showing.
+                    Button("Copy Notes", systemImage: "note.text") { TextInjector.copy(notes) }
+                        .disabled(notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Copy Summary", systemImage: "text.badge.star") {
+                        TextInjector.copy(meeting.record.titledSummary ?? "")
+                    }
+                    .disabled(meeting.record.summary == nil)
                     Button("Copy Transcript", systemImage: "text.quote") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(meeting.record.transcriptText, forType: .string)
+                        TextInjector.copy(meeting.record.transcriptText)
                     }
                     .disabled(meeting.record.lines.isEmpty)
+                    Button("Copy Meeting as Markdown", systemImage: "doc.plaintext") {
+                        TextInjector.copy(MeetingMarkdown.render(meeting.record))
+                    }
                     if let link = meeting.record.joinURL {
                         Button("Copy Meeting URL", systemImage: "link") {
                             TextInjector.copy(link.absoluteString)
@@ -280,7 +292,7 @@ struct MeetingView: View {
 
     private var summaryPane: some View {
         Group {
-            if let summary = meeting.record.summary {
+            if let summary = meeting.record.titledSummary {
                 MarkdownEditor(text: .constant(summary), isEditable: false, minHeight: 0)
                     .padding(.horizontal, -20)
             } else {
@@ -307,9 +319,8 @@ struct MeetingView: View {
         DocumentBar {
             panePicker
         } trailing: {
-                CopyButton(help: "Copy the meeting so far as Markdown") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(MeetingMarkdown.render(meeting.record), forType: .string)
+                CopyButton(help: pane.copyHelp) {
+                    TextInjector.copy(pane == .notes ? notes : pane.text(of: meeting.record))
                 }
                 if meeting.phase == .finished, let url = meeting.fileURL {
                     Button("Open Notes", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
@@ -371,5 +382,26 @@ struct SummaryText: View {
             return String(line.dropFirst(prefix.count))
         }
         return nil
+    }
+}
+
+extension MeetingView.Pane {
+    /// What Copy copies: the pane on screen, as text — the notes as the
+    /// Markdown typed, the summary as the model wrote it, the transcript
+    /// in turns.
+    func text(of record: MeetingRecord) -> String {
+        switch self {
+        case .notes: return record.notes
+        case .summary: return record.titledSummary ?? ""
+        case .transcript: return record.transcriptText
+        }
+    }
+
+    var copyHelp: String {
+        switch self {
+        case .notes: return "Copy the notes"
+        case .summary: return "Copy the summary"
+        case .transcript: return "Copy the transcript"
+        }
     }
 }

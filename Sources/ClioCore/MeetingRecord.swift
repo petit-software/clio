@@ -154,6 +154,16 @@ public struct MeetingRecord: Sendable, Equatable {
             .map(String.init)
     }
 
+    /// The summary as a page of its own: the meeting's name as a heading,
+    /// then what the model wrote. Shown and copied this way; the file keeps
+    /// the summary alone under its own heading, so a renamed meeting is
+    /// never out of step with it. Nil without a summary.
+    public var titledSummary: String? {
+        guard let summary = summary?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !summary.isEmpty else { return nil }
+        return "# \(title)\n\n\(summary)"
+    }
+
     /// The transcript as plain lines, for the summary and for copying.
     public var transcriptText: String {
         MeetingMarkdown.paragraphs(lines)

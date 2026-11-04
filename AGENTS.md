@@ -51,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 217 tests live here.
+  without standing up an app. All 218 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 217 tests, 31 suites, no network
+swift test                                  # 218 tests, 32 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -106,6 +106,9 @@ CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing r
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =event the call to come, =empty nothing
 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short window, so the sidebar scrolls under its foot
+CLIO_LIBRARY_WIDTH=1240 CLIO_LIBRARY_SHOW=1 swift run Clio  # …wide, so the page takes its wide margins (the breakpoint is 680 pt of page)
+CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # the sidebar scrolled a little, its scroll bar kept on screen
+CLIO_MEETING_PANE=transcript CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_WIDTH=1100 CLIO_LIBRARY_SHOW=1 swift run Clio   # a long page scrolled under the toolbar, for its fade
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
@@ -314,6 +317,39 @@ Nothing else goes in it: the sidebar's controls sit along its foot
 (`safeAreaInset`) and a document's along its own bottom (`DocumentBar`),
 floating over the page. The button was drawn by hand as an overlay for one
 commit; laid out past the title bar's safe area it sat wrong and looked it.
+
+**`scrollIndicators(.hidden)` does nothing on it either.** A `List` on macOS
+is an `NSTableView` in its own scroll view, and the modifier never reaches
+the scroller. `ThinScrollers`, in the list's background, walks up to the
+scroll view and swaps in `ThinScroller`: a 7-point line at 22% of the text
+colour, no track, on the sidebar and every page alike. It fades itself: an
+overlay scroller fades by drawing its knob at a falling alpha, which a
+custom `drawKnob` never sees, so the bar stayed on screen from the launch
+flash onward whatever the pointer did. Now it starts at alpha 0 and a
+tracking area on the installer view — the list's or page's own size; a
+page's scroll view runs under the sidebar on macOS 26 and spans the window
+— fades it in while the pointer is over it and out when it leaves. A subclass must say `isCompatibleWithOverlayScrollers`
+or the bar comes back legacy and always visible. `CLIO_SCROLLER_SHOW`
+keeps it on screen; nothing else makes an overlay scroller sit still.
+
+**The toolbar has no backdrop of its own; each page fades under it.** The
+band AppKit draws under a window's `NSToolbar` is blur with a hard edge, and
+nothing softens it: `scrollEdgeEffectStyle(.soft)` and `scrollEdgeEffectHidden`
+on the page changed nothing (captured identical), and AppKit's own
+`NSScrollEdgeEffectStyle` (26.1) is offered only to accessory view
+controllers. So the title bar is transparent (`titlebarAppearsTransparent`)
+and every page draws `pageTopFade` — the same `EdgeFade` as the sidebar's
+foot: a blur, then the window's colour, so the fade ends in the surface and
+not in a frost. A page without it puts the title on the text.
+
+**One chevron.** `Chevron` is the grey, semibold mark on everything that
+opens or steps — the pane pull-down, the participants, the day arrows — at
+38% of the ink, as the pill's microphone chevron is. Draw no other.
+
+**A page's margins have one breakpoint.** Past 680 points of page,
+`PageMargins` adds three more of each: 12 → 48 under the toolbar, 28 → 112
+at the sides. Narrower, nothing is added, so the panes' own paddings are
+still the whole story. `CLIO_LIBRARY_WIDTH` shows either side of it.
 
 **`scrollEdgeEffectStyle` does nothing on the sidebar's `List`.** Rows
 scrolled straight through the foot's controls, and under the search field,

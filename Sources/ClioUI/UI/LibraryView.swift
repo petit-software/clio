@@ -51,6 +51,10 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         window.toolbar = toolbar
         window.toolbarStyle = .unified
         window.titlebarSeparatorStyle = .none
+        // No backdrop of its own: the band AppKit draws has a hard edge and
+        // one style. Each page draws a fade under the toolbar instead
+        // (`pageTopFade`).
+        window.titlebarAppearsTransparent = true
         let host = NSHostingView(rootView: LibraryView(coordinator: coordinator))
         host.sceneBridgingOptions = [.toolbars, .title]
         window.contentView = host
@@ -58,9 +62,13 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         if !window.setFrameUsingName("ClioLibraryWindow") { window.center() }
         #if DEBUG
         // CLIO_LIBRARY_HEIGHT: a short window, whatever was saved, to see
-        // the sidebar scroll under its foot.
-        if let set = ProcessInfo.processInfo.environment["CLIO_LIBRARY_HEIGHT"].flatMap(Double.init) {
-            window.setContentSize(NSSize(width: 920, height: max(440, set)))
+        // the sidebar scroll under its foot. CLIO_LIBRARY_WIDTH: a wide or
+        // narrow one, to see the page's margins change.
+        let environment = ProcessInfo.processInfo.environment
+        let height = environment["CLIO_LIBRARY_HEIGHT"].flatMap(Double.init)
+        let width = environment["CLIO_LIBRARY_WIDTH"].flatMap(Double.init)
+        if height != nil || width != nil {
+            window.setContentSize(NSSize(width: max(600, width ?? 920), height: max(440, height ?? 700)))
             window.center()
         }
         #endif
@@ -128,6 +136,14 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
+        // Rows fade under the foot's blur and the search field; the system
+        // scroll bar through both read as a third control. `scrollIndicators`
+        // does nothing to a List on macOS; this swaps the scroller.
+        .thinScrollers()
+        // The same surface as the page: the sidebar material is covered by
+        // the window's background colour, so the two halves are one sheet.
+        .scrollContentBackground(.hidden)
+        .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.downArrow) { step(1) }
@@ -141,24 +157,28 @@ struct LibraryView: View {
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
                 Button { coordinator.startMeeting() } label: {
-                    // The same disc as Copy across the split.
-                    Image(systemName: "record.circle")
-                        .font(.system(size: 14, weight: .semibold))
+                    // The same disc as Copy across the split, filled with ink:
+                    // a record button, the one thing here that starts something.
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        // The window's colour on the ink, so it shows in either appearance.
+                        // Not `.background`: inside a tinted button that is the tint.
+                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
                         .frame(width: 22, height: 22)
                 }
                     .accessibilityLabel("Take Notes")
                     .buttonBorderShape(.circle)
                     .controlSize(.large)
-                    .glassButton()
+                    .glassButton(prominent: true, tint: .primary)
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
                 Spacer(minLength: 0)
                 // Three buttons on one piece of glass, nothing drawn
                 // between them.
                 HStack(spacing: 8) {
-                    Button("Previous Day", systemImage: "chevron.compact.backward") { move(-1) }
+                    Button { move(-1) } label: { Chevron(symbol: "chevron.backward") }
+                        .accessibilityLabel("Previous Day")
                         .help("Previous day (⌘[)")
                         .keyboardShortcut("[", modifiers: .command)
-                        .fontWeight(.bold)
                     Button(dayTitle) { coordinator.libraryDay = Self.today }
                         .help(isToday ? "Today" : "Back to today")
                         .font(.system(size: 13, weight: .medium))
@@ -167,34 +187,26 @@ struct LibraryView: View {
                         // Wide enough for "Yesterday", so the control keeps
                         // its width whatever day it shows.
                         .frame(width: 72)
-                    Button("Next Day", systemImage: "chevron.compact.forward") { move(1) }
+                    Button { move(1) } label: { Chevron(symbol: "chevron.forward") }
+                        .accessibilityLabel("Next Day")
                         .help("Next day (⌘])")
                         .keyboardShortcut("]", modifiers: .command)
-                        .fontWeight(.bold)
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .controlSize(.large)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .glassSurface(Capsule())
                 .fixedSize()
+                .footCapsule()
             }
             // The same insets as a document's bar, so the two line up
             // across the split.
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 14)
-            // What scrolls under the foot fades into frost before it
+            // What scrolls under the foot fades into the sidebar before it
             // reaches the controls.
             .background {
-                Rectangle()
-                    .fill(.regularMaterial)
-                    .mask {
-                        LinearGradient(stops: [.init(color: .clear, location: 0),
-                                               .init(color: .black, location: 0.5)],
-                                       startPoint: .top, endPoint: .bottom)
-                    }
+                EdgeFade(edge: .bottom)
                     .padding(.top, -28)
             }
         }
@@ -754,7 +766,7 @@ struct MeetingDocumentView: View {
                             .padding(.horizontal, 28)
                             .padding(.bottom, 12)
                     }
-                    MarkdownEditor(text: .constant(record.summary ?? ""), isEditable: false,
+                    MarkdownEditor(text: .constant(record.titledSummary ?? ""), isEditable: false,
                                    minHeight: 0)
                         .padding(.horizontal, 8)
                 case .transcript:
@@ -762,9 +774,11 @@ struct MeetingDocumentView: View {
                 }
             }
             .padding(.bottom, 80)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .pageMargins()
         }
         .nativeTopEdge()
+        .pageTopFade()
+        .thinScrollers()
         .navigationTitle(record.title)
         .toolbar {
             TitleItem {
@@ -780,11 +794,20 @@ struct MeetingDocumentView: View {
                     Button("Open in Default App", systemImage: "doc.text") {
                         NSWorkspace.shared.open(url)
                     }
+                    // Each part on its own; the foot's Copy takes the pane showing.
+                    Button("Copy Notes", systemImage: "note.text") { TextInjector.copy(record.notes) }
+                        .disabled(record.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Copy Summary", systemImage: "text.badge.star") {
+                        TextInjector.copy(record.titledSummary ?? "")
+                    }
+                    .disabled(record.summary == nil)
                     Button("Copy Transcript", systemImage: "text.quote") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(record.transcriptText, forType: .string)
+                        TextInjector.copy(record.transcriptText)
                     }
                     .disabled(record.lines.isEmpty)
+                    Button("Copy Meeting as Markdown", systemImage: "doc.plaintext") {
+                        TextInjector.copy(MeetingMarkdown.render(record))
+                    }
                     if let link = record.joinURL {
                         Button("Copy Meeting URL", systemImage: "link") {
                             TextInjector.copy(link.absoluteString)
@@ -819,10 +842,7 @@ struct MeetingDocumentView: View {
             DocumentBar {
                 PaneMenu(panes: panes(record), pane: $pane)
             } trailing: {
-                CopyButton(help: "Copy the whole meeting as Markdown") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(MeetingMarkdown.render(record), forType: .string)
-                }
+                CopyButton(help: pane.copyHelp) { TextInjector.copy(pane.text(of: record)) }
             }
         }
     }
@@ -894,8 +914,11 @@ private struct DictationView: View {
             MarkdownEditor(text: .constant(entry.text), isEditable: false, minHeight: 0)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 12)
+                .pageMargins()
         }
         .nativeTopEdge()
+        .pageTopFade()
+        .thinScrollers()
         .navigationTitle("Dictation")
         .toolbar {
             TitleItem {

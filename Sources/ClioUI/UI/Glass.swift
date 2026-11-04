@@ -44,6 +44,15 @@ extension View {
         }
     }
 
+    /// A capsule along a foot — the pane pull-down, the day control — the
+    /// height of the discs beside it, so every control on either foot is one
+    /// size: 35 points, 14 in from each end, on interactive glass.
+    func footCapsule() -> some View {
+        padding(.horizontal, 14)
+            .frame(height: 35)
+            .glassCapsule()
+    }
+
     /// Glass behind this view, in `shape`; a material before macOS 26.
     @ViewBuilder
     func glassSurface<S: Shape>(_ shape: S, tint: Color? = nil) -> some View {
@@ -116,6 +125,64 @@ struct TrailingToolbarActions<Content: View>: ToolbarContent {
     }
 }
 
+/// What scrolls under a bar fades into the surface before it reaches the
+/// controls: a blur, then the window's own colour, so the end of the fade is
+/// the sidebar or the page and not a frost of its own. Solid at `edge`.
+/// The sidebar's foot and a page's top share it, so the two match.
+struct EdgeFade: View {
+    var edge: VerticalEdge
+
+    var body: some View {
+        let from: UnitPoint = edge == .bottom ? .top : .bottom
+        let to: UnitPoint = edge == .bottom ? .bottom : .top
+        ZStack {
+            Rectangle()
+                .fill(.regularMaterial)
+                .mask {
+                    LinearGradient(stops: [.init(color: .clear, location: 0),
+                                           .init(color: .black, location: 0.5)],
+                                   startPoint: from, endPoint: to)
+                }
+            LinearGradient(stops: [.init(color: .clear, location: 0),
+                                   .init(color: Color(nsColor: .windowBackgroundColor), location: 0.7)],
+                           startPoint: from, endPoint: to)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    /// The fade under a page's toolbar. The title bar is transparent — its
+    /// own backdrop is a hard-edged band nothing can soften — so this is
+    /// what keeps the title readable over the text passing under it.
+    func pageTopFade() -> some View {
+        overlay(alignment: .top) {
+            EdgeFade(edge: .top)
+                .frame(height: 96)
+                .ignoresSafeArea(edges: .top)
+        }
+    }
+}
+
+/// The chevron that says a control opens or steps — the pane pull-down,
+/// the participants, the day — one grey and one weight wherever it is. A
+/// fraction of the ink, as the pill's microphone chevron is, so it follows
+/// the appearance.
+struct Chevron: View {
+    var symbol = "chevron.down"
+    /// One size too: the compact chevrons at 14 read thinner than this at
+    /// 9, so the day arrows are the regular chevrons at the same size.
+    var size: CGFloat = 10
+
+    static let colour = Color.primary.opacity(0.38)
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(Self.colour)
+    }
+}
+
 /// Which of a meeting's panes is showing, as a pull-down on glass: the
 /// name and one chevron, not the popup's pair. Glass drawn around a plain
 /// menu, as the ⋯ is, since a Menu ignores the glass button style.
@@ -134,8 +201,7 @@ struct PaneMenu: View {
             HStack(spacing: 6) {
                 Text(pane.rawValue)
                     .font(.system(size: 13, weight: .medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                Chevron()
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, 14)
@@ -146,7 +212,8 @@ struct PaneMenu: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .glassCapsule()
+        .padding(.horizontal, -14)
+        .footCapsule()
     }
 }
 
@@ -264,6 +331,13 @@ struct DocumentBar<Leading: View, Trailing: View>: View {
             .controlSize(.large)
         }
         .padding(.horizontal, 16)
+        .padding(.top, 12)
         .padding(.bottom, 14)
+        // What scrolls under the bar fades into the page before it reaches
+        // the controls — the sidebar's foot, across the split.
+        .background {
+            EdgeFade(edge: .bottom)
+                .padding(.top, -28)
+        }
     }
 }

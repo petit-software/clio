@@ -854,3 +854,18 @@ struct CalendarColorTests {
         #expect(CalendarColor(nil) == nil)
     }
 }
+
+@Suite("Summary page")
+struct SummaryPageTests {
+    @Test("The summary is shown and copied under the meeting's name as a heading")
+    func titled() {
+        var record = MeetingRecord(title: "Weekly sync")
+        #expect(record.titledSummary == nil)
+        record.summary = "  \n"
+        #expect(record.titledSummary == nil)
+        record.summary = "### Beta\n- Thursday\n"
+        #expect(record.titledSummary == "# Weekly sync\n\n### Beta\n- Thursday")
+        record.title = "Renamed"
+        #expect(record.titledSummary?.hasPrefix("# Renamed\n") == true)
+    }
+}

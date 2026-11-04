@@ -38,8 +38,7 @@ struct DocumentTitle: View {
                     } label: {
                         HStack(spacing: 3) {
                             Text(attendees.count == 1 ? "1 participant" : "\(attendees.count) participants")
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
+                            Chevron(size: 8)
                         }
                         .contentShape(Rectangle())
                     }
