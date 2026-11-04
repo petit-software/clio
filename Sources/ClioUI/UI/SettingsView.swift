@@ -271,9 +271,14 @@ private struct ModelTab: View {
             Section {
                 Toggle("Keep model in memory", isOn: Binding(
                     get: { coordinator.settingsStore.settings.keepModelInMemory },
-                    set: { coordinator.settingsStore.settings.keepModelInMemory = $0 }))
+                    set: {
+                        coordinator.settingsStore.settings.keepModelInMemory = $0
+                        coordinator.modelResidencyChanged()
+                    }))
                 Text("Cold-loading a large model costs several seconds. Keeping "
-                     + "it resident trades memory for latency.")
+                     + "it resident trades memory for latency. Off, the speech model is "
+                     + "let go after each dictation and a summary model seconds after "
+                     + "its last use.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

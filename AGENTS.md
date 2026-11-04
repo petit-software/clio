@@ -51,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 214 tests live here.
+  without standing up an app. All 217 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 214 tests, 30 suites, no network
+swift test                                  # 217 tests, 31 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -80,6 +80,7 @@ Gated suites and tools, all off by default:
 CLIO_INTEGRATION=1 swift test --filter Integration        # downloads ~81 MB
 CLIO_INTEGRATION=1 CLIO_INTEGRATION_MODEL=<catalog id> swift test --filter "Integration|LongAudio"   # prove a model before offering it
 CLIO_INTEGRATION=1 swift test --filter StartupLatency     # where start() spends time
+CLIO_INTEGRATION=1 swift test --filter ModelResidency     # load, use and free the installed speech model and GGUF: does the memory come back; downloads nothing
 CLIO_INTEGRATION=1 CLIO_SUMMARY_MODEL=~/Library/Application\ Support/com.bartbak.clio/models/<id>/<file>.gguf swift test --filter SummaryModelIntegration   # a GGUF through llama.cpp: a prompt, then a whole meeting; downloads nothing
 CLIO_LONG_MEETING=60 swift test --filter LongMeeting      # an hour of meeting through a real session and an installed model; downloads nothing
 CLIO_OVERLAY_DUMP=/tmp/x swift run Clio                   # every pill state to PNG
@@ -233,6 +234,18 @@ decodes field by field with fallbacks — keep it that way, and add new fields t
 the root of the `.app`, falls back to a path hardcoded to the machine that
 compiled it, then calls `fatalError`. `models.json` is a plain `Bundle.main`
 resource with a compiled-in fallback.
+
+**"Keep model in memory" read nothing for eleven releases.** The toggle
+was in the first commit and the value was stored, and no code consulted it:
+the speech model stayed loaded from the first dictation to quit either way,
+and a summary model let itself go after two minutes either way.
+`AppCoordinator+Residency` honours it now — off, the speech model is freed
+after each dictation and after a meeting stops, and a summary model five
+seconds after its last request — and `ModelResidency` measures what freeing
+gives back. Activity Monitor understates a loaded speech model: the Neural
+Engine's share of a CoreML model is charged to the system's `aned`, so
+large-v3 turbo adds only 201 MB to Clio's own row. A setting nobody has
+measured is a toggle that may do nothing.
 
 **Two kinds of model share one folder, and must never be confused.**
 `models/<id>/` holds WhisperKit folders (`.mlmodelc` inside) and summary
@@ -446,6 +459,9 @@ Verified by something repeatable:
   tampered copy is rejected
 - a quarantined download passes Gatekeeper
 - startup latency, measured per phase
+- freeing a model gives the memory back (`ModelResidency`): large-v3 turbo
+  adds 201 MB to the process and 42 MB of that stays behind; Qwen3 4B adds
+  1.3 GB and 1 MB stays; a load after a free works, three seconds for turbo
 - the summarizer on a scripted model: one request when the transcript fits,
   pieces then bullets when it does not, the notes leading the last prompt, a
   model's thinking cut out of the answer (`SummaryModelTests`); the catalog's
@@ -513,3 +529,5 @@ Not verified, and worth knowing:
 - `HotkeyTests`' "Push to talk ends on the release of the chord that started
   it" counts ten milliseconds against sixty on the main actor and fails about
   half the time in a full `swift test`. It passes alone, every time.
+  "Push to talk with a three-key chord ends when any one key is let go" is
+  its sibling and fails the same way, less often.

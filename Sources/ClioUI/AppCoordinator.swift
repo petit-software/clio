@@ -476,6 +476,7 @@ public final class AppCoordinator {
         // A little over the old 900: the pill lets its activity ring go
         // out before it draws the result, and the hold is counted from here.
         scheduleReturnToIdle(after: .milliseconds(1100))
+        releaseModelsIfNotKept()
     }
 
     public func cancel() {
@@ -495,6 +496,7 @@ public final class AppCoordinator {
         state = .idle
         overlay?.hide()
         feedback.play(.cancel, enabled: settingsStore.settings.playSoundOnCancel)
+        releaseModelsIfNotKept()
     }
 
     /// The dictation produced no words. Said the same way as a failure in the
@@ -520,6 +522,7 @@ public final class AppCoordinator {
         overlay?.show(position: settingsStore.settings.overlayPosition)
         feedback.play(.cancel, enabled: settingsStore.settings.playSoundOnCancel)
         scheduleReturnToIdle(after: .seconds(2.5))
+        releaseModelsIfNotKept()
     }
 
     private func scheduleReturnToIdle(after duration: Duration) {

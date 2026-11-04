@@ -42,7 +42,8 @@ extension AppCoordinator {
             Task { await model.unload() }
         }
         localSummaryModels = [:]
-        let model = LocalSummaryModel(file: file, name: installed.displayName)
+        let model = LocalSummaryModel(file: file, name: installed.displayName,
+                                      idleTime: summaryModelIdleTime)
         localSummaryModels[file] = model
         return model
     }

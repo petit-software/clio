@@ -22,8 +22,9 @@ public actor LocalSummaryModel: SummaryLanguageModel {
     /// gigabyte at this size for a 4B model, which an 8 GB Mac can carry
     /// beside the weights.
     public nonisolated let contextTokens: Int
-    /// How long the weights stay loaded after a request.
-    public nonisolated let idleTime: Duration
+    /// How long the weights stay loaded after a request. Settings ▸ Model's
+    /// "Keep model in memory" sets it: minutes when on, seconds when off.
+    public private(set) var idleTime: Duration
 
     private let queue = DispatchSerialQueue(label: "com.bartbak.clio.summary-model", qos: .userInitiated)
     public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
@@ -94,6 +95,14 @@ public actor LocalSummaryModel: SummaryLanguageModel {
         }
         self.model = model
         self.context = context
+    }
+
+    /// Changes how long the weights stay loaded after a request. If they are
+    /// waiting to be freed now, the wait starts over at the new length.
+    public func setIdleTime(_ time: Duration) {
+        guard time != idleTime else { return }
+        idleTime = time
+        if unloadTask != nil { scheduleUnload() }
     }
 
     /// Frees the weights. Nothing is lost: the next request loads them again.

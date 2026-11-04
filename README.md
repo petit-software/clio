@@ -41,7 +41,7 @@ Working end to end, signed, notarized and updating itself through Sparkle.
 
 ```sh
 swift build              # library + executable
-swift test               # 214 tests, no network
+swift test               # 217 tests, no network
 ./scripts/build-app.sh   # Clio.app, signed with your Developer ID
 open Clio.app
 ```

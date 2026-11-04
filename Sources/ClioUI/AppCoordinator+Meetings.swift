@@ -87,6 +87,7 @@ extension AppCoordinator {
         guard let meeting, meeting.isActive else { return }
         Task { @MainActor in
             await meeting.stop()
+            releaseModelsIfNotKept()
         }
     }
 
