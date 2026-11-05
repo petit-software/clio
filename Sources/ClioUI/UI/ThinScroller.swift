@@ -149,7 +149,7 @@ extension View {
 /// panes' own paddings — 12 under the toolbar and 28 to the text — so a
 /// narrow page is exactly as it was.
 struct PageMargins: ViewModifier {
-    static let wideWidth: CGFloat = 680
+    static let wideWidth: CGFloat = 520
     /// Three more of each: 12 → 48 under the toolbar, 28 → 112 at the sides.
     static let extraTop: CGFloat = 36
     static let extraHorizontal: CGFloat = 84

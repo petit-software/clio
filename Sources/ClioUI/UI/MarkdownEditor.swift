@@ -198,19 +198,21 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
                          withAttributes: attributes)
             case .checkbox(let range, let done):
                 guard let rect = rect(for: range) else { continue }
-                let symbol = done ? "checkmark.square.fill" : "square"
-                // A white tick on the accent when done; an outline when not.
-                let palette: [NSColor] = done ? [.white, .controlAccentColor] : [.secondaryLabelColor]
-                let configuration = NSImage.SymbolConfiguration(pointSize: MarkdownStyle.size, weight: .medium)
-                    .applying(.init(paletteColors: palette))
-                guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                    .withSymbolConfiguration(configuration) else { continue }
-                let side = min(rect.height, image.size.height)
-                let scale = side / max(image.size.height, 1)
-                let size = NSSize(width: image.size.width * scale, height: side)
-                // Centred in the room the hidden "[ ]" leaves.
-                image.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
-                                      width: size.width, height: size.height))
+                // A circle: filled in the accent with the tick cut out when
+                // done, an outline when not. The 24-point box the glyphs
+                // are drawn on, a little taller than the text, centred in
+                // the room the hidden "[ ]" leaves.
+                let side = min(rect.height, MarkdownStyle.size * 1.25)
+                let box = NSRect(x: rect.midX - side / 2, y: rect.midY - side / 2,
+                                 width: side, height: side)
+                guard let context = NSGraphicsContext.current?.cgContext else { continue }
+                context.saveGState()
+                context.translateBy(x: box.minX, y: box.minY)
+                context.scaleBy(x: side / 24, y: side / 24)
+                context.addPath((done ? LibraryIcon.todoDone : LibraryIcon.todoOpen).path.cgPath)
+                context.setFillColor((done ? NSColor.controlAccentColor : NSColor.secondaryLabelColor).cgColor)
+                context.fillPath(using: .evenOdd)
+                context.restoreGState()
             case .rule(let range):
                 let glyph = layoutManager.glyphIndexForCharacter(at: range.location)
                 var line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)

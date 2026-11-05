@@ -169,16 +169,15 @@ extension View {
 /// fraction of the ink, as the pill's microphone chevron is, so it follows
 /// the appearance.
 struct Chevron: View {
-    var symbol = "chevron.down"
-    /// One size too: the compact chevrons at 14 read thinner than this at
-    /// 9, so the day arrows are the regular chevrons at the same size.
+    var icon: LibraryIcon = .chevronDown
+    /// The chevron's long side, in points: across for the pull-downs, up
+    /// for the day's arrows.
     var size: CGFloat = 10
 
     static let colour = Color.primary.opacity(0.38)
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: size, weight: .semibold))
+        Glyph(icon: icon, size: size, cropped: true)
             .foregroundStyle(Self.colour)
     }
 }
@@ -257,8 +256,7 @@ struct MoreMenu<Content: View>: View {
         Menu {
             content
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .semibold))
+            Glyph(icon: .ellipsis, size: 20)
                 .foregroundStyle(.primary)
                 .frame(width: 35, height: 35)
                 .contentShape(Circle())
@@ -302,8 +300,7 @@ struct CopyButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "square.fill.on.square.fill")
-                .font(.system(size: 14, weight: .semibold))
+            Glyph(icon: .copy, size: 20)
                 .frame(width: 22, height: 22)
         }
         .buttonBorderShape(.circle)

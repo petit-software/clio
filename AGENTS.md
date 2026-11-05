@@ -106,7 +106,7 @@ CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing r
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =event the call to come, =empty nothing
 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short window, so the sidebar scrolls under its foot
-CLIO_LIBRARY_WIDTH=1240 CLIO_LIBRARY_SHOW=1 swift run Clio  # …wide, so the page takes its wide margins (the breakpoint is 680 pt of page)
+CLIO_LIBRARY_WIDTH=1240 CLIO_LIBRARY_SHOW=1 swift run Clio  # …wide, so the page takes its wide margins (the breakpoint is 520 pt of page)
 CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # the sidebar scrolled a little, its scroll bar kept on screen
 CLIO_MEETING_PANE=transcript CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_WIDTH=1100 CLIO_LIBRARY_SHOW=1 swift run Clio   # a long page scrolled under the toolbar, for its fade
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
@@ -305,9 +305,13 @@ after building, then run `.build/debug/Clio` directly. Check with
 `otool -l <binary> | grep -A5 LC_BUILD_VERSION`.
 
 **The library's toolbar: the sidebar button, the document's name, the pane.**
-The window keeps an `NSToolbar` with SwiftUI's toolbars and title bridged in,
-so the split view's own sidebar button is drawn by the system beside the
-traffic lights. The document's name and date are a toolbar item of Clio's
+The window keeps an `NSToolbar` with SwiftUI's toolbars and title bridged in.
+The sidebar button is Clio's, a toolbar item on the sidebar column with the
+system's removed (`.toolbar(removing: .sidebarToggle)`): SwiftUI hosts the
+system's as a view of its own, so setting its `NSToolbarItem.image` changes
+nothing. SwiftUI moves the item beside the traffic lights when the sidebar
+hides. `navigationSplitViewColumnWidth` must come after the toolbar
+modifiers on the column, or it is not read and the sidebar opens at 209. The document's name and date are a toolbar item of Clio's
 own (`DocumentTitle`, at `.navigation`, its glass hidden): the window's title
 is hidden because, bridged, it could not take a menu — `toolbarTitleMenu`
 drew nothing — and the chevron for who was invited has to follow the name.
@@ -342,11 +346,16 @@ and every page draws `pageTopFade` — the same `EdgeFade` as the sidebar's
 foot: a blur, then the window's colour, so the fade ends in the surface and
 not in a frost. A page without it puts the title on the text.
 
-**One chevron.** `Chevron` is the grey, semibold mark on everything that
+**The window's glyphs are SVGs, not symbols.** `LibraryIcon` draws them
+from Resources/Icon/Library — copy, ⋯, sidebar, chevrons, the rows'
+calendar and transcript, the notes' to-dos — as `SettingsIcon` does for the
+Settings tabs. Menus keep their SF Symbols.
+
+**One chevron.** `Chevron` is the grey mark on everything that
 opens or steps — the pane pull-down, the participants, the day arrows — at
 38% of the ink, as the pill's microphone chevron is. Draw no other.
 
-**A page's margins have one breakpoint.** Past 680 points of page,
+**A page's margins have one breakpoint.** Past 520 points of page,
 `PageMargins` adds three more of each: 12 → 48 under the toolbar, 28 → 112
 at the sides. Narrower, nothing is added, so the panes' own paddings are
 still the whole story. `CLIO_LIBRARY_WIDTH` shows either side of it.

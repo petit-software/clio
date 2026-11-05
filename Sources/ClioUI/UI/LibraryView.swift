@@ -40,12 +40,12 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 680, height: 440)
-        // A toolbar holding the split view's own sidebar button, drawn by
-        // the system beside the traffic lights, the document's name and
-        // date at the page's leading edge, and the pane picker at its
-        // trailing one. Every other control is along the sidebar's foot
-        // or a document's. Drawn by hand as an overlay, the sidebar button
-        // sat wrong and looked it.
+        // A toolbar holding the sidebar button (Clio's glyph, in the place
+        // the system's had), the document's name and date at the page's
+        // leading edge, and the ⋯ at its trailing one. Every other control
+        // is along the sidebar's foot or a document's. Drawn by hand as an
+        // overlay, the sidebar button sat wrong and looked it; as a toolbar
+        // item it sits where the system's did.
         let toolbar = NSToolbar(identifier: "ClioLibrary")
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
@@ -90,9 +90,9 @@ struct LibraryView: View {
     @Bindable var coordinator: AppCoordinator
     @State private var query = ""
     @State private var dayEvents: [MeetingEvent] = []
-    /// Whether the sidebar shows. The system's button for it lived in the
-    /// toolbar, which is gone; ours is in the sidebar's foot, and beside
-    /// the traffic lights while the sidebar is hidden.
+    /// Whether the sidebar shows. The button for it is Clio's own, in the
+    /// toolbar where the system's was: SwiftUI hosts the system's as a view
+    /// of its own, so its glyph cannot be swapped.
     @State private var columns: NavigationSplitViewVisibility = .all
 
     private var library: MeetingLibrary? { coordinator.library }
@@ -100,6 +100,16 @@ struct LibraryView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
             sidebar
+                .toolbar(removing: .sidebarToggle)
+                .toolbar {
+                    // Over the sidebar, at its trailing edge, as the system's;
+                    // with the sidebar hidden SwiftUI moves it beside the
+                    // traffic lights itself.
+                    if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
+                    ToolbarItem(placement: .automatic) { sidebarButton }
+                }
+                // Last, on the column itself: inside the toolbar modifiers
+                // it was not read, and the sidebar opened at 209.
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 380)
         } detail: {
             detail
@@ -118,6 +128,20 @@ struct LibraryView: View {
     }
 
     // MARK: Sidebar
+
+    private var sidebarButton: some View {
+        let hidden = columns == .detailOnly
+        return Button {
+            withAnimation { columns = hidden ? .all : .detailOnly }
+        } label: {
+            Glyph(icon: .sidebar, size: 20)
+        }
+        // The system's button took no focus ring; nor does this one, which
+        // is otherwise the first thing in the window to take focus.
+        .focusEffectDisabled()
+        .help(hidden ? "Show Sidebar" : "Hide Sidebar")
+        .accessibilityLabel(hidden ? "Show Sidebar" : "Hide Sidebar")
+    }
 
     private var liveMeeting: MeetingSession? {
         guard let meeting = coordinator.meeting, meeting.phase != .finished else { return nil }
@@ -175,7 +199,7 @@ struct LibraryView: View {
                 // Three buttons on one piece of glass, nothing drawn
                 // between them.
                 HStack(spacing: 8) {
-                    Button { move(-1) } label: { Chevron(symbol: "chevron.backward") }
+                    Button { move(-1) } label: { Chevron(icon: .chevronBack) }
                         .accessibilityLabel("Previous Day")
                         .help("Previous day (⌘[)")
                         .keyboardShortcut("[", modifiers: .command)
@@ -187,7 +211,7 @@ struct LibraryView: View {
                         // Wide enough for "Yesterday", so the control keeps
                         // its width whatever day it shows.
                         .frame(width: 72)
-                    Button { move(1) } label: { Chevron(symbol: "chevron.forward") }
+                    Button { move(1) } label: { Chevron(icon: .chevronForward) }
                         .accessibilityLabel("Next Day")
                         .help("Next day (⌘])")
                         .keyboardShortcut("]", modifiers: .command)
@@ -356,8 +380,9 @@ struct LibraryView: View {
             .padding(.vertical, 2)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(selected ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-                                   : .clear))
+                    // A wash of the ink, lighter than the system's grey
+                    // selection, and the same weight in either appearance.
+                    .fill(selected ? Color.primary.opacity(0.06) : .clear))
             .contentShape(Rectangle())
             .onTapGesture { coordinator.librarySelection = tag }
             // The highlight reaches the list's edges; the text lines up
@@ -457,7 +482,7 @@ struct LibraryView: View {
                 Text("Pick a meeting\nor a dictation on the left.")
                     .multilineTextAlignment(.center)
             } icon: {
-                Image(systemName: "calendar.day")
+                Glyph(icon: .calendar, size: 48)
             }
         }
         .navigationTitle("Clio")
@@ -497,7 +522,7 @@ private struct MeetingRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            RowIcon(symbol: "calendar.day")
+            RowIcon(icon: .calendar)
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.title)
                     .font(.system(size: 13, weight: .semibold))
@@ -520,15 +545,16 @@ private struct MeetingRow: View {
 /// What a row is, at a glance: a meeting, or a dictation. Fixed width, so
 /// the titles line up whatever the symbol.
 private struct RowIcon: View {
-    let symbol: String
+    let icon: LibraryIcon
     var color: Color = .secondary
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 13, weight: .medium))
+        Glyph(icon: icon, size: 16)
             .foregroundStyle(color)
             .frame(width: 18)
-            .accessibilityHidden(true)
+            // On the title's line, centred on its capitals as a symbol
+            // would be: a shape's baseline is otherwise its bottom edge.
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4.5 }
     }
 }
 
@@ -550,7 +576,7 @@ private struct EventRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             // The meeting icon, in the colour of the calendar it is on.
             // Here only; the page is not coloured.
-            RowIcon(symbol: "calendar.day",
+            RowIcon(icon: .calendar,
                     color: event.calendarColor.map {
                         Color(red: $0.red, green: $0.green, blue: $0.blue)
                     } ?? .secondary)
@@ -593,26 +619,23 @@ private struct EventView: View {
 
     var body: some View {
         // The page is the one button, in the middle, the size of the
-        // onboarding card's: no link — the address is under the ⋯.
+        // onboarding card's: no link — the address is under the ⋯. Its
+        // name and time sit over it, and not in the toolbar.
         Group {
             if !isOver {
-                // One button: joining the call when there is one to join,
-                // just the notes when there is not (a meeting in a room).
-                Button {
-                    coordinator.startMeeting(event: event, join: event.joinURL != nil)
-                } label: {
-                    Label(event.joinURL != nil ? "Join & Take Notes" : "Take Notes",
-                          systemImage: event.joinURL != nil ? "video.fill" : "record.circle")
-                        .font(.system(size: 15, weight: .medium))
-                        .lineLimit(1)
-                        .padding(.horizontal, 22)
-                        .frame(minHeight: 34)
+                VStack(spacing: 0) {
+                    Text(event.title)
+                        .font(.system(size: 22, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                    DocumentSubtitle(subtitle: Self.when(event), attendees: event.attendees,
+                                     chevronSize: 9)
+                        .font(.system(size: 13))
+                        .padding(.top, 6)
+                    joinButton
+                        .padding(.top, 24)
                 }
-                .inkButton()
-                .buttonBorderShape(.capsule)
-                // The page's only control: it would take the window's
-                // focus ring just for being there.
-                .focusEffectDisabled()
+                .padding(.horizontal, 28)
             } else {
                 Text("No notes were taken for this meeting.")
                     .font(.system(size: 13))
@@ -622,9 +645,11 @@ private struct EventView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(event.title)
         .toolbar {
-            TitleItem {
-                DocumentTitle(title: .constant(event.title), isEditable: false,
-                              subtitle: Self.when(event), attendees: event.attendees)
+            if isOver {
+                TitleItem {
+                    DocumentTitle(title: .constant(event.title), isEditable: false,
+                                  subtitle: Self.when(event), attendees: event.attendees)
+                }
             }
             if let url = event.joinURL {
                 TrailingToolbarActions {
@@ -638,6 +663,26 @@ private struct EventView: View {
         }
     }
 
+    /// One button: joining the call when there is one to join, just the
+    /// notes when there is not (a meeting in a room).
+    private var joinButton: some View {
+        Button {
+            coordinator.startMeeting(event: event, join: event.joinURL != nil)
+        } label: {
+            Label(event.joinURL != nil ? "Join & Take Notes" : "Take Notes",
+                  systemImage: event.joinURL != nil ? "video.fill" : "record.circle")
+                .font(.system(size: 15, weight: .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 22)
+                .frame(minHeight: 34)
+        }
+        .inkButton()
+        .buttonBorderShape(.capsule)
+        // The page's only control: it would take the window's
+        // focus ring just for being there.
+        .focusEffectDisabled()
+    }
+
     static func when(_ event: MeetingEvent) -> String {
         whenLine(start: event.start, end: event.end)
     }
@@ -648,7 +693,7 @@ private struct DictationRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            RowIcon(symbol: "text.bubble")
+            RowIcon(icon: .transcript)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.text)
                     .font(.system(size: 12))
