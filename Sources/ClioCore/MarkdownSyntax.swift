@@ -224,6 +224,19 @@ public enum MarkdownSyntax {
 
     nonisolated(unsafe) static let todoTyped = regex(#"\A([ \t]*)(?:([-*+])[ \t]+)?\[ ?\]\z"#)
 
+    /// What an empty note starts as in the editor: an empty H1, then an
+    /// empty line for the text — each its own line with its own
+    /// placeholder, so the caret is the heading's size on the first and the
+    /// text's on the second, and ↑ ↓ go between them. Never written to the
+    /// file on its own: see `isEmptyNote`.
+    public static let emptyNote = "# \n"
+
+    /// True for a note with nothing in it but the empty heading it starts
+    /// with — which is saved as no notes at all.
+    public static func isEmptyNote(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).allSatisfy { $0 == "#" }
+    }
+
     /// Whether Tab on `line` should indent it rather than insert a tab.
     public static func isListItem(_ line: String) -> Bool {
         let all = NSRange(location: 0, length: (line as NSString).length)

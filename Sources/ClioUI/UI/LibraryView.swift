@@ -88,7 +88,8 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
 
 struct LibraryView: View {
     @Bindable var coordinator: AppCoordinator
-    @State private var query = ""
+    /// The search palette (`CommandPalette`), over the whole window.
+    @State private var paletteShown = false
     @State private var dayEvents: [MeetingEvent] = []
     /// Whether the sidebar shows. The button for it is Clio's own, in the
     /// toolbar where the system's was: SwiftUI hosts the system's as a view
@@ -114,9 +115,29 @@ struct LibraryView: View {
         } detail: {
             detail
         }
-        // The system's own field, glass, at the head of the sidebar — with
-        // ⌘F, Escape to clear and the sidebar's inset handled for it.
-        .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
+        // Search is the palette, over the window: the magnifier beside each
+        // page's ⋯ (`SearchButton`) and ⌘F, from anywhere in the window.
+        .environment(\.openSearch) { paletteShown = true }
+        .background {
+            Button("Search") { paletteShown = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+        .overlay {
+            if paletteShown {
+                CommandPalette(coordinator: coordinator, isShown: $paletteShown)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: paletteShown)
+        #if DEBUG
+        // CLIO_PALETTE_SHOW: the palette open on launch, its value typed in.
+        .onAppear {
+            if ProcessInfo.processInfo.environment["CLIO_PALETTE_SHOW"] != nil { paletteShown = true }
+        }
+        #endif
         // A meeting that has just finished is a file now; follow it there.
         .onChange(of: coordinator.meeting?.phase) { _, phase in
             guard phase == .finished else { return }
@@ -155,11 +176,7 @@ struct LibraryView: View {
         // colour, whatever tint it is given. Each row draws a light one
         // instead (`selectable`), and ↑/↓ are handled below.
         List {
-            if query.isEmpty {
-                daySections
-            } else {
-                searchSections
-            }
+            daySections
         }
         .listStyle(.sidebar)
         // Rows fade under the foot's blur and the search field; the system
@@ -174,11 +191,6 @@ struct LibraryView: View {
         .focusEffectDisabled()
         .onKeyPress(.downArrow) { step(1) }
         .onKeyPress(.upArrow) { step(-1) }
-        .overlay {
-            if !query.isEmpty, library?.hasLoaded == true, groups.isEmpty, dictations.isEmpty {
-                ContentUnavailableView.search(text: query)
-            }
-        }
         // The foot of the sidebar: Take Notes and the day it shows.
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
@@ -349,28 +361,6 @@ struct LibraryView: View {
         item.notes.map { .meeting($0.url) } ?? .event(item.event.id)
     }
 
-    // MARK: Search
-
-    /// Every day's meetings and dictations matching the search.
-    @ViewBuilder
-    private var searchSections: some View {
-        ForEach(groups) { group in
-            Section {
-                ForEach(group.files) { file in
-                    selectable(.meeting(file.url)) { MeetingRow(file: file) }
-                        .contextMenu { meetingMenu(file.url) }
-                }
-            } header: { header(group.title) }
-        }
-        if !dictations.isEmpty {
-            Section {
-                ForEach(dictations) { entry in
-                    dictationRow(entry)
-                }
-            } header: { header("Dictations") }
-        }
-    }
-
     private func dictationRow(_ entry: TranscriptEntry) -> some View {
         selectable(.dictation(entry.id)) { DictationRow(entry: entry) }
             .contextMenu {
@@ -408,10 +398,6 @@ struct LibraryView: View {
 
     /// Everything selectable, top to bottom, for ↑ and ↓.
     private var order: [LibrarySelection] {
-        guard query.isEmpty else {
-            return groups.flatMap { $0.files.map { .meeting($0.url) } }
-                + dictations.map { .dictation($0.id) }
-        }
         let agenda = agenda
         return (liveMeeting != nil && isToday ? [.live] : [])
             + agenda.events.map(eventSelection)
@@ -426,20 +412,6 @@ struct LibraryView: View {
         let next = current.map { min(max($0 + by, 0), order.count - 1) } ?? 0
         coordinator.librarySelection = order[next]
         return .handled
-    }
-
-    private var groups: [MeetingLibrary.Group] {
-        guard let library else { return [] }
-        let live = liveMeeting?.fileURL
-        let files = library.search(query).filter { $0.url != live }
-        return MeetingLibrary.groups(files)
-    }
-
-    private var dictations: [TranscriptEntry] {
-        let all = coordinator.libraryDictations
-        let words = query.lowercased().split(separator: " ")
-        guard !words.isEmpty else { return all }
-        return all.filter { entry in words.allSatisfy { entry.text.lowercased().contains($0) } }
     }
 
     @ViewBuilder
@@ -501,6 +473,7 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Clio")
+        .toolbar { SearchToolbarItem() }
     }
 }
 
@@ -658,6 +631,20 @@ private struct EventView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The ⋯ where every page has it, bottom right.
+        .overlay(alignment: .bottom) {
+            DocumentBar {
+                EmptyView()
+            } trailing: {
+                if let url = event.joinURL {
+                    MoreMenu {
+                        Button("Copy Meeting URL", systemImage: "link") {
+                            TextInjector.copy(url.absoluteString)
+                        }
+                    }
+                }
+            }
+        }
         .navigationTitle(event.title)
         .toolbar {
             if isOver {
@@ -666,15 +653,7 @@ private struct EventView: View {
                                   subtitle: Self.when(event), attendees: event.attendees)
                 }
             }
-            if let url = event.joinURL {
-                TrailingToolbarActions {
-                    MoreMenu {
-                        Button("Copy Meeting URL", systemImage: "link") {
-                            TextInjector.copy(url.absoluteString)
-                        }
-                    }
-                }
-            }
+            SearchToolbarItem()
         }
     }
 
@@ -789,6 +768,7 @@ struct MeetingDocumentView: View {
 
     private func load() {
         record = library.record(at: url)
+        // The summary when there is one; otherwise the notes.
         if record?.summary == nil, !isSummarizing { pane = .notes }
         #if DEBUG
         if let name = ProcessInfo.processInfo.environment["CLIO_MEETING_PANE"],
@@ -808,8 +788,8 @@ struct MeetingDocumentView: View {
 
                 switch pane {
                 case .notes:
-                    MarkdownEditor(text: binding(\.notes), placeholder: "Notes, in Markdown.",
-                                   minHeight: 320)
+                    MarkdownEditor(text: binding(\.notes), placeholder: "Write notes…",
+                                   placeholderHeading: "New note", minHeight: 320)
                         .padding(.horizontal, 8)
                 case .summary:
                     if isSummarizing {
@@ -845,8 +825,24 @@ struct MeetingDocumentView: View {
                 DocumentTitle(title: binding(\.title), subtitle: Self.when(record),
                               attendees: record.attendees)
             }
-            // Everything else about the file, top right.
-            TrailingToolbarActions {
+            SearchToolbarItem()
+        }
+        #if DEBUG
+        // For the tools: open scrolled to the end, so the toolbar has the
+        // document passing under it to be judged against.
+        .defaultScrollAnchor(ProcessInfo.processInfo.environment["CLIO_LIBRARY_SCROLLED"] != nil
+                             ? .bottom : nil)
+        #endif
+        // What it shows, and what to do with it, along its foot.
+        .overlay(alignment: .bottom) {
+            DocumentBar {
+                // Notes alone is nothing to choose between.
+                if panes(record).count > 1 {
+                    PaneMenu(panes: panes(record), pane: $pane)
+                }
+            } trailing: {
+                CopyButton(help: pane.copyHelp) { TextInjector.copy(pane.text(of: record)) }
+                // Everything else about the file, beside Copy.
                 MoreMenu {
                     Button("Show in Finder", systemImage: "folder.fill") {
                         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -854,6 +850,7 @@ struct MeetingDocumentView: View {
                     Button("Open in Default App", systemImage: "doc.text") {
                         NSWorkspace.shared.open(url)
                     }
+                    Divider()
                     // Each part on its own; the foot's Copy takes the pane showing.
                     Button("Copy Notes", systemImage: "note.text") { TextInjector.copy(record.notes) }
                         .disabled(record.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -889,26 +886,18 @@ struct MeetingDocumentView: View {
                         confirmingTrash = true
                     }
                 }
-            }
-        }
-        #if DEBUG
-        // For the tools: open scrolled to the end, so the toolbar has the
-        // document passing under it to be judged against.
-        .defaultScrollAnchor(ProcessInfo.processInfo.environment["CLIO_LIBRARY_SCROLLED"] != nil
-                             ? .bottom : nil)
-        #endif
-        // What it shows, and what to do with it, along its foot.
-        .overlay(alignment: .bottom) {
-            DocumentBar {
-                PaneMenu(panes: panes(record), pane: $pane)
-            } trailing: {
-                CopyButton(help: pane.copyHelp) { TextInjector.copy(pane.text(of: record)) }
+
             }
         }
     }
 
+    /// Only the panes with something in them: Notes always, Summary once
+    /// there is one (or one is being written), Transcript once anything
+    /// was said.
     private func panes(_ record: MeetingRecord) -> [MeetingView.Pane] {
-        record.summary == nil && !isSummarizing ? [.notes, .transcript] : [.summary, .notes, .transcript]
+        (record.summary != nil || isSummarizing ? [.summary] : [])
+            + [.notes]
+            + (record.lines.isEmpty ? [] : [.transcript])
     }
 
     /// An editable field of the record that saves itself a beat after typing.
@@ -985,11 +974,7 @@ private struct DictationView: View {
                 DocumentTitle(title: .constant("Dictation"), isEditable: false,
                               subtitle: entry.date.formatted(date: .complete, time: .shortened))
             }
-            TrailingToolbarActions {
-                MoreMenu {
-                    Button("Remove", systemImage: "minus.circle.fill", role: .destructive, action: remove)
-                }
-            }
+            SearchToolbarItem()
         }
         .overlay(alignment: .bottom) {
             DocumentBar {
@@ -997,6 +982,10 @@ private struct DictationView: View {
             } trailing: {
                 CopyButton(help: "Copy the dictation") { TextInjector.copy(entry.text) }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
+                MoreMenu {
+                    Button("Remove", systemImage: "minus.circle.fill", role: .destructive, action: remove)
+                }
+
             }
         }
     }

@@ -13,9 +13,11 @@ struct MeetingPill: View {
     @Bindable var meeting: MeetingSession
     let stop: () -> Void
 
-    /// Smaller than the floating pill's 52: here it shares a bar with
-    /// 35-point controls.
-    private let h: CGFloat = 44
+    /// The bar's height, the Notes pull-down's beside it: 35, not the
+    /// floating pill's 52. Its text is the pull-down's size, not a fraction
+    /// of this, so the two read as one row.
+    private let h: CGFloat = 35
+    private let text = Font.system(size: 13, weight: OverlayView.textWeight)
     private let ink = Color.black
     private let surface = PillSurface()
 
@@ -29,7 +31,7 @@ struct MeetingPill: View {
                 recording
             } else {
                 Text(label)
-                    .font(.system(size: h * 0.3, weight: OverlayView.textWeight))
+                    .font(text)
                     .foregroundStyle(meeting.phase.isFailure ? OverlayView.recordDot : ink)
                     .lineLimit(1)
                     .padding(.horizontal, h * 0.45)
@@ -50,9 +52,9 @@ struct MeetingPill: View {
                     .transition(.opacity)
             }
         }
+        // No shadow: the floating pill casts one to stand off whatever it
+        // hangs over; here it sits in a bar beside controls that cast none.
         .clipShape(Capsule())
-        .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 3)
-        .shadow(color: .black.opacity(0.08), radius: 2, x: 0, y: 1)
         .environment(\.colorScheme, .light)
         .animation(.smooth(duration: 0.36), value: meeting.phase)
         .fixedSize()
@@ -72,7 +74,7 @@ struct MeetingPill: View {
                 .opacity(meeting.phase == .recording ? 1 : 0.45)
             TimelineView(.periodic(from: .now, by: 1)) { _ in
                 Text(MeetingLine.timestamp(meeting.elapsed))
-                    .font(.system(size: h * 0.3, weight: OverlayView.textWeight))
+                    .font(text)
                     .monospacedDigit()
                     .foregroundStyle(ink)
             }
@@ -84,7 +86,7 @@ struct MeetingPill: View {
                     .symbolRenderingMode(.monochrome)
                     // The floating pill's ✕ grey: a stop, quiet until wanted.
                     .foregroundStyle(Color(red: 158/255, green: 158/255, blue: 157/255))
-                    .frame(width: h * 0.4, height: h * 0.4)
+                    .frame(width: h * 0.46, height: h * 0.46)
                     .padding(.leading, h * 0.26)
                     .padding(.trailing, h * 0.3)
                     .frame(maxHeight: .infinity)

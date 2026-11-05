@@ -51,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 219 tests live here.
+  without standing up an app. All 220 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 219 tests, 32 suites, no network
+swift test                                  # 220 tests, 32 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -105,6 +105,7 @@ CLIO_TYPE=$'## Agenda\n- [ ] item' CLIO_LIBRARY_SHOW=live .build/debug/Clio   # 
 CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing rule through a real text view; exits non-zero on a failure
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =event the call to come, =empty nothing
+CLIO_PALETTE_SHOW=pricing CLIO_LIBRARY_SHOW=1 swift run Clio   # the search palette open, with that typed (=1 for empty)
 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short window, so the sidebar scrolls under its foot
 CLIO_LIBRARY_WIDTH=1240 CLIO_LIBRARY_SHOW=1 swift run Clio  # …wide, so the page takes its wide margins (the breakpoint is 520 pt of page)
 CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # the sidebar scrolled a little, its scroll bar kept on screen
@@ -315,8 +316,8 @@ modifiers on the column, or it is not read and the sidebar opens at 209. The doc
 own (`DocumentTitle`, at `.navigation`, its glass hidden): the window's title
 is hidden because, bridged, it could not take a menu — `toolbarTitleMenu`
 drew nothing — and the chevron for who was invited has to follow the name.
-The pane picker is pushed to the trailing edge by a flexible space
-(`TrailingToolbarActions`); a placement alone lands beside the title.
+Search is pushed to the trailing edge by a flexible space
+(`SearchToolbarItem`); a placement alone lands beside the title.
 Nothing else goes in it: the sidebar's controls sit along its foot
 (`safeAreaInset`) and a document's along its own bottom (`DocumentBar`),
 floating over the page. The button was drawn by hand as an overlay for one
@@ -357,6 +358,11 @@ light, with the time and a stop (⌘.), centred over the `DocumentBar` —
 laid over it, not inside its `GlassGroup`: inside, its surface and
 everything on it were blended into the group's glass and all but vanished.
 The meter reads `MeetingSession.micLevel`/`micBands`.
+
+**Search is a palette, not a field.** `CommandPalette`, over the whole
+library window: ⌘F or the magnifier top right (`SearchToolbarItem`, on
+every page). The sidebar is a day and has no search. A document's ⋯ is
+along its foot, beside Copy; the toolbar holds the title and search only.
 
 **One chevron.** `Chevron` is the grey mark on everything that
 opens or steps — the pane pull-down, the participants, the day arrows — at

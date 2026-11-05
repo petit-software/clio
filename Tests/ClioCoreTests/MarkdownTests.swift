@@ -61,6 +61,16 @@ struct MarkdownTests {
         #expect(text(.listMarker, in: source) == ["-"])
     }
 
+    @Test("An empty note's starting heading counts as no notes")
+    func emptyNote() {
+        #expect(MarkdownSyntax.isEmptyNote(MarkdownSyntax.emptyNote))
+        #expect(MarkdownSyntax.isEmptyNote(""))
+        #expect(MarkdownSyntax.isEmptyNote("#"))
+        #expect(MarkdownSyntax.isEmptyNote("# \n\n  "))
+        #expect(!MarkdownSyntax.isEmptyNote("# Plan\n"))
+        #expect(!MarkdownSyntax.isEmptyNote("# \nmilk"))
+    }
+
     @Test("[] at the start of a line makes a to-do")
     func todoShortcut() {
         #expect(MarkdownSyntax.todoShortcut("[]") == "- [ ] ")

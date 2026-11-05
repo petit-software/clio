@@ -107,20 +107,44 @@ struct GlassGroup<Content: View>: View {
     }
 }
 
-/// A document's ⋯, top right of the window. A flexible space pushes it
-/// there: on macOS a placement alone puts it at the leading edge, beside
-/// the title.
-struct TrailingToolbarActions<Content: View>: ToolbarContent {
-    @ViewBuilder var content: Content
-
+/// Search, top right of the window, on every page. A flexible space
+/// pushes it there: on macOS a placement alone puts it at the leading
+/// edge, beside the title. A document's ⋯ is along its foot, beside Copy.
+struct SearchToolbarItem: ToolbarContent {
     var body: some ToolbarContent {
         if #available(macOS 26.0, *) {
             ToolbarSpacer(.flexible)
             // On bare toolbar, like the title: no glass capsule of its own.
-            ToolbarItem(placement: .automatic) { content }
+            ToolbarItem(placement: .automatic) { SearchButton() }
                 .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .automatic) { content }
+            ToolbarItem(placement: .automatic) { SearchButton() }
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// Opens the library window's search palette; nil where there is none.
+    @Entry var openSearch: (() -> Void)? = nil
+}
+
+/// The magnifier that opens the search palette, a glass disc the size of
+/// the ⋯ beside it, in the chevrons' grey.
+struct SearchButton: View {
+    @Environment(\.openSearch) private var openSearch
+
+    var body: some View {
+        if let openSearch {
+            Button(action: openSearch) {
+                Glyph(icon: .search, size: 20)
+                    .foregroundStyle(Chevron.colour)
+                    .frame(width: 35, height: 35)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .glassDisc()
+            .help("Search (⌘F)")
+            .accessibilityLabel("Search")
         }
     }
 }
@@ -244,8 +268,8 @@ struct AttendeesMenu: View {
     }
 }
 
-/// The ⋯ top right of a meeting or a dictation: everything but Copy,
-/// which stays along the foot.
+/// The ⋯ of a meeting or a dictation, along its foot beside Copy:
+/// everything Copy does not.
 struct MoreMenu<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -256,8 +280,9 @@ struct MoreMenu<Content: View>: View {
         Menu {
             content
         } label: {
+            // The chevrons' grey, as Copy beside it.
             Glyph(icon: .ellipsis, size: 20)
-                .foregroundStyle(.primary)
+                .foregroundStyle(Chevron.colour)
                 .frame(width: 35, height: 35)
                 .contentShape(Circle())
         }

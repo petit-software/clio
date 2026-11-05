@@ -15,12 +15,22 @@ import ClioCore
 struct MarkdownEditor: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String = ""
+    /// Set, an empty note starts as an empty H1 line and an empty line
+    /// under it (`MarkdownSyntax.emptyNote`): this is the H1's placeholder,
+    /// `placeholder` the text's. Each is its own line, so the caret is sized
+    /// to it and ↑ ↓ move between them. Nothing is written until something
+    /// is typed.
+    var placeholderHeading: String = ""
     /// Set to focus the editor when it appears.
     var focusOnAppear = false
     /// False for a summary or a dictation: rendered, selectable, not typed in.
     var isEditable = true
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, startsWithHeading: startsWithHeading)
+    }
+
+    private var startsWithHeading: Bool { isEditable && !placeholderHeading.isEmpty }
 
     /// Never shorter than this, so there is always somewhere to click.
     var minHeight: CGFloat = 240
@@ -44,12 +54,19 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.font = MarkdownStyle.body
         textView.typingAttributes = MarkdownStyle.base
         textView.placeholder = placeholder
+        textView.placeholderHeading = placeholderHeading
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.prepareMarkdown()
-        textView.replaceAllText(with: text)
+        if startsWithHeading, text.isEmpty {
+            textView.replaceAllText(with: MarkdownSyntax.emptyNote)
+            // On the heading, after its hidden "# ".
+            textView.setSelectedRange(NSRange(location: 2, length: 0))
+        } else {
+            textView.replaceAllText(with: text)
+        }
         if focusOnAppear, isEditable {
             DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         }
@@ -59,6 +76,9 @@ struct MarkdownEditor: NSViewRepresentable {
     func updateNSView(_ textView: MarkdownTextView, context: Context) {
         context.coordinator.text = $text
         guard textView.string != text else { return }
+        // Nothing saved, and the editor showing the empty heading it starts
+        // with: the same note.
+        if startsWithHeading, text.isEmpty, MarkdownSyntax.isEmptyNote(textView.string) { return }
         // Changed from outside — another window, a reload. Keep the caret
         // where it was as far as the new text allows.
         let selection = textView.selectedRange()
@@ -79,12 +99,18 @@ struct MarkdownEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
+        let startsWithHeading: Bool
 
-        init(text: Binding<String>) { self.text = text }
+        init(text: Binding<String>, startsWithHeading: Bool) {
+            self.text = text
+            self.startsWithHeading = startsWithHeading
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
+            // The empty heading a note starts with is no notes, not "# ".
+            text.wrappedValue = startsWithHeading && MarkdownSyntax.isEmptyNote(textView.string)
+                ? "" : textView.string
             // A new line makes it taller; SwiftUI asks for the size again.
             textView.invalidateIntrinsicContentSize()
             textView.needsDisplay = true
@@ -96,6 +122,7 @@ struct MarkdownEditor: NSViewRepresentable {
 
 final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var placeholder = ""
+    var placeholderHeading = ""
     /// What `MarkdownStyle` asked to be drawn in place of hidden syntax.
     private var decorations: [MarkdownStyle.Decoration] = []
     /// The line whose syntax shows, while editing.
@@ -286,13 +313,48 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         drawDecorations()
-        guard string.isEmpty, !placeholder.isEmpty else { return }
-        let origin = NSPoint(x: textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0),
-                             y: textContainerInset.height)
-        (placeholder as NSString).draw(at: origin, withAttributes: [
-            .font: MarkdownStyle.body,
-            .foregroundColor: NSColor.placeholderTextColor,
-        ])
+        drawPlaceholders()
+    }
+
+    /// The grey words on an empty note: the heading's on an H1 line with
+    /// nothing typed on it, the text's on the line under it while nothing
+    /// follows. Set on each line's own baseline, in its own font, so they
+    /// sit where the typing will.
+    private func drawPlaceholders() {
+        let ns = string as NSString
+        let attributes: (NSFont) -> [NSAttributedString.Key: Any] = {
+            [.font: $0, .foregroundColor: NSColor.placeholderTextColor]
+        }
+        let x = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0)
+        guard ns.length > 0 else {
+            guard !placeholder.isEmpty else { return }
+            (placeholder as NSString).draw(at: NSPoint(x: x, y: textContainerOrigin.y),
+                                           withAttributes: attributes(MarkdownStyle.body))
+            return
+        }
+        guard !placeholderHeading.isEmpty, let layoutManager else { return }
+        let first = ns.lineRange(for: NSRange(location: 0, length: 0))
+        let heading = ns.substring(with: first).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard heading.allSatisfy({ $0 == "#" }), heading.hasPrefix("#") else { return }
+        let headingFont = MarkdownStyle.headingFont(heading.count)
+        if let baseline = baseline(for: NSRange(location: 0, length: 1)) {
+            (placeholderHeading as NSString).draw(
+                at: NSPoint(x: x, y: baseline - headingFont.ascender),
+                withAttributes: attributes(headingFont))
+        }
+        // The text's line: the one after the heading, while nothing is
+        // written anywhere below it.
+        let rest = ns.substring(from: NSMaxRange(first))
+        guard !placeholder.isEmpty, ns.substring(with: first).hasSuffix("\n"),
+              rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let body = MarkdownStyle.body
+        let y: CGFloat
+        if rest.isEmpty {
+            y = layoutManager.extraLineFragmentRect.minY + textContainerOrigin.y
+        } else if let baseline = baseline(for: NSRange(location: NSMaxRange(first), length: 1)) {
+            y = baseline - body.ascender
+        } else { return }
+        (placeholder as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attributes(body))
     }
 
     // MARK: Typing
@@ -554,7 +616,14 @@ enum MarkdownStyle {
                 storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: span.range)
                 storage.applyFontTraits(.italicFontMask, range: span.range)
             case .marker:
-                shown ? dim(span.range) : hide(span.range)
+                // A heading with nothing typed on it yet keeps its "# "
+                // hidden on the caret's line too: the placeholder stands
+                // where the words will, and "#" in front of it read as junk.
+                let line = string.lineRange(for: span.range)
+                let after = string.substring(with: NSRange(location: NSMaxRange(span.range),
+                                                           length: NSMaxRange(line) - NSMaxRange(span.range)))
+                let emptyLine = after.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                shown && !emptyLine ? dim(span.range) : hide(span.range)
             case .listMarker:
                 let marker = string.substring(with: span.range)
                 let box = boxes.first { $0.location > span.range.location

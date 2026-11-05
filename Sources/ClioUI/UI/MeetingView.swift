@@ -68,33 +68,7 @@ struct MeetingView: View {
                               subtitle: meeting.record.startDate.formatted(date: .complete, time: .shortened),
                               attendees: meeting.record.attendees)
             }
-            TrailingToolbarActions {
-                MoreMenu {
-                    Button("Show in Finder", systemImage: "folder.fill") {
-                        if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    }
-                    .disabled(meeting.fileURL == nil)
-                    // Each part on its own; the foot's Copy takes the pane showing.
-                    Button("Copy Notes", systemImage: "note.text") { TextInjector.copy(notes) }
-                        .disabled(notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Button("Copy Summary", systemImage: "text.badge.star") {
-                        TextInjector.copy(meeting.record.titledSummary ?? "")
-                    }
-                    .disabled(meeting.record.summary == nil)
-                    Button("Copy Transcript", systemImage: "text.quote") {
-                        TextInjector.copy(meeting.record.transcriptText)
-                    }
-                    .disabled(meeting.record.lines.isEmpty)
-                    Button("Copy Meeting as Markdown", systemImage: "doc.plaintext") {
-                        TextInjector.copy(MeetingMarkdown.render(meeting.record))
-                    }
-                    if let link = meeting.record.joinURL {
-                        Button("Copy Meeting URL", systemImage: "link") {
-                            TextInjector.copy(link.absoluteString)
-                        }
-                    }
-                }
-            }
+            SearchToolbarItem()
         }
         .navigationTitle(title)
         .frame(minWidth: 420, minHeight: 420)
@@ -195,7 +169,7 @@ struct MeetingView: View {
 
     private var notesPane: some View {
         MarkdownEditor(text: $notes,
-                       placeholder: "Your notes, in Markdown. They guide the summary.",
+                       placeholder: "Write notes…", placeholderHeading: "New note",
                        focusOnAppear: meeting.isActive, minHeight: 320)
             .padding(.horizontal, 8)
             // Saved a beat after typing stops, not on every key.
@@ -252,6 +226,33 @@ struct MeetingView: View {
                 CopyButton(help: pane.copyHelp) {
                     TextInjector.copy(pane == .notes ? notes : pane.text(of: meeting.record))
                 }
+                MoreMenu {
+                    Button("Show in Finder", systemImage: "folder.fill") {
+                        if let url = meeting.fileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    }
+                    .disabled(meeting.fileURL == nil)
+                    Divider()
+                    // Each part on its own; the foot's Copy takes the pane showing.
+                    Button("Copy Notes", systemImage: "note.text") { TextInjector.copy(notes) }
+                        .disabled(notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Copy Summary", systemImage: "text.badge.star") {
+                        TextInjector.copy(meeting.record.titledSummary ?? "")
+                    }
+                    .disabled(meeting.record.summary == nil)
+                    Button("Copy Transcript", systemImage: "text.quote") {
+                        TextInjector.copy(meeting.record.transcriptText)
+                    }
+                    .disabled(meeting.record.lines.isEmpty)
+                    Button("Copy Meeting as Markdown", systemImage: "doc.plaintext") {
+                        TextInjector.copy(MeetingMarkdown.render(meeting.record))
+                    }
+                    if let link = meeting.record.joinURL {
+                        Button("Copy Meeting URL", systemImage: "link") {
+                            TextInjector.copy(link.absoluteString)
+                        }
+                    }
+                }
+
                 if meeting.phase == .finished, let url = meeting.fileURL {
                     Button("Open Notes", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
                         .glassButton(prominent: true)
