@@ -184,18 +184,33 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
         return rect
     }
 
+    /// Where the text's baseline is on the line holding `range`, in the
+    /// view's coordinates.
+    private func baseline(for range: NSRange) -> CGFloat? {
+        guard let layoutManager, range.location < (string as NSString).length else { return nil }
+        let glyph = layoutManager.glyphIndexForCharacter(at: range.location)
+        let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        return line.minY + layoutManager.location(forGlyphAt: glyph).y + textContainerOrigin.y
+    }
+
     private func drawDecorations() {
         guard let layoutManager else { return }
         for decoration in decorations {
             switch decoration {
             case .bullet(let range):
-                guard let rect = rect(for: range) else { continue }
-                let dot = "•" as NSString
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: MarkdownStyle.body, .foregroundColor: NSColor.secondaryLabelColor]
-                let size = dot.size(withAttributes: attributes)
-                dot.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),
-                         withAttributes: attributes)
+                // A dash, not a dot: a list in notes reads as one written by
+                // hand. Drawn as a short bar half the x-height over the
+                // text's baseline, so it sits on the middle of the letters;
+                // a character centred in the line's box sat low.
+                guard let rect = rect(for: range), let baseline = baseline(for: range) else { continue }
+                let font = MarkdownStyle.body
+                let width = (font.pointSize * 0.5).rounded()
+                let thickness: CGFloat = 1.5
+                NSColor.secondaryLabelColor.setFill()
+                NSBezierPath(roundedRect: NSRect(x: rect.midX - width / 2,
+                                                 y: baseline - font.xHeight / 2 - thickness / 2,
+                                                 width: width, height: thickness),
+                             xRadius: thickness / 2, yRadius: thickness / 2).fill()
             case .checkbox(let range, let done):
                 guard let rect = rect(for: range) else { continue }
                 // A circle: filled in the accent with the tick cut out when
@@ -278,6 +293,24 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
             .font: MarkdownStyle.body,
             .foregroundColor: NSColor.placeholderTextColor,
         ])
+    }
+
+    // MARK: Typing
+
+    /// `[]` at the start of a line — or after a bullet — makes it a to-do
+    /// the moment the bracket closes, as long as nothing follows on the line.
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        super.insertText(string, replacementRange: replacementRange)
+        let typed = (string as? String) ?? (string as? NSAttributedString)?.string
+        guard typed == "]", selectedRange().length == 0 else { return }
+        let ns = self.string as NSString
+        let caret = selectedRange().location
+        let line = ns.lineRange(for: NSRange(location: caret, length: 0))
+        let after = ns.substring(with: NSRange(location: caret, length: NSMaxRange(line) - caret))
+        guard after.trimmingCharacters(in: .newlines).isEmpty else { return }
+        let before = NSRange(location: line.location, length: caret - line.location)
+        guard let todo = MarkdownSyntax.todoShortcut(ns.substring(with: before)) else { return }
+        replace(before, with: todo)
     }
 
     // MARK: Return and Tab
@@ -537,8 +570,12 @@ enum MarkdownStyle {
                     storage.addAttribute(.foregroundColor, value: NSColor.clear, range: span.range)
                     decorations.append(.bullet(span.range))
                 } else {
-                    storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
-                                         range: span.range)
+                    // A number: the dash's grey, medium, and with digits of
+                    // one width so 9. and 10. take the same room.
+                    storage.addAttributes([
+                        .foregroundColor: NSColor.secondaryLabelColor,
+                        .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium),
+                    ], range: span.range)
                 }
             case .checkbox(let done):
                 storage.addAttribute(.font,
@@ -638,6 +675,23 @@ extension MarkdownTextView {
         set("- [ ] buy milk\n- [ ] eggs", caret: 0)
         view.insertNewline(nil)
         expect("Return mid-list splits as usual", view.string, "\n- [ ] buy milk\n- [ ] eggs")
+
+        func type(_ characters: String) {
+            for character in characters {
+                view.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
+        }
+        set("milk\n")
+        type("[]")
+        expect("[] makes a to-do", view.string, "milk\n- [ ] ")
+        type("eggs")
+        expect("…and typing goes on after the box", view.string, "milk\n- [ ] eggs")
+        set("- ")
+        type("[ ]")
+        expect("[ ] after a bullet makes it a to-do", view.string, "- [ ] ")
+        set("see ")
+        type("[]")
+        expect("[] mid-line stays brackets", view.string, "see []")
 
         set("- item")
         view.insertTab(nil)

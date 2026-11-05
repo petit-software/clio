@@ -85,6 +85,10 @@ public final class MeetingSession {
     private var failedInARow = 0
     /// Chunks cut but not yet transcribed: how far behind the transcript is.
     public private(set) var pendingChunks = 0
+    /// The microphone's level and the meter's five bands, for the recorder
+    /// pill on the meeting's page. Zero and empty while nothing is heard.
+    public private(set) var micLevel: Float = 0
+    public private(set) var micBands: [Float] = []
     public let startedAt: Date
 
     /// Set while a dictation is recording, so the words meant for a text
@@ -158,6 +162,8 @@ public final class MeetingSession {
         session.phase = phase
         session.systemAudio = systemAudio
         session.pendingChunks = pendingChunks
+        // Something on the pill's meter, still.
+        if phase == .recording { session.micLevel = 0.5 }
         return session
     }
     #endif
@@ -185,6 +191,12 @@ public final class MeetingSession {
         microphone.onSamples = { [micFeed] in micFeed.append($0) }
         (microphone as? MeetingMicrophone)?.recorder.onFailure = { [weak self] error in
             self?.microphoneProblem = error.localizedDescription
+        }
+        (microphone as? MeetingMicrophone)?.recorder.onLevel = { [weak self] level in
+            self?.micLevel = level
+        }
+        (microphone as? MeetingMicrophone)?.recorder.onBands = { [weak self] bands in
+            self?.micBands = bands
         }
         systemRecorder.onSamples = { [systemFeed] in systemFeed.append($0) }
 

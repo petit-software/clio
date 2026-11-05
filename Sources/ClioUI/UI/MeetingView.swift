@@ -29,10 +29,9 @@ struct MeetingView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    header
-                        .padding(.horizontal, 28)
-                        .padding(.top, 12)
-                        .padding(.bottom, 18)
+                    // The recorder is at the foot (`MeetingPill`); the page
+                    // starts where a saved meeting's does.
+                    Color.clear.frame(height: 12)
 
                     if let warning {
                         warningBanner(warning)
@@ -132,81 +131,6 @@ struct MeetingView: View {
     private var panes: [Pane] {
         meeting.record.summary == nil && meeting.phase != .summarizing
             ? [.notes, .transcript] : Pane.allCases
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    statusDot
-                    TimelineView(.periodic(from: .now, by: 1)) { _ in
-                        Text(statusLine)
-                            .font(.system(size: 12, weight: .medium))
-                            .monospacedDigit()
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                // The one live thing on the page, on glass; faintly red while
-                // it is listening.
-                .glassSurface(Capsule(), tint: meeting.isActive ? .red.opacity(0.18) : nil)
-
-                // Stop, beside what it stops.
-                if meeting.isActive {
-                    Button {
-                        meeting.setTitle(title)
-                        meeting.setNotes(notes)
-                        coordinator.stopMeeting()
-                    } label: {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonBorderShape(.circle)
-                    .glassButton(prominent: true, tint: .red)
-                    .keyboardShortcut(".", modifiers: .command)
-                    .help("Stop recording (⌘.)")
-                    .accessibilityLabel("Stop Recording")
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var statusDot: some View {
-        switch meeting.phase {
-        case .starting, .recording:
-            Circle().fill(Color.red).frame(width: 8, height: 8)
-        case .finishing, .summarizing:
-            ProgressView().controlSize(.mini)
-        case .finished:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .font(.system(size: 11))
-        case .failed:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.system(size: 11))
-        }
-    }
-
-    private var statusLine: String {
-        let time = MeetingLine.timestamp(meeting.elapsed)
-        let behind = meeting.pendingChunks > 0
-            ? " · transcribing \(meeting.pendingChunks) behind" : ""
-        switch meeting.phase {
-        case .starting: return "Starting…"
-        case .recording: return "Recording · \(time)\(behind)"
-        case .finishing:
-            return meeting.pendingChunks > 0
-                ? "Finishing the transcript · \(meeting.pendingChunks) left"
-                : "Finishing the transcript…"
-        case .summarizing: return "Writing the summary…"
-        case .finished: return "Saved · \(time)"
-        case .failed(let reason): return reason
-        }
     }
 
     // MARK: Problems
@@ -313,11 +237,17 @@ struct MeetingView: View {
         PaneMenu(panes: panes, pane: $pane)
     }
 
-    /// Along the foot: the pane on the left, what to do with the file on
-    /// the right. Stop is up by the recording indicator.
+    /// Along the foot: the pane on the left, the recorder — and Stop — in
+    /// the middle, what to do with the file on the right.
     private var actionBar: some View {
         DocumentBar {
             panePicker
+        } center: {
+            MeetingPill(meeting: meeting) {
+                meeting.setTitle(title)
+                meeting.setNotes(notes)
+                coordinator.stopMeeting()
+            }
         } trailing: {
                 CopyButton(help: pane.copyHelp) {
                     TextInjector.copy(pane == .notes ? notes : pane.text(of: meeting.record))

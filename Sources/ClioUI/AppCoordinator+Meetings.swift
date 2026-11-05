@@ -357,7 +357,7 @@ extension AppCoordinator {
             try? MeetingMarkdown.write(record, to: folder)
         }
         sample("Weekly product sync", hoursAgo: 2, minutes: 32, people: ["Ana Ruiz", "Bo Chen"],
-                notes: "## Before the call\n- iOS beta **date**?\n- pricing page *copy*\n  - the `starter` tier\n\n## Follow-ups\n- [x] send the build to Ana\n- [ ] write the release notes\n\n> Bo: ship it when the table is final\n\nSee [the spec](https://example.com/spec) and ~~the old plan~~.",
+                notes: "## Before the call\n- iOS beta **date**?\n- pricing page *copy*\n  - the `starter` tier\n\n## Follow-ups\n- [x] send the build to Ana\n- [ ] write the release notes\n\n## Order\n1. beta to testers\n2. pricing table\n\n> Bo: ship it when the table is final\n\nSee [the spec](https://example.com/spec) and ~~the old plan~~.",
                 summary: "### iOS beta\n- Build is ready; goes to testers Thursday.\n\n### Pricing page\n- Copy drafted; design reviewing the table.\n\n### Next steps\n- [ ] Write the release notes — Me\n- [ ] Final pass on the pricing table — Bo",
                 lines: [(.others, "Okay, I think everyone's here. Let's start with the beta."),
                         (.me, "The build is ready. I'd like to send it to testers on Thursday."),

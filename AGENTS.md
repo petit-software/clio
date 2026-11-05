@@ -51,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 218 tests live here.
+  without standing up an app. All 219 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 218 tests, 32 suites, no network
+swift test                                  # 219 tests, 32 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -350,6 +350,13 @@ not in a frost. A page without it puts the title on the text.
 from Resources/Icon/Library — copy, ⋯, sidebar, chevrons, the rows'
 calendar and transcript, the notes' to-dos — as `SettingsIcon` does for the
 Settings tabs. Menus keep their SF Symbols.
+
+**A live meeting's recorder is the pill, at the foot of its page.**
+`MeetingPill` is the dictation pill's surface, dot, meter and ring, always
+light, with the time and a stop (⌘.), centred over the `DocumentBar` —
+laid over it, not inside its `GlassGroup`: inside, its surface and
+everything on it were blended into the group's glass and all but vanished.
+The meter reads `MeetingSession.micLevel`/`micBands`.
 
 **One chevron.** `Chevron` is the grey mark on everything that
 opens or steps — the pane pull-down, the participants, the day arrows — at

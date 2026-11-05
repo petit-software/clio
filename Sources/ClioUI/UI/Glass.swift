@@ -293,7 +293,9 @@ extension View {
     func inkButton() -> some View { modifier(InkButton()) }
 }
 
-/// Copy, as a glass disc the size of the ⋯ beside it.
+/// Copy, as a glass disc the size of the ⋯, its glyph in the chevrons'
+/// grey. Glass drawn around a plain button, as the ⋯ is: the glass button
+/// style recolours its label, and left this one a grey of its own.
 struct CopyButton: View {
     let help: String
     let action: () -> Void
@@ -301,21 +303,24 @@ struct CopyButton: View {
     var body: some View {
         Button(action: action) {
             Glyph(icon: .copy, size: 20)
-                .frame(width: 22, height: 22)
+                .foregroundStyle(Chevron.colour)
+                .frame(width: 35, height: 35)
+                .contentShape(Circle())
         }
-        .buttonBorderShape(.circle)
-        .controlSize(.large)
-        .glassButton()
+        .buttonStyle(.plain)
+        .glassDisc()
         .help(help)
         .accessibilityLabel(help)
     }
 }
 
 /// A document's controls, along its foot on glass: what it shows on the
-/// left, what to do with it on the right. There is no toolbar; this is
+/// left, what to do with it on the right, and — for a meeting being
+/// recorded — the recorder in the middle. There is no toolbar; this is
 /// where the toolbar's things went.
-struct DocumentBar<Leading: View, Trailing: View>: View {
+struct DocumentBar<Leading: View, Center: View, Trailing: View>: View {
     @ViewBuilder var leading: Leading
+    @ViewBuilder var center: Center
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -327,6 +332,11 @@ struct DocumentBar<Leading: View, Trailing: View>: View {
             }
             .controlSize(.large)
         }
+        // The middle is laid over the bar, centred on the page, and not in
+        // the glass group: inside it, the recorder's own surface and
+        // everything on it were blended into the group's glass and washed
+        // out to nearly nothing.
+        .overlay { center }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 14)
@@ -336,5 +346,11 @@ struct DocumentBar<Leading: View, Trailing: View>: View {
             EdgeFade(edge: .bottom)
                 .padding(.top, -28)
         }
+    }
+}
+
+extension DocumentBar where Center == EmptyView {
+    init(@ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
+        self.init(leading: leading, center: { EmptyView() }, trailing: trailing)
     }
 }

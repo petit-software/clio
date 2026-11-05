@@ -134,7 +134,9 @@ struct LibraryView: View {
         return Button {
             withAnimation { columns = hidden ? .all : .detailOnly }
         } label: {
+            // The chevrons' grey, as Copy is.
             Glyph(icon: .sidebar, size: 20)
+                .foregroundStyle(Chevron.colour)
         }
         // The system's button took no focus ring; nor does this one, which
         // is otherwise the first thing in the window to take focus.

@@ -61,6 +61,20 @@ struct MarkdownTests {
         #expect(text(.listMarker, in: source) == ["-"])
     }
 
+    @Test("[] at the start of a line makes a to-do")
+    func todoShortcut() {
+        #expect(MarkdownSyntax.todoShortcut("[]") == "- [ ] ")
+        #expect(MarkdownSyntax.todoShortcut("[ ]") == "- [ ] ")
+        #expect(MarkdownSyntax.todoShortcut("  []") == "  - [ ] ")
+        #expect(MarkdownSyntax.todoShortcut("- []") == "- [ ] ")
+        #expect(MarkdownSyntax.todoShortcut("  * [ ]") == "  * [ ] ")
+        // Only at the start of a line, and only the brackets.
+        #expect(MarkdownSyntax.todoShortcut("see []") == nil)
+        #expect(MarkdownSyntax.todoShortcut("[x]") == nil)
+        #expect(MarkdownSyntax.todoShortcut("- [ ] []") == nil)
+        #expect(MarkdownSyntax.todoShortcut("1. []") == nil)
+    }
+
     @Test("Return keeps a list going, numbers it, and ends it on an empty item")
     func continuation() {
         #expect(MarkdownSyntax.continuation(after: "- milk") == .continueWith("- "))

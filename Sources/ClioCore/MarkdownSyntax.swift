@@ -208,6 +208,22 @@ public enum MarkdownSyntax {
         return .newline
     }
 
+    /// Typing `[]` — or `[ ]` — at the start of a line, or after a bullet,
+    /// makes the line a to-do: what to put in place of everything before
+    /// the caret, given that text, or nil if it is not the shortcut.
+    /// "[]" → "- [ ] ", "  - []" → "  - [ ] ". The editor asks only when
+    /// nothing follows the caret on the line.
+    public static func todoShortcut(_ beforeCaret: String) -> String? {
+        let ns = beforeCaret as NSString
+        guard let m = todoTyped.firstMatch(in: beforeCaret, range: NSRange(location: 0, length: ns.length))
+        else { return nil }
+        let indent = ns.substring(with: m.range(at: 1))
+        let bullet = m.range(at: 2).location == NSNotFound ? "-" : ns.substring(with: m.range(at: 2))
+        return "\(indent)\(bullet) [ ] "
+    }
+
+    nonisolated(unsafe) static let todoTyped = regex(#"\A([ \t]*)(?:([-*+])[ \t]+)?\[ ?\]\z"#)
+
     /// Whether Tab on `line` should indent it rather than insert a tab.
     public static func isListItem(_ line: String) -> Bool {
         let all = NSRange(location: 0, length: (line as NSString).length)

@@ -47,15 +47,15 @@ struct OverlayView: View {
     // Claro's popup surface, borrowed wholesale so the two read as siblings.
     // Its own values were 220/220/219 and 58/56/53 — kept below for reference
     // if this turns out to be too stark for a HUD that appears unbidden.
-    private static let lightFill = Color(red: 0.98, green: 0.98, blue: 0.97)
+    static let lightFill = Color(red: 0.98, green: 0.98, blue: 0.97)
     private static let darkFill = Color(red: 0.03, green: 0.03, blue: 0.03)
     /// The record dot stays orange in both appearances — it is the one thing
     /// that has to read as "live" at a glance, and a black dot does not.
-    private static let recordDot = Color(red: 241/255, green: 107/255, blue: 51/255)
+    static let recordDot = Color(red: 241/255, green: 107/255, blue: 51/255)
 
     /// Every word in the pill. Named rather than repeated, so a label added
     /// later cannot quietly arrive at a different weight from the rest.
-    private static let textWeight: Font.Weight = .semibold
+    static let textWeight: Font.Weight = .semibold
 
     private var isDark: Bool { scheme == .dark }
     private var pillFill: Color { isDark ? Self.darkFill : Self.lightFill }
@@ -437,7 +437,7 @@ private struct MicrophoneFrameKey: PreferenceKey {
 /// The pill's surface and its hairline. The shadows are NOT here — they are
 /// applied outside the capsule clip, because anything drawn in a background
 /// gets clipped with it and a shadow lives entirely outside its own shape.
-private struct PillBackground: View {
+struct PillBackground: View {
     let tint: Color
     let glassTint: Color
     let outline: Color
@@ -473,7 +473,7 @@ private struct PillBackground: View {
 /// under a stroke mask would have done the same with a state and an
 /// `onAppear`; the timeline has neither, and stops the moment the ring is
 /// gone. The ramp ends where it begins so the sweep has no seam.
-private struct ActivityRing: View {
+struct ActivityRing: View {
     let lineWidth: CGFloat
 
     /// The colours to sweep, in order; the last runs back into the first.
@@ -551,7 +551,7 @@ private struct CloseButton: View {
 /// with it — nudged up and down by a fraction of a point each time: a
 /// tremor under the motion, worst exactly when the voice was liveliest.
 /// Nothing here has a frame that depends on the level.
-private struct LevelMeter: View {
+struct LevelMeter: View {
     let level: Float
     var bands: [Float] = []
     let height: CGFloat
