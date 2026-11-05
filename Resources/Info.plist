@@ -19,19 +19,19 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.4</string>
+	<string>1.5</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSHighResolutionCapable</key>
-	<true/>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Clio listens to the other side of a call while it takes meeting notes. Audio is transcribed entirely on this Mac and is never uploaded.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Clio reads your calendar to name meeting notes and list who was invited. Nothing is changed or uploaded.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Clio records your voice so it can transcribe it. Audio is processed entirely on this Mac and is never uploaded.</string>
 	<key>SUAutomaticallyUpdate</key>

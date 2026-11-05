@@ -197,9 +197,11 @@ struct LibraryView: View {
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
                 Spacer(minLength: 0)
                 // Three buttons on one piece of glass, nothing drawn
-                // between them.
-                HStack(spacing: 8) {
-                    Button { move(-1) } label: { Chevron(icon: .chevronBack) }
+                // between them. Each arrow is clickable over the whole
+                // height of the glass and out to its end, not just the
+                // few points of the glyph.
+                HStack(spacing: 0) {
+                    Button { move(-1) } label: { dayArrow(.chevronBack) }
                         .accessibilityLabel("Previous Day")
                         .help("Previous day (⌘[)")
                         .keyboardShortcut("[", modifiers: .command)
@@ -211,7 +213,7 @@ struct LibraryView: View {
                         // Wide enough for "Yesterday", so the control keeps
                         // its width whatever day it shows.
                         .frame(width: 72)
-                    Button { move(1) } label: { Chevron(icon: .chevronForward) }
+                    Button { move(1) } label: { dayArrow(.chevronForward) }
                         .accessibilityLabel("Next Day")
                         .help("Next day (⌘])")
                         .keyboardShortcut("]", modifiers: .command)
@@ -220,6 +222,8 @@ struct LibraryView: View {
                 .buttonStyle(.borderless)
                 .controlSize(.large)
                 .fixedSize()
+                // The arrows' frames are the capsule's padding now.
+                .padding(.horizontal, -14)
                 .footCapsule()
             }
             // The same insets as a document's bar, so the two line up
@@ -257,6 +261,15 @@ struct LibraryView: View {
         if calendar.isDateInYesterday(day) { return "Yesterday" }
         if calendar.isDateInTomorrow(day) { return "Tomorrow" }
         return day.formatted(.dateTime.day().month(.abbreviated))
+    }
+
+    /// A day arrow in a frame the height of the glass, wide enough to
+    /// reach its rounded end; the glyph sits where the capsule's padding
+    /// put it before.
+    private func dayArrow(_ icon: LibraryIcon) -> some View {
+        Chevron(icon: icon)
+            .frame(width: 32, height: 35)
+            .contentShape(Rectangle())
     }
 
     private func move(_ days: Int) {
