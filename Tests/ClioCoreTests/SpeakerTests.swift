@@ -265,3 +265,153 @@ struct SpeakerTests {
         #expect(!SpeakerModels.wants(path: "README.md"))
     }
 }
+
+// MARK: - Voices remembered
+
+/// A voiceprint at a chosen distance from [1, 0]: the cosine distance of
+/// two unit vectors is one minus the cosine of the angle between them.
+private func vector(at distance: Float) -> [Float] {
+    let angle = acos(1 - distance)
+    return [cos(angle), sin(angle)]
+}
+
+private func kept(_ name: String?, meeting: String, at distance: Float, confirmed: Bool = true,
+                  seconds: Double = 120, space: String = "s") -> Voiceprint {
+    Voiceprint(meeting: meeting, voice: 1, date: Date(timeIntervalSince1970: 0),
+               vector: vector(at: distance), seconds: seconds, name: name,
+               confirmed: confirmed, space: space)
+}
+
+@Suite("Voice memory")
+struct VoiceMemoryTests {
+    private let sample = VoiceSample(vector: [1, 0], seconds: 300)
+    private let matcher = VoiceprintMatcher()
+
+    @Test("A voice heard close by in three meetings, twice confirmed, is that person; fewer is only probable")
+    func levels() {
+        let ana = [kept("Ana Ruiz", meeting: "a", at: 0.10), kept("Ana Ruiz", meeting: "b", at: 0.15),
+                   kept("Ana Ruiz", meeting: "c", at: 0.12, confirmed: false)]
+        let high = matcher.match(sample, space: "s", corpus: ana)
+        #expect(high?.level == .high)
+        #expect(high?.name == "Ana Ruiz")
+        #expect(high?.meetings == 3 && high?.confirmedMeetings == 2)
+        #expect(abs((high?.distance ?? 9) - 0.10) < 0.001)
+
+        #expect(matcher.match(sample, space: "s", corpus: Array(ana.prefix(2)))?.level == .medium)
+        // Near enough to count, too far to be called probable.
+        #expect(matcher.match(sample, space: "s", corpus: [kept("Ana Ruiz", meeting: "a", at: 0.40)])?.level == .low)
+        // Out of reach, unnamed, or another model's: nothing.
+        #expect(matcher.match(sample, space: "s", corpus: [kept("Ana Ruiz", meeting: "a", at: 0.60)]) == nil)
+        #expect(matcher.match(sample, space: "s", corpus: [kept(nil, meeting: "a", at: 0.05)]) == nil)
+        #expect(matcher.match(sample, space: "other", corpus: ana) == nil)
+    }
+
+    @Test("Names a model guessed count for little: many of them are only probable, one is hardly anything")
+    func guessesCountLess() {
+        let guesses = ["a", "b", "c"].map { kept("Ana Ruiz", meeting: $0, at: 0.10, confirmed: false) }
+        #expect(matcher.match(sample, space: "s", corpus: guesses)?.level == .medium)
+        #expect(matcher.match(sample, space: "s", corpus: Array(guesses.prefix(1)))?.level == .low)
+        // A confirmed someone-else nearby outweighs a pile of guesses.
+        let match = matcher.match(sample, space: "s", corpus: guesses + [kept("Tom Berg", meeting: "d", at: 0.12)])
+        #expect(match?.name == "Tom Berg")
+    }
+
+    @Test("Two people it could be is said as two; an invitation tips it; a few words of speech hardly count")
+    func ambiguity() {
+        let two = [kept("Ana Ruiz", meeting: "a", at: 0.15), kept("Tom Berg", meeting: "b", at: 0.18)]
+        let tie = matcher.match(sample, space: "s", corpus: two)
+        #expect(tie?.level == .ambiguous)
+        #expect(tie?.names == ["Ana Ruiz", "Tom Berg"])
+
+        // Tom was invited to this one, Ana was not: it is him, though not surely.
+        let invited = matcher.match(sample, space: "s", corpus: two, invited: ["Tom Berg"])
+        #expect(invited?.names.first == "Tom Berg")
+
+        // Ana's print is from four seconds of speech; Tom's from two minutes.
+        let thin = [kept("Ana Ruiz", meeting: "a", at: 0.10, seconds: 4), kept("Tom Berg", meeting: "b", at: 0.18)]
+        let match = matcher.match(sample, space: "s", corpus: thin)
+        #expect(match?.name == "Tom Berg" && match?.level == .medium)
+    }
+
+    @Test("A first name and the full name it begins are one person, unless two full names begin with it")
+    func aliases() {
+        let people = VoiceprintMatcher.people(["Ana", "Ana Ruiz", "Tom"])
+        #expect(people["ana"] == "Ana Ruiz" && people["ana ruiz"] == "Ana Ruiz" && people["tom"] == "Tom")
+        let unclear = VoiceprintMatcher.people(["Ana", "Ana Ruiz", "Ana Lee"])
+        #expect(unclear["ana"] == "Ana")
+
+        // Typed "Ana" twice and "Ana Ruiz" once: three meetings of one person.
+        let corpus = [kept("Ana", meeting: "a", at: 0.10), kept("ana", meeting: "b", at: 0.12),
+                      kept("Ana Ruiz", meeting: "c", at: 0.11)]
+        let match = matcher.match(sample, space: "s", corpus: corpus)
+        #expect(match?.level == .high && match?.name == "Ana Ruiz")
+    }
+
+    @Test("Voices are kept with their meeting, follow its names, and go when it does — or all at once")
+    func store() async throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-voices-\(UUID().uuidString)/voiceprints.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        func record(_ start: Double, names: [Int: (String, Bool)]) -> MeetingRecord {
+            var record = MeetingRecord(title: "Sync", startDate: Date(timeIntervalSince1970: start))
+            for (voice, name) in names { record.name(voice: voice, as: name.0, confirmed: name.1) }
+            return record
+        }
+        let samples = [1: VoiceSample(vector: vector(at: 0.1), seconds: 90),
+                       2: VoiceSample(vector: [0, 1], seconds: 30)]
+        let memory = VoiceMemory(file: file)
+        #expect(await memory.count == 0)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+
+        var first = record(1_000, names: [1: ("Ana Ruiz", true)])
+        await memory.remember(first, samples: samples, space: "s")
+        await memory.remember(record(2_000, names: [1: ("Ana Ruiz", true)]), samples: samples, space: "s")
+        await memory.remember(record(3_000, names: [1: ("Ana", false)]), samples: samples, space: "s")
+        // Again, for the same meeting: in place of, not on top of.
+        await memory.remember(first, samples: samples, space: "s")
+        #expect(await memory.count == 6)
+        #expect(await memory.peopleCount == 1)
+
+        // Read by another instance: it is on disk, and the vectors survive.
+        let reopened = VoiceMemory(file: file)
+        let fourth = record(4_000, names: [:])
+        let matches = await reopened.matches(for: [1: VoiceSample(vector: [1, 0], seconds: 60)], space: "s",
+                                             meeting: VoiceMemory.key(for: fourth), invited: [])
+        #expect(matches[1]?.level == .high && matches[1]?.name == "Ana Ruiz")
+        // A meeting is no evidence about itself.
+        let own = await reopened.matches(for: [1: samples[1]!], space: "s",
+                                         meeting: VoiceMemory.key(for: first), invited: [])
+        #expect(own[1]?.meetings == 2)
+
+        // The second voice is named by hand afterwards; the first un-named.
+        first.name(voice: 2, as: "Tom", confirmed: true)
+        first.name(voice: 1, as: "", confirmed: true)
+        await reopened.rename(first)
+        #expect(await reopened.peopleCount == 2)
+        let after = await reopened.matches(for: [1: VoiceSample(vector: [1, 0], seconds: 60)], space: "s",
+                                           meeting: "x", invited: [])
+        #expect(after[1]?.level == .medium)                       // one confirmation fewer
+
+        await reopened.forget(meeting: VoiceMemory.key(for: first))
+        #expect(await reopened.count == 4)
+        let report = await reopened.report()
+        #expect(report.contains("4 kept"))
+        await reopened.forgetAll()
+        #expect(await reopened.count == 0)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test("What the voices say is put to the namer in plain words, for the voices it is asked about")
+    func hints() {
+        var record = MeetingRecord(title: "Sync")
+        record.add(line(.others, 20, 25, "Morning.", voice: 1))
+        record.add(line(.others, 60, 65, "Hello.", voice: 2))
+        let probable = VoiceMatch(level: .medium, names: ["Ana Ruiz"], distance: 0.25, meetings: 2, confirmedMeetings: 1)
+        let unclear = VoiceMatch(level: .ambiguous, names: ["Tom Berg", "Tim Burke"], distance: 0.2, meetings: 1, confirmedMeetings: 1)
+        let prompt = SpeakerNamer.prompt(for: record, limit: 5_000, matches: [1: probable, 2: unclear])
+        #expect(prompt.contains("Voices heard before:\nSpeaker 1: the voice is probably Ana Ruiz's (2 earlier calls)."))
+        #expect(prompt.contains("Speaker 2: the voice is like those of Tom Berg and Tim Burke; the conversation has to say which."))
+        #expect(prompt.range(of: "Voices heard before")!.lowerBound < prompt.range(of: "Transcript:")!.lowerBound)
+        #expect(!SpeakerNamer.prompt(for: record, limit: 5_000).contains("Voices heard before"))
+    }
+}

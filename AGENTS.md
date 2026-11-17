@@ -39,6 +39,7 @@ One meeting, end to end.
 | 5 | transcribed one at a time behind any dictation | `ClioCore/TranscriptionQueue` |
 | 6 | added in time order, echo of the call in the mic dropped, Markdown rewritten | `ClioCore/MeetingRecord` |
 | 6½ | stop, with the speaker models installed: the call's side, written to a temporary file as it arrived, is diarized; each of the others' lines goes to the voice that spoke most of it ("Speaker 1", "Speaker 2"); a summary model names the voices the conversation names; the file is deleted | `ClioCore/SpeakerDiarization` (`StreamRecording`, `SpeakerAssignment`), `SpeakerDiarizer`, `SpeakerNamer`, `MeetingSession.identifyVoices` |
+| 6¾ | each voice's print is compared with those of earlier meetings: one they are sure of is named from them alone, the rest go to the model as evidence; then the prints are kept, under the names they ended with | `ClioCore/VoiceMemory` (`VoiceprintMatcher`), `ClioUI/AppCoordinator+Voices` |
 | 7 | stop: drain, then a summary — by Apple's on-device model (macOS 26), or by a downloaded GGUF run by llama.cpp, whichever Settings ▸ Model names; any saved meeting can be summarized again from its ⋯ menu | `MeetingSession.stop`, `ClioCore/MeetingSummarizer`, `LocalSummaryModel`, `ClioUI/AppCoordinator+Summaries` |
 | 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
@@ -52,7 +53,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 254 tests live here.
+  without standing up an app. All 261 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -62,7 +63,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 254 tests, 35 suites, no network
+swift test                                  # 261 tests, 36 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -119,6 +120,7 @@ CLIO_MEETING_PANE=transcript CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_WIDTH=1100 CLIO_L
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
 CLIO_SYSTEM_AUDIO_PROBE=1 Clio.app/Contents/MacOS/Clio    # is a tap allowed to hear? plays the inaudible tone and listens for it; exits 0 when allowed
+CLIO_VOICEPRINT_REPORT=1 Clio.app/Contents/MacOS/Clio     # the distances between the voices kept: same person, different people — what the matcher's thresholds should sit between; reads the store, changes nothing
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
 CLIO_SUMMARIZE="$HOME/Documents/Clio Meetings/<file>.md" Clio.app/Contents/MacOS/Clio   # Summarize Again on that file with the model Settings names; writes into it, prints the summary
 ```
@@ -477,6 +479,26 @@ name reads back to its number through the front matter. A guess never
 replaces a name the user gave, and a name may not be "Me", "Others" or
 "Speaker 3" — they would read back as something else.
 
+**The matcher's thresholds are Biscotti's, not Clio's.** Accept under
+0.50, probable under 0.30, sure under 0.20 with three meetings, two of them
+confirmed, and nobody else near — calibrated by its author on real meetings
+with the same embedder and SpeakerKit release (same person mostly under
+0.32, the closest two different people 0.62). Clio's only numbers are
+synthetic voices: 0.05–0.11 for one voice across four recordings, 0.85–0.94
+between two. `CLIO_VOICEPRINT_REPORT` prints the same two lists from the
+real store; move the thresholds on that, not on the test.
+
+**Voiceprints are keyed by a meeting's start, and marked with their model.**
+The start is in the front matter and survives a rename; the file name does
+not. The mark is the embedder's name, version and variant
+(`SpeakerModels.embeddingSpace`): a later macOS that makes SpeakerKit pick
+another variant makes vectors that mean something else, and two spaces are
+never compared — those voices are simply not recognised until named again.
+The store is one JSON file in Application Support, never the meetings
+folder, which people sync. `VoiceMemory.defaultFile` is the real one even
+from `swift run` and the tests' own process: every test passes a file of
+its own.
+
 **One WhisperKit pipeline, two callers.** The engine is an actor, but actors
 re-enter at every `await` and `transcribe` awaits throughout: a dictation
 during a meeting would have run on the pipeline alongside a chunk. Everything
@@ -631,6 +653,9 @@ Verified by something repeatable:
   out as Me / Daniel / Karen: one said her name, one was asked by name and
   answered; with the two invited, as Daniel Lee and Karen Holt, and a third
   invitee who never spoke given to nobody. No audio left behind
+- a voice named in three meetings is recognised in a fourth, from other
+  words, and the other voice is not taken for it (`SpeakerIntegration`,
+  `voicesAcrossMeetings`) — on the real models, with synthetic voices
 - a meeting's vocabulary as Whisper's prompt does not empty the transcript
   (`SanitizerIntegration`)
 - segmenting, echo removal, the queue's order, calendar matching, call
@@ -679,6 +704,16 @@ Not verified, and worth knowing:
   codec, some of them on a speakerphone in one room, are the real test and
   nobody has run it. Two people in one line of transcript go to whoever
   spoke longer.
+- **recognising a real person.** The thresholds are borrowed and the only
+  voices tried are synthetic. Whether a colleague on AirPods one day and a
+  laptop the next is one voice, and whether two colleagues are two, is
+  what `CLIO_VOICEPRINT_REPORT` is for once there are named meetings.
+- **short meetings split a voice.** Two five-second turns by one voice
+  came back as two speakers, 0.52 apart: too far to merge without merging
+  different people. Seen once, in a 22-second test call; not on longer ones.
+- **the voice controls in Settings ▸ Model ▸ Speakers**, and trashing a
+  meeting taking its voices: written, tested underneath (`VoiceMemory`),
+  not clicked.
 - **the transcript with voices, on screen.** The names, their colours, the
   popover that renames a voice and the Speakers row in Settings ▸ Model
   build and have never been looked at: the screen was locked when they

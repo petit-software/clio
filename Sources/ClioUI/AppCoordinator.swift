@@ -78,6 +78,10 @@ public final class AppCoordinator {
     /// so a run of summaries loads the weights once — see
     /// `LocalSummaryModel.idleTime`.
     var localSummaryModels: [URL: LocalSummaryModel] = [:]
+    /// The voices of past meetings: `AppCoordinator+Voices`.
+    let voiceMemory = VoiceMemory()
+    /// How many voices are kept, of how many people — for Settings.
+    public internal(set) var rememberedVoices: (voices: Int, people: Int) = (0, 0)
     /// The language models installed at the last look, to notice one arrive.
     var knownLanguageModelIDs: Set<String>?
     /// Nil in previews and tests: starting a real updater would schedule
@@ -173,6 +177,7 @@ public final class AppCoordinator {
         // The call's side of a meeting that did not end — a crash, a
         // forced quit — is not kept either.
         StreamRecording.removeLeftovers()
+        refreshVoiceCount()
         watchForCalls()
 
         overlay = OverlayController()

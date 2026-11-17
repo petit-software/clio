@@ -21,10 +21,14 @@ public struct Diarization: Sendable, Equatable {
     /// One vector per voice, by the diarizer's number: the voice itself, as
     /// far as a model can say. A voice that was always talked over has none.
     public var voiceprints: [Int: [Float]]
+    /// Which model made the voiceprints. Vectors from two models are not
+    /// comparable, and are never compared.
+    public var space: String
 
-    public init(spans: [SpeakerSpan], voiceprints: [Int: [Float]] = [:]) {
+    public init(spans: [SpeakerSpan], voiceprints: [Int: [Float]] = [:], space: String = "") {
         self.spans = spans
         self.voiceprints = voiceprints
+        self.space = space
     }
 
     /// Seconds each voice spoke.
@@ -81,6 +85,13 @@ public enum SpeakerAssignment {
     /// shorter and cannot be put right without knowing when each word was
     /// said.
     public static func assign(lines: [MeetingLine], diarization: Diarization) -> [UUID: Int] {
+        number(lines: lines, diarization: diarization).lines
+    }
+
+    /// The same, with which of the diarizer's numbers became which voice —
+    /// what its voiceprints are filed under.
+    public static func number(lines: [MeetingLine], diarization: Diarization)
+        -> (lines: [UUID: Int], voices: [Int: Int]) {
         let speaking = diarization.speakingSeconds
         let spans = diarization.spans.filter { (speaking[$0.speaker] ?? 0) >= leastSpeakingSeconds }
 
@@ -104,7 +115,7 @@ public enum SpeakerAssignment {
             if numbers[entry.speaker] == nil { numbers[entry.speaker] = numbers.count + 1 }
             result[entry.id] = numbers[entry.speaker]
         }
-        return result
+        return (result, numbers)
     }
 }
 

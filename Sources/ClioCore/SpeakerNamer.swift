@@ -30,6 +30,12 @@ public enum SpeakerNamer {
         - If there is only one numbered speaker, a name "Me" calls them by is \
         their name.
         - Other clues in what people say about themselves and each other.
+        If a section "Voices heard before" is given, it compares each \
+        speaker's voice with named speakers of earlier calls. It is separate \
+        evidence from what is said: when the two agree, that is strong; a \
+        voice that is "probably" someone's may be named so when nothing said \
+        contradicts it; a voice only "a little like" someone's needs the \
+        conversation to agree.
         When a name you found belongs to someone invited, write it as the list \
         has it, in full. A name that is only talked about ("I spoke to Jeff \
         yesterday") names nobody on the call. "Me" is never one of the numbered \
@@ -44,14 +50,20 @@ public enum SpeakerNamer {
 
     /// The names a model found, by voice, for the voices that have none the
     /// user gave. Empty when there are no voices to name, or it found none.
+    ///
+    /// `matches` is what the voices themselves say — which earlier
+    /// meetings' voices each resembles — for the model to weigh against
+    /// the conversation.
     public static func names(for record: MeetingRecord,
-                             with model: any SummaryLanguageModel) async -> [Int: String] {
+                             with model: any SummaryLanguageModel,
+                             matches: [Int: VoiceMatch] = [:]) async -> [Int: String] {
         let open = record.voiceNumbers.filter { record.voices[$0]?.confirmed != true }
         guard !open.isEmpty else { return [:] }
         let answer: String
         do {
             answer = try await model.respond(instructions: instructions,
-                                             prompt: prompt(for: record, limit: model.pieceLimit))
+                                             prompt: prompt(for: record, limit: model.pieceLimit,
+                                                            matches: matches.filter { open.contains($0.key) }))
         } catch {
             return [:]
         }
@@ -62,7 +74,8 @@ public enum SpeakerNamer {
     /// whatever names are guessed already are left out of it, so a wrong
     /// guess is not read back as evidence. Cut to `limit`: names are said
     /// at the start of a call far more often than at the end.
-    static func prompt(for record: MeetingRecord, limit: Int) -> String {
+    static func prompt(for record: MeetingRecord, limit: Int,
+                       matches: [Int: VoiceMatch] = [:]) -> String {
         var numbered = record
         for voice in record.voiceNumbers where record.voices[voice]?.confirmed != true {
             numbered.name(voice: voice, as: "", confirmed: true)
@@ -73,8 +86,30 @@ public enum SpeakerNamer {
         if !invited.isEmpty {
             parts.append("Invited: " + String(invited.joined(separator: ", ").prefix(MeetingSummarizer.attendeesLimit)))
         }
+        if !matches.isEmpty {
+            let lines = matches.keys.sorted().map { voice in
+                "\(MeetingRecord.placeholder(voice)): " + describe(matches[voice]!)
+            }
+            parts.append("Voices heard before:\n" + lines.joined(separator: "\n"))
+        }
         parts.append("Transcript:\n" + String(numbered.transcriptText.prefix(max(1_000, limit))))
         return parts.joined(separator: "\n\n")
+    }
+
+    /// A match as a sentence the model can weigh.
+    static func describe(_ match: VoiceMatch) -> String {
+        let meetings = "\(match.meetings) earlier \(match.meetings == 1 ? "call" : "calls")"
+        switch match.level {
+        case .high:
+            return "the voice is almost certainly \(match.name)'s (\(meetings))."
+        case .medium:
+            return "the voice is probably \(match.name)'s (\(meetings))."
+        case .low:
+            return "the voice is a little like \(match.name)'s; not enough on its own."
+        case .ambiguous:
+            return "the voice is like those of " + match.names.joined(separator: " and ")
+                + "; the conversation has to say which."
+        }
     }
 
     /// "2 | Ana Ruiz" → [2: "Ana Ruiz"]. Forgiving of "Speaker 2 | Ana" and

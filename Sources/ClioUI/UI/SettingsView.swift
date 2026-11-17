@@ -185,8 +185,17 @@ private struct GeneralTab: View {
 private struct ModelTab: View {
     @Bindable var coordinator: AppCoordinator
     @State private var deleteError: String?
+    @State private var confirmingForget = false
 
     private var models: ModelManager { coordinator.models }
+
+    /// "12 voices kept, of 4 people."
+    static func voicesKept(_ kept: (voices: Int, people: Int)) -> String {
+        guard kept.voices > 0 else { return "No voices kept yet" }
+        let voices = kept.voices == 1 ? "1 voice kept" : "\(kept.voices) voices kept"
+        guard kept.people > 0 else { return voices + ", none with a name" }
+        return voices + (kept.people == 1 ? ", of 1 person" : ", of \(kept.people) people")
+    }
 
     var body: some View {
         Form {
@@ -275,6 +284,29 @@ private struct ModelTab: View {
                              makeActive: {},
                              deleted: {},
                              deleteError: $deleteError)
+                }
+                if models.isInstalled(ModelCatalog.speakerModelID) {
+                    Toggle("Recognise voices from earlier meetings", isOn: Binding(
+                        get: { coordinator.settingsStore.settings.rememberVoices },
+                        set: { coordinator.settingsStore.settings.rememberVoices = $0 }))
+                    LabeledContent {
+                        Button("Forget All Voices…") { confirmingForget = true }
+                            .disabled(coordinator.rememberedVoices.voices == 0)
+                    } label: {
+                        Text(Self.voicesKept(coordinator.rememberedVoices))
+                        Text("A voiceprint for each speaker of each meeting, on this Mac only, in "
+                             + "Clio's own folder — never with the notes. Trashing a meeting "
+                             + "removes its voices.")
+                    }
+                    .confirmationDialog("Forget every voice Clio has kept?",
+                                        isPresented: $confirmingForget) {
+                        Button("Forget All Voices", role: .destructive) {
+                            coordinator.forgetAllVoices()
+                        }
+                    } message: {
+                        Text("Names already in your transcripts stay. Later meetings start "
+                             + "again from Speaker 1.")
+                    }
                 }
             } header: {
                 Text("Speakers")

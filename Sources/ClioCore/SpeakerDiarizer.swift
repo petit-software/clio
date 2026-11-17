@@ -22,6 +22,15 @@ public enum SpeakerModels {
         "speaker_clusterer": ["PldaProjector"],
     ]
 
+    /// The embedder this Mac loads, as a name: what its voiceprints are
+    /// marked with. A newer macOS that picks another variant makes vectors
+    /// that mean something else.
+    public static var embeddingSpace: String {
+        let embedder = ModelInfo.embedder()
+        return [embedder.name, embedder.version, embedder.variant].compactMap { $0 }
+            .joined(separator: "/")
+    }
+
     /// The folders of the repo worth downloading: what this Mac loads, and
     /// the segmenter's other variant, so the models are still whole after
     /// an upgrade to the macOS that prefers it.
@@ -159,6 +168,7 @@ public actor SpeakerDiarizer: SpeakerDiarizing {
             return SpeakerSpan(speaker: speaker, start: Double(segment.startTime),
                                end: Double(segment.endTime))
         }
-        return Diarization(spans: spans, voiceprints: result.speakerCentroidEmbeddings)
+        return Diarization(spans: spans, voiceprints: result.speakerCentroidEmbeddings,
+                           space: SpeakerModels.embeddingSpace)
     }
 }

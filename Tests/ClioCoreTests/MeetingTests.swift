@@ -750,7 +750,8 @@ struct MeetingSessionTests {
                 soundAt = samples.firstIndex { $0 != 0 }.map { Double($0) / AudioRecorder.sampleRate }
                 // Whoever spoke first, then someone else from 20 s on.
                 return Diarization(spans: [SpeakerSpan(speaker: 5, start: 0, end: 20),
-                                           SpeakerSpan(speaker: 2, start: 20, end: 60)])
+                                           SpeakerSpan(speaker: 2, start: 20, end: 60)],
+                                   voiceprints: [5: [1, 0], 2: [0, 1]], space: "test")
             }
         }
         let folder = tempFolder()
@@ -759,10 +760,18 @@ struct MeetingSessionTests {
         let mic = FakeSource(), system = FakeSource(), clock = TestClock(), diarizer = FakeDiarizer()
         let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
         meeting.diarizer = diarizer
-        meeting.nameVoices = { record in
+        meeting.nameVoices = { record, voices in
             #expect(record.voiceNumbers == [1, 2])
+            // The voiceprints come under the transcript's numbers, not the
+            // diarizer's, each with how long its voice spoke.
+            #expect(voices.space == "test")
+            #expect(voices.samples[1] == VoiceSample(vector: [1, 0], seconds: 20))
+            #expect(voices.samples[2] == VoiceSample(vector: [0, 1], seconds: 40))
             return [2: "Ana Ruiz"]
         }
+        final class Kept: @unchecked Sendable { var names: [Int: MeetingVoice] = [:] }
+        let kept = Kept()
+        meeting.voicesIdentified = { record, _ in kept.names = record.voices }
         meeting.summarize = { record in record.transcriptText }
         await meeting.start()
         clock.advance(10)                                        // nobody speaks for ten seconds
@@ -779,6 +788,8 @@ struct MeetingSessionTests {
         #expect(lines.map(\.voice) == [1, 2, nil])
         #expect(lines.map(meeting.record.label(for:)) == ["Speaker 1", "Ana Ruiz", "Me"])
         #expect(meeting.record.voices[2] == MeetingVoice(name: "Ana Ruiz", confirmed: false))
+        // What is kept for later meetings is kept after the names are in.
+        #expect(kept.names == [2: MeetingVoice(name: "Ana Ruiz", confirmed: false)])
         // The summary is written after, from a transcript that has the names.
         #expect(meeting.record.summary?.contains("Ana Ruiz:") == true)
         // And the audio is gone.

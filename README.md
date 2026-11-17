@@ -20,6 +20,17 @@ once in Settings ▸ Model, which also summarizes any earlier meeting again.
 "Open Clio…" in the menu shows them all — searchable, editable, with recent
 dictations alongside.
 
+With the speaker models installed (Settings ▸ Model ▸ Speakers, 17 MB), the
+others on a call are told apart — "Speaker 1", "Speaker 2" — and named where
+the conversation or an earlier meeting says who they are; click a name in a
+transcript to set it yourself. Two things are kept for that, and both stay
+on this Mac. The call's audio is written to a temporary file and deleted the
+moment the meeting ends. A voiceprint of each speaker — a list of numbers
+that describes a voice, which is biometric data — is kept in Clio's own
+folder in Application Support, never beside the notes, so that a voice named
+once is recognised next time. Trashing a meeting removes its voiceprints;
+Settings ▸ Model ▸ Speakers turns the remembering off and forgets them all.
+
 Requires macOS 14+. Design notes in
 [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-spec.md);
 [`AGENTS.md`](AGENTS.md) is the orientation for working on it — how the pieces

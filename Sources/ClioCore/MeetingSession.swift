@@ -21,6 +21,18 @@ extension MeetingAudioSource {
 
 extension SystemAudioRecorder: MeetingAudioSource {}
 
+/// The voices of a meeting as the diarizer left them, by the numbers the
+/// transcript uses.
+public struct IdentifiedVoices: Sendable, Equatable {
+    public var samples: [Int: VoiceSample]
+    public var space: String
+
+    public init(samples: [Int: VoiceSample], space: String) {
+        self.samples = samples
+        self.space = space
+    }
+}
+
 /// The microphone, streaming: an `AudioRecorder` that keeps nothing.
 public final class MeetingMicrophone: MeetingAudioSource, @unchecked Sendable {
     public let recorder = AudioRecorder()
@@ -115,9 +127,13 @@ public final class MeetingSession {
     /// as it arrives — and deleted the moment the voices are told apart,
     /// or the meeting ends any other way. Nil, and nothing is written.
     public var diarizer: (any SpeakerDiarizing)?
-    /// Works out whose the voices are, once they are apart. What it
-    /// returns are guesses, by voice.
-    public var nameVoices: ((MeetingRecord) async -> [Int: String])?
+    /// Works out whose the voices are, once they are apart — from the
+    /// voices themselves, and from what was said. What it returns are
+    /// guesses, by voice.
+    public var nameVoices: ((MeetingRecord, IdentifiedVoices) async -> [Int: String])?
+    /// Run once the voices have what names they are going to get: where
+    /// they are kept for the meetings to come.
+    public var voicesIdentified: ((MeetingRecord, IdentifiedVoices) async -> Void)?
     private var recording: StreamRecording?
 
     /// Run after the last chunk is in, to write the summary. Nil skips it.
@@ -328,15 +344,26 @@ public final class MeetingSession {
         recording.close()
         guard recording.isComplete,
               let diarization = try? await diarizer.diarize(recording: recording.url) else { return }
-        record.assignVoices(SpeakerAssignment.assign(lines: record.lines, diarization: diarization))
+        let numbered = SpeakerAssignment.number(lines: record.lines, diarization: diarization)
+        record.assignVoices(numbered.lines)
         guard !record.voiceNumbers.isEmpty else { return }
         save()
+
+        // The voiceprints, under the numbers the transcript uses.
+        let speaking = diarization.speakingSeconds
+        var samples: [Int: VoiceSample] = [:]
+        for (speaker, voice) in numbered.voices {
+            guard let vector = diarization.voiceprints[speaker] else { continue }
+            samples[voice] = VoiceSample(vector: vector, seconds: speaking[speaker] ?? 0)
+        }
+        let voices = IdentifiedVoices(samples: samples, space: diarization.space)
         if let nameVoices {
-            for (voice, name) in await nameVoices(record) {
+            for (voice, name) in await nameVoices(record, voices) {
                 record.name(voice: voice, as: name, confirmed: false)
             }
             save()
         }
+        await voicesIdentified?(record, voices)
     }
 
     private func discardRecording() {

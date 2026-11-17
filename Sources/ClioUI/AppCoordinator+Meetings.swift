@@ -56,11 +56,15 @@ extension AppCoordinator {
             // told apart when it ends; with a summary model too, named.
             if let speakers = models.installed(.speaker).first {
                 session.diarizer = SpeakerDiarizer(folder: speakers.url)
-                if let model = summaryModel {
-                    session.nameVoices = { [weak self, weak session] record in
-                        await self?.makeRoomForSummary(by: model, ending: session)
-                        return await SpeakerNamer.names(for: record, with: model)
-                    }
+                let model = summaryModel
+                session.nameVoices = { [weak self, weak session] record, voices in
+                    guard let self else { return [:] }
+                    return await self.nameVoices(of: record, voices, with: model, ending: session)
+                }
+                session.voicesIdentified = { [weak self] record, voices in
+                    guard let self, self.settingsStore.settings.rememberVoices else { return }
+                    await self.voiceMemory.remember(record, samples: voices.samples, space: voices.space)
+                    self.refreshVoiceCount()
                 }
             }
             if settings.meetingSummaries, let model = summaryModel {

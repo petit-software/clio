@@ -86,6 +86,9 @@ public struct Settings: Codable, Equatable, Sendable {
     /// so a better default in a later version reaches everyone who never
     /// changed it.
     public var summaryPrompt: String = ""
+    /// Keep the voices of meetings, to recognise them in later ones. Off,
+    /// nothing is kept and nothing kept is consulted.
+    public var rememberVoices: Bool = true
     /// Offer to take notes when a call starts during a calendar event.
     public var meetingDetection: Bool = true
 
@@ -177,6 +180,7 @@ public struct Settings: Codable, Equatable, Sendable {
         meetingsFolderPath = readOptional(.meetingsFolderPath, String.self)
         meetingSummaries = read(.meetingSummaries, defaults.meetingSummaries)
         summaryPrompt = read(.summaryPrompt, defaults.summaryPrompt)
+        rememberVoices = read(.rememberVoices, defaults.rememberVoices)
         summaryModelID = readOptional(.summaryModelID, String.self)
         meetingDetection = read(.meetingDetection, defaults.meetingDetection)
     }

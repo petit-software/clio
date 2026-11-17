@@ -97,6 +97,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        // The distances between the voices Clio has kept, for moving the
+        // matcher's thresholds on real data. Reads the store; changes nothing.
+        if ProcessInfo.processInfo.environment["CLIO_VOICEPRINT_REPORT"] != nil {
+            Task { @MainActor in
+                let report = await VoiceMemory().report()
+                FileHandle.standardError.write(Data((report + "\n").utf8))
+                exit(0)
+            }
+            return
+        }
+
         // Ask whether a tap is allowed to hear: the probe a silent meeting
         // runs, alone. From the bundle — the permission is the bundle's.
         if ProcessInfo.processInfo.environment["CLIO_SYSTEM_AUDIO_PROBE"] != nil {

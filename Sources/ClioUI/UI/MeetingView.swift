@@ -192,6 +192,7 @@ struct MeetingView: View {
     private var transcriptPane: some View {
         TranscriptList(record: meeting.record, isLive: meeting.isActive) { voice, name in
             meeting.nameVoice(voice, as: name)
+            coordinator.voicesRenamed(in: meeting.record)
         }
     }
 

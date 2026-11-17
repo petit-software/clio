@@ -422,6 +422,7 @@ struct LibraryView: View {
         Button("Open in Default App", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
         Divider()
         Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
+            coordinator.forgetVoices(ofMeetingAt: url)
             try? library?.trash(url)
             if coordinator.librarySelection == .meeting(url) { coordinator.librarySelection = nil }
         }
@@ -758,6 +759,7 @@ struct MeetingDocumentView: View {
                 save?.cancel()
                 isDirty = false
                 coordinator.cancelSummary(url)
+                coordinator.forgetVoices(ofMeetingAt: url)
                 try? library.trash(url)
                 selection = nil
             }
@@ -815,6 +817,7 @@ struct MeetingDocumentView: View {
                         else { return }
                         isDirty = true
                         flush()
+                        if let renamed = self.record { coordinator.voicesRenamed(in: renamed) }
                     }
                 }
             }

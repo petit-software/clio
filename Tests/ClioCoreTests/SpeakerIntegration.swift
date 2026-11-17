@@ -205,6 +205,126 @@ struct SpeakerIntegrationTests {
         #expect(diarization.spans.isEmpty)
     }
 
+    // MARK: Across meetings
+
+    /// One meeting of Daniel then Karen, each saying their own lines; the
+    /// voiceprints by who spoke first and second.
+    private func meeting(_ danielSays: [String], _ karenSays: [String], lead: Double,
+                         models: InstalledModel) async throws -> (daniel: VoiceSample, karen: VoiceSample, space: String) {
+        let rate = AudioRecorder.sampleRate
+        let recording = try StreamRecording()
+        defer { recording.discard() }
+        recording.appendSilence(samples: Int(lead * rate))
+        var clock = lead
+        var lines: [MeetingLine] = []
+        for index in 0..<max(danielSays.count, karenSays.count) {
+            for (voice, texts) in [("Daniel", danielSays), ("Karen", karenSays)] where index < texts.count {
+                let samples = try say(texts[index], voice: voice)
+                recording.append(samples)
+                let length = Double(samples.count) / rate
+                lines.append(MeetingLine(speaker: .others, start: clock, end: clock + length, text: voice))
+                clock += length + 0.8
+                recording.appendSilence(samples: Int(0.8 * rate))
+            }
+        }
+        recording.close()
+        let diarization = try await SpeakerDiarizer(folder: models.url).diarize(recording: recording.url)
+        let numbered = SpeakerAssignment.number(lines: lines, diarization: diarization)
+        let speaking = diarization.speakingSeconds
+        func sample(_ voice: Int) throws -> VoiceSample {
+            let speaker = try #require(numbered.voices.first { $0.value == voice }?.key)
+            return VoiceSample(vector: try #require(diarization.voiceprints[speaker]),
+                               seconds: speaking[speaker] ?? 0)
+        }
+        if numbered.voices.count != 2 || Set(diarization.spans.map(\.speaker)).count != 2 {
+            let ids = diarization.voiceprints.keys.sorted()
+            for (index, a) in ids.enumerated() {
+                for b in ids[(index + 1)...] {
+                    print(String(format: "[speakers] lead %.0f: voices %d and %d are %.2f apart", lead, a, b,
+                                 VoiceprintMath.distance(diarization.voiceprints[a]!, diarization.voiceprints[b]!)))
+                }
+            }
+            print("[speakers] lead \(lead): speaking \(speaking.mapValues { Int($0) }), spans "
+                  + diarization.spans.map { String(format: "%d:%.0f-%.0f", $0.speaker, $0.start, $0.end) }.joined(separator: " "))
+        }
+        // Not `== 2`: with two turns of five seconds each, one voice has
+        // come out as two (0.52 apart — nearer than any two people here,
+        // further than any merge could safely reach). Meetings are not
+        // this short; the first of them is still whose it should be.
+        #expect(numbered.voices.count >= 2)
+        return (try sample(1), try sample(2), diarization.space)
+    }
+
+    @Test("A voice named in three meetings is recognised in the fourth, from other words; the other voice is not mistaken for it")
+    func voicesAcrossMeetings() async throws {
+        let models = try await installModels()
+        let daniel = [
+            ["Good morning everyone. Let's start with the beta. The build is ready and I would like to send it to testers on Thursday.",
+             "The pricing page copy is drafted and design is reviewing the table this week."],
+            ["I looked at the support queue yesterday. Most of the tickets are about the import feature failing on large files.",
+             "We should add a progress bar and a clearer error message before the next release."],
+            ["The quarterly budget is under plan. Infrastructure cost less than we expected because of the new contract.",
+             "That leaves room for one more engineer, and I would like to open the position in January."],
+            ["Before we finish, a word about the conference. We have two speaking slots and a small booth near the entrance.",
+             "I can cover the first day if someone else takes the workshop on the second."],
+        ]
+        let karen = [
+            ["Thursday works for me. I will write the release notes by Wednesday and update the website.",
+             "Let's ship the page the week after the beta. I will do the final pass on Friday morning."],
+            ["I agree. Customers keep asking the same question, so the documentation needs a new section as well.",
+             "I can draft it this week and send it round for review on Monday."],
+            ["That is good news. I interviewed two candidates last week and both could start early next year.",
+             "I will send the calendar invitations for the second interviews this afternoon."],
+            ["I would be happy to run the workshop. I gave a similar one in the spring and still have the slides.",
+             "Could you book the travel by the end of the month, so that the prices stay reasonable?"],
+        ]
+
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-voices-\(UUID().uuidString)/voiceprints.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let memory = VoiceMemory(file: file)
+
+        var heard: [(daniel: VoiceSample, karen: VoiceSample, space: String)] = []
+        for index in 0..<4 {
+            heard.append(try await meeting(daniel[index], karen[index], lead: Double(index) * 15, models: models))
+        }
+        var same: [Float] = [], different: [Float] = []
+        for a in 0..<4 {
+            for b in 0..<4 {
+                if a < b {
+                    same.append(VoiceprintMath.distance(heard[a].daniel.vector, heard[b].daniel.vector))
+                    same.append(VoiceprintMath.distance(heard[a].karen.vector, heard[b].karen.vector))
+                }
+                different.append(VoiceprintMath.distance(heard[a].daniel.vector, heard[b].karen.vector))
+            }
+        }
+        print(String(format: "[speakers] across meetings: same voice %.2f–%.2f, different voices %.2f–%.2f; "
+                     + "speaking %.0f–%.0f s a meeting; space %@",
+                     same.min()!, same.max()!, different.min()!, different.max()!,
+                     heard.map(\.daniel.seconds).min()!, heard.map(\.daniel.seconds).max()!, heard[0].space))
+
+        // Three meetings, named by hand.
+        for index in 0..<3 {
+            var record = MeetingRecord(title: "Sync", startDate: Date(timeIntervalSince1970: Double(index) * 86_400))
+            record.name(voice: 1, as: "Daniel Lee", confirmed: true)
+            record.name(voice: 2, as: "Karen Holt", confirmed: true)
+            await memory.remember(record, samples: [1: heard[index].daniel, 2: heard[index].karen],
+                                  space: heard[index].space)
+        }
+        // The fourth: who are these two?
+        let matches = await memory.matches(for: [1: heard[3].daniel, 2: heard[3].karen],
+                                           space: heard[3].space, meeting: "fourth", invited: [])
+        for voice in [1, 2] {
+            let match = matches[voice]
+            print("[speakers] fourth meeting, voice \(voice): \(match?.level.rawValue ?? "nobody") "
+                  + "\(match?.names ?? []) at \(String(format: "%.2f", match?.distance ?? 9))")
+        }
+        print(await memory.report())
+        #expect(matches[1]?.name == "Daniel Lee")
+        #expect(matches[2]?.name == "Karen Holt")
+        #expect(same.max()! < different.min()!)
+    }
+
     // MARK: A whole call
 
     private final class Source: MeetingAudioSource, @unchecked Sendable {
@@ -264,7 +384,7 @@ struct SpeakerIntegrationTests {
                             MeetingAttendee(name: "Priya Shah")]))
         }
         if let language {
-            session.nameVoices = { await SpeakerNamer.names(for: $0, with: language) }
+            session.nameVoices = { record, _ in await SpeakerNamer.names(for: record, with: language) }
             session.summarize = { await MeetingSummarizer.summarize($0, with: language) }
         }
         await session.start()
