@@ -257,6 +257,12 @@ struct SpeakerIntegrationTests {
             options: TranscribeOptions(language: "en"), sensitivity: 0.5, micDeviceUID: nil,
             microphone: mic, systemAudio: system, now: { clock.now() })
         session.diarizer = SpeakerDiarizer(folder: speakers.url)
+        if ProcessInfo.processInfo.environment["CLIO_SPEAKER_INVITED"] != nil {
+            session.apply(MeetingEvent(
+                id: "e", title: "Weekly sync", start: clock.now(), end: clock.now().addingTimeInterval(1800),
+                attendees: [MeetingAttendee(name: "Daniel Lee"), MeetingAttendee(name: "Karen Holt"),
+                            MeetingAttendee(name: "Priya Shah")]))
+        }
         if let language {
             session.nameVoices = { await SpeakerNamer.names(for: $0, with: language) }
             session.summarize = { await MeetingSummarizer.summarize($0, with: language) }
@@ -301,10 +307,9 @@ struct SpeakerIntegrationTests {
         let left = (try? FileManager.default.contentsOfDirectory(atPath: StreamRecording.directory.path)) ?? []
         #expect(left.isEmpty)
         if language != nil {
-            // Karen says who she is; Daniel is spoken to by name just
-            // before he talks. Neither may be given the other's name.
+            // Karen says who she is; Daniel is asked by name and answers.
             #expect(record.voices[karen]?.name.lowercased().contains("karen") == true)
-            #expect(record.voices[daniel]?.name.lowercased().contains("karen") != true)
+            #expect(record.voices[daniel]?.name.lowercased().contains("daniel") == true)
             print("[speakers] names: \(record.voices.mapValues(\.name))")
         }
     }

@@ -628,8 +628,9 @@ Verified by something repeatable:
   `ModelManager` (17 MB), loaded from Clio's folder with `download: false`,
   two of macOS's voices told apart turn by turn on the meeting's clock; and
   a whole call — a real session, Whisper, the models, Qwen3 4B — written
-  out as Me / Speaker 1 / Karen, the one who said her name named, the one
-  only spoken to left a number, and no audio left behind
+  out as Me / Daniel / Karen: one said her name, one was asked by name and
+  answered; with the two invited, as Daniel Lee and Karen Holt, and a third
+  invitee who never spoke given to nobody. No audio left behind
 - a meeting's vocabulary as Whisper's prompt does not empty the transcript
   (`SanitizerIntegration`)
 - segmenting, echo removal, the queue's order, calendar matching, call

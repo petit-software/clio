@@ -4,28 +4,42 @@ import Foundation
 ///
 /// Diarization gives "Speaker 1" and "Speaker 2"; who they are is in the
 /// transcript, when it is anywhere: someone says their own name, or is
-/// called by it. A language model reads for that. What it finds is a guess
+/// called by it, or it follows from who was invited. A language model
+/// reads for that, the way Biscotti's does. What it finds is a guess
 /// — marked as one in the file, shown like any name, and replaced by
 /// whatever the user types.
 public enum SpeakerNamer {
 
+    /// The rules Biscotti gives its model, in Clio's words: what is said in
+    /// the conversation and who was invited are both evidence, and a
+    /// speaker the model is not confident of is left out. The first
+    /// version here allowed only a self-introduction or a name said right
+    /// beside a turn, and forbade everything else; on a scripted call it
+    /// named the one who said "this is Karen" and left the one asked
+    /// "Daniel, do you want to start?" a number.
     static let instructions = """
         You are given the transcript of a call. "Me" is the person who recorded \
-        it. Everyone else is labelled Speaker 1, Speaker 2, and so on. Work out \
-        the real name of each numbered speaker, using only evidence in the \
-        transcript:
-        - they say who they are ("Hi, I'm Jeff", "This is Ana");
-        - someone speaks to them by name right before or right after they talk \
-        ("Thanks, Jeff" names whoever just spoke; "Jeff, what do you think?" \
-        names whoever answers).
-        If a list of people invited is given, use it only to write a name you \
-        found that way in full. Never guess. Never name a speaker because they \
-        are the only person left over. A name that is only mentioned ("I \
-        talked to Jeff yesterday") names nobody.
+        it. Everyone else is labelled Speaker 1, Speaker 2, and so on. Match \
+        each numbered speaker to a real person, using what is said in the \
+        transcript and, if one is given, the list of people invited. For example:
+        - "Hi, I'm Jeff" or "This is Ana from marketing": the one speaking is \
+        Jeff, or Ana.
+        - "Jeff, what do you think?" or "Do you want to start, Jeff?": whoever \
+        answers next is Jeff.
+        - "Thanks for that, Jeff": whoever spoke just before is Jeff.
+        - If there is only one numbered speaker, a name "Me" calls them by is \
+        their name.
+        - Other clues in what people say about themselves and each other.
+        When a name you found belongs to someone invited, write it as the list \
+        has it, in full. A name that is only talked about ("I spoke to Jeff \
+        yesterday") names nobody on the call. "Me" is never one of the numbered \
+        speakers. If you cannot tell who a speaker is with confidence, leave \
+        them out.
 
-        Answer with one line for each speaker you are sure of, in the form
+        Answer with one line for each speaker you identified, in the form
         number | name
-        and nothing else. If you are sure of none, answer: none
+        and nothing else: no introduction, no explanation. If you identified \
+        none, answer: none
         """
 
     /// The names a model found, by voice, for the voices that have none the
