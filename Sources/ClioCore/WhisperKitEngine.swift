@@ -69,6 +69,31 @@ public actor WhisperKitEngine: TranscriptionEngine {
 
     public func transcribe(samples: [Float],
                            options: TranscribeOptions) async throws -> Transcript {
+        let decoded = try await decode(samples: samples, options: options)
+        var text = decoded.text
+
+        // What Whisper invents at the end of the audio comes out. The text is
+        // rebuilt from the segments only when one was dropped; otherwise it
+        // is WhisperKit's own, untouched.
+        let duration = Double(samples.count) / AudioRecorder.sampleRate
+        let kept = TranscriptSanitizer.sanitize(decoded.segments, audioDuration: duration)
+        if kept.count < decoded.segments.count {
+            text = TranscriptSanitizer.text(of: kept)
+        }
+
+        // Silence is a legitimate outcome, not an error — the coordinator turns
+        // an empty transcript into "nothing was transcribed".
+        return Transcript(text: text, language: decoded.language, duration: duration)
+    }
+
+    /// What the model said, before anything is taken out of it.
+    struct Decoded {
+        var text: String
+        var language: String?
+        var segments: [TranscriptSanitizer.Segment]
+    }
+
+    func decode(samples: [Float], options: TranscribeOptions) async throws -> Decoded {
         guard let pipe else { throw EngineError.notLoaded }
 
         var decoding = DecodingOptions()
@@ -108,12 +133,33 @@ public actor WhisperKitEngine: TranscriptionEngine {
             .map(\.text)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Silence is a legitimate outcome, not an error — the coordinator turns
-        // an empty transcript into "nothing was transcribed".
-        return Transcript(
+        let special = pipe.tokenizer?.specialTokens.specialTokenBegin
+        return Decoded(
             text: text,
             language: results.first?.language ?? options.language,
-            duration: Double(samples.count) / AudioRecorder.sampleRate)
+            segments: results.flatMap(\.segments).map {
+                Self.segment($0, specialTokenBegin: special)
+            })
+    }
+
+    /// A WhisperKit segment as the sanitizer wants it. The probability is
+    /// the mean over the segment's text tokens — from the log-probabilities
+    /// every decode carries, so word timestamps (and their second pass) are
+    /// not needed for it. Timestamp and other special tokens are left out:
+    /// they sit at and above `specialTokenBegin`.
+    static func segment(_ segment: TranscriptionSegment,
+                        specialTokenBegin: Int?) -> TranscriptSanitizer.Segment {
+        var sum = 0.0
+        var count = 0
+        for entry in segment.tokenLogProbs {
+            for (token, logProb) in entry {
+                if let specialTokenBegin, token >= specialTokenBegin { continue }
+                sum += exp(Double(logProb))
+                count += 1
+            }
+        }
+        return TranscriptSanitizer.Segment(
+            start: Double(segment.start), end: Double(segment.end), text: segment.text,
+            probability: count > 0 ? sum / Double(count) : nil)
     }
 }

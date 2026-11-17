@@ -46,6 +46,10 @@ public final class ModelManager {
     private let huggingFaceCache: URL
     private var tasks: [String: Task<Void, Never>] = [:]
 
+    /// Free bytes on the volume holding a folder; nil when the volume will
+    /// not say. A property so a test can stand in a full disk.
+    var freeBytes: (URL) -> Int64? = ModelManager.freeBytes(at:)
+
     public init(transport: any ModelTransport = HuggingFaceTransport(),
                 modelsDirectory: URL = AppPaths.modelsDirectory,
                 huggingFaceCache: URL = AppPaths.huggingFaceCache) {
@@ -328,6 +332,46 @@ public final class ModelManager {
         "bin", "safetensors", "msgpack", "h5", "onnx", "ot", "pt", "ckpt",
     ]
 
+    /// What is left over for everything else once a model is on disk. A
+    /// download that fills the volume to the last byte leaves a Mac that
+    /// cannot save a meeting.
+    static let diskHeadroom: Int64 = 500_000_000
+
+    public struct NotEnoughDisk: LocalizedError, Equatable {
+        public var needed: Int64
+        public var free: Int64
+
+        public var errorDescription: String? {
+            let format = ByteCountFormatter()
+            format.countStyle = .file
+            return "Not enough disk space: this model needs "
+                + "\(format.string(fromByteCount: needed)) and "
+                + "\(format.string(fromByteCount: free)) is free."
+        }
+    }
+
+    /// The volume's free space as the Finder counts it: what can be made
+    /// available for something the user asked for, purgeable space included.
+    nonisolated static func freeBytes(at url: URL) -> Int64? {
+        var folder = url
+        // The models folder may not exist before the first download.
+        while !FileManager.default.fileExists(atPath: folder.path), folder.path != "/" {
+            folder.deleteLastPathComponent()
+        }
+        let values = try? folder.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
+    }
+
+    /// Throws when `bytes` more would not fit beside `diskHeadroom`. A
+    /// volume that does not say how much it has is not a reason to refuse.
+    func checkDisk(for bytes: Int64) throws {
+        guard bytes > 0, let free = freeBytes(modelsDirectory) else { return }
+        if free < bytes + Self.diskHeadroom {
+            throw NotEnoughDisk(needed: bytes, free: free)
+        }
+    }
+
     private func performDownload(_ model: CatalogModel) async {
         defer { tasks[model.id] = nil }
 
@@ -360,6 +404,39 @@ public final class ModelManager {
                 completedFiles: 0, totalFiles: fileCount)
 
             let destinationRoot = modelsDirectory.appendingPathComponent(model.id)
+
+            // Paths in the listing are repo-relative and start with the
+            // model id; strip it so the folder is not nested twice.
+            func destination(of entry: (file: RemoteFile, subdirectory: String?)) -> URL {
+                let path = entry.file.path
+                let relative = path.hasPrefix(model.id + "/")
+                    ? String(path.dropFirst(model.id.count + 1))
+                    : path
+                return entry.subdirectory
+                    .map { destinationRoot.appendingPathComponent($0)
+                                          .appendingPathComponent(relative) }
+                    ?? destinationRoot.appendingPathComponent(relative)
+            }
+            func isComplete(_ entry: (file: RemoteFile, subdirectory: String?)) -> Bool {
+                let existing = try? destination(of: entry).resourceValues(forKeys: [.fileSizeKey])
+                return existing.map { Int64($0.fileSize ?? 0) == entry.file.size } ?? false
+            }
+
+            // Asked before the first byte, of what is still to come: a
+            // download that runs out of room fails gigabytes in, with an
+            // error that does not say why.
+            let missing = files.filter { !isComplete($0) }.reduce(Int64(0)) { $0 + $1.file.size }
+            do {
+                try checkDisk(for: missing)
+            } catch {
+                // Not the general failure below: that clears the folder, and
+                // files already here are a download to resume once there
+                // is room.
+                downloads[model.id] = nil
+                failures[model.id] = error.localizedDescription
+                return
+            }
+
             try FileManager.default.createDirectory(
                 at: destinationRoot, withIntermediateDirectories: true)
 
@@ -368,21 +445,11 @@ public final class ModelManager {
             for (index, entry) in files.enumerated() {
                 try Task.checkCancellation()
                 let file = entry.file
-
-                // Paths in the listing are repo-relative and start with the
-                // model id; strip it so the folder is not nested twice.
-                let relative = file.path.hasPrefix(model.id + "/")
-                    ? String(file.path.dropFirst(model.id.count + 1))
-                    : file.path
-                let destination = entry.subdirectory
-                    .map { destinationRoot.appendingPathComponent($0)
-                                          .appendingPathComponent(relative) }
-                    ?? destinationRoot.appendingPathComponent(relative)
+                let destination = destination(of: entry)
 
                 // Already there and the right size — a retry after a failure
                 // resumes at file granularity rather than starting over.
-                if let existing = try? destination.resourceValues(forKeys: [.fileSizeKey]),
-                   Int64(existing.fileSize ?? 0) == file.size {
+                if isComplete(entry) {
                     completedBytes += file.size
                     downloads[model.id] = DownloadProgress(
                         receivedBytes: completedBytes, totalBytes: total,

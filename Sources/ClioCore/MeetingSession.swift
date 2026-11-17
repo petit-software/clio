@@ -65,9 +65,12 @@ public final class MeetingSession {
     public enum SystemAudioStatus: Equatable, Sendable {
         case starting
         case listening
-        /// Running, but nothing but silence so far — which is also what a
-        /// refused permission sounds like.
+        /// Running, but nothing but silence so far, and the probe could
+        /// not say why.
         case silent
+        /// Running, and not allowed to hear: the probe's own tone came back
+        /// as silence.
+        case refused
         case unavailable(String)
     }
 
@@ -118,6 +121,12 @@ public final class MeetingSession {
     private let systemFeed: StreamFeed
     private var transcriptions: [UUID: Task<Void, Never>] = [:]
     private var silenceCheck: Task<Void, Never>?
+    /// Asked once, when twenty seconds have gone by in silence: is that the
+    /// call being quiet, or the permission? Nil where there is no real tap.
+    var probeSystemAudio: (@Sendable () async -> SystemAudioProbe.Result)?
+    /// How long silence lasts before it is looked into, and how often after.
+    var silenceGrace: Duration = .seconds(20)
+    var silenceInterval: Duration = .seconds(5)
 
     public init(title: String,
                 folder: URL,
@@ -139,6 +148,10 @@ public final class MeetingSession {
         self.options = options
         self.microphone = microphone ?? MeetingMicrophone(deviceUID: micDeviceUID)
         self.systemRecorder = systemAudio ?? SystemAudioRecorder()
+        // Only for the real tap: a stand-in has no permission to ask about.
+        if systemAudio == nil {
+            probeSystemAudio = { await SystemAudioProbe.run() }
+        }
         let configuration = SpeechSegmenter.Configuration(sensitivity: sensitivity)
         micFeed = StreamFeed(speaker: .me, meetingStart: start, configuration: configuration, now: now)
         systemFeed = StreamFeed(speaker: .others, meetingStart: start, configuration: configuration, now: now)
@@ -375,24 +388,44 @@ public final class MeetingSession {
     // MARK: Is the call coming through?
 
     /// For the whole meeting, what the call audio is doing. A refused
-    /// permission is not an error — the tap runs and delivers silence — so
-    /// twenty seconds of nothing at all is worth a word in the window; and
-    /// a capture that went away with the output, and could not be picked up
-    /// again, is said as it is rather than left saying "listening".
+    /// permission is not an error — the tap runs and delivers silence — and
+    /// so does a call where nobody has spoken yet. After twenty seconds of
+    /// nothing the probe settles which: refused is said in the window, and a
+    /// quiet call is left alone. A capture that went away with the output,
+    /// and could not be picked up again, is said as it is rather than left
+    /// saying "listening".
     private func watchSystemAudio() {
         guard systemAudio == .listening else { return }
         silenceCheck = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(20))
+            guard let grace = self?.silenceGrace else { return }
+            try? await Task.sleep(for: grace)
+            // What the probe said, once it has been asked.
+            var verdict: SystemAudioProbe.Result?
             while !Task.isCancelled {
                 guard let self, self.isActive else { return }
                 if !self.systemRecorder.isCapturing {
                     self.systemAudio = .unavailable(
                         "The call's audio was lost when the sound output changed. "
                         + "It is picked up again when the output changes back.")
+                } else if self.systemRecorder.hasHeardSound {
+                    self.systemAudio = .listening
                 } else {
-                    self.systemAudio = self.systemRecorder.hasHeardSound ? .listening : .silent
+                    if verdict == nil, let probe = self.probeSystemAudio {
+                        verdict = await probe()
+                        guard !Task.isCancelled, self.isActive else { return }
+                    }
+                    // Sound may have arrived while the probe ran.
+                    if self.systemRecorder.hasHeardSound {
+                        self.systemAudio = .listening
+                    } else {
+                        switch verdict {
+                        case .allowed: self.systemAudio = .listening
+                        case .refused: self.systemAudio = .refused
+                        case .inconclusive, nil: self.systemAudio = .silent
+                        }
+                    }
                 }
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: self.silenceInterval)
             }
         }
     }

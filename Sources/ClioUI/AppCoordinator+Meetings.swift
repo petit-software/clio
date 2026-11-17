@@ -45,7 +45,10 @@ extension AppCoordinator {
                     language: settings.language,
                     translateToEnglish: false,
                     initialPrompt: TranscriptFormatter.initialPrompt(
-                        from: settings.customVocabulary)),
+                        from: TranscriptFormatter.meetingVocabulary(
+                            user: settings.customVocabulary,
+                            title: event?.title,
+                            attendees: event?.attendees ?? []))),
                 sensitivity: settings.vadSensitivity,
                 micDeviceUID: settings.inputDeviceUID)
             if settings.meetingSummaries, let model = summaryModel {
@@ -327,6 +330,9 @@ extension AppCoordinator {
         case "silent":
             phase = .recording
             audio = .silent
+        case "refused":
+            phase = .recording
+            audio = .refused
         default: phase = .recording
         }
         meeting = MeetingSession.simulated(record: record, phase: phase, systemAudio: audio,

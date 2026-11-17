@@ -260,6 +260,43 @@ func downloadInstallsFiles() async throws {
 }
 
 @MainActor
+@Test("A download that would not fit is refused before the first byte, and says how much it needs")
+func downloadNeedsRoom() async throws {
+    let root = try makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let id = "openai_whisper-tiny"
+    let manager = ModelManager(transport: StubTransport(files: remoteFiles(id: id)),
+                               modelsDirectory: root, huggingFaceCache: noCache)
+    let model = CatalogModel(id: id, displayName: "Tiny",
+                             repo: "argmaxinc/whisperkit-coreml",
+                             approximateBytes: 2880, tier: .fast,
+                             languages: .multilingual)
+
+    // One file already here from an earlier try: not counted, and not lost.
+    let config = root.appendingPathComponent("\(id)/config.json")
+    try FileManager.default.createDirectory(at: config.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try Data(repeating: 0x41, count: 64).write(to: config)
+
+    manager.freeBytes = { _ in ModelManager.diskHeadroom + 2815 }   // one byte short
+    manager.download(model)
+    try await waitUntil { manager.failures[id] != nil }
+    #expect(manager.failures[id]?.contains("Not enough disk space") == true)
+    #expect(!manager.isInstalled(id))
+    #expect(FileManager.default.fileExists(atPath: config.path))
+
+    manager.freeBytes = { _ in ModelManager.diskHeadroom + 2816 }
+    manager.download(model)
+    try await waitUntil { manager.isInstalled(id) }
+
+    // A volume that will not say is not a reason to refuse.
+    manager.freeBytes = { _ in nil }
+    #expect(throws: Never.self) { try manager.checkDisk(for: 1 << 40) }
+    #expect(ModelManager.freeBytes(at: root.appendingPathComponent("not/there/yet")) != nil)
+}
+
+@MainActor
 @Test("A single-file model takes one file from the repo's root into a folder of its own")
 func downloadInstallsOneFile() async throws {
     let root = try makeTempDirectory()

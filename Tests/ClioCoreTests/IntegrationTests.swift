@@ -299,3 +299,67 @@ struct MicrophoneIntegrationTests {
         #expect(samples.count > Int(0.2 * AudioRecorder.sampleRate))
     }
 }
+
+
+// MARK: - The sanitizer, on what the real model says
+
+/// The sanitizer's rules are tested on values; this is whether the real
+/// model gives it the values. Uses a speech model already installed and
+/// downloads nothing:
+///
+///     CLIO_INTEGRATION=1 swift test --filter SanitizerIntegration
+@Suite("SanitizerIntegration", .enabled(if: integrationEnabled), .serialized)
+struct SanitizerIntegrationTests {
+
+    @Test("Real speech comes with a probability per segment, well clear of the cut; silence trimmed first leaves nothing to invent")
+    @MainActor
+    func segmentsCarryProbabilities() async throws {
+        let manager = ModelManager()
+        let model = try #require(
+            manager.installed(.speech).max { $0.sizeBytes < $1.sizeBytes },
+            "No speech model installed to test with")
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-say-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("speech.aiff")
+        let say = Process()
+        say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        say.arguments = ["-r", "170", "-o", file.path,
+                         "The quarterly numbers are ready. We ship the beta on Thursday."]
+        try say.run()
+        say.waitUntilExit()
+        // Three seconds of nothing after the last word: where Whisper
+        // makes things up.
+        let speech = try AudioProcessor.loadAudioAsFloatArray(fromPath: file.path)
+        let samples = speech + [Float](repeating: 0, count: 48_000)
+        let duration = Double(samples.count) / AudioRecorder.sampleRate
+
+        let engine = WhisperKitEngine()
+        try await engine.load(model: model)
+        let options = TranscribeOptions(language: "en")
+        let decoded = try await engine.decode(samples: samples, options: options)
+        let transcript = try await engine.transcribe(samples: samples, options: options)
+        // What dictation does before the engine sees anything.
+        let trimmed = try #require(VoiceActivityTrimmer.trim(samples, sensitivity: 0.5))
+        let afterTrim = try await engine.transcribe(samples: trimmed.samples, options: options)
+        await engine.unload()
+        print("[sanitizer] trimmed to \(String(format: "%.1f", Double(trimmed.samples.count) / AudioRecorder.sampleRate)) s, text: \(afterTrim.text)")
+        // The sanitizer's rules do not catch a confident sentence invented
+        // in a silence the audio really has; taking the silence out does.
+        #expect(!afterTrim.text.lowercased().contains("thank you"))
+
+        for segment in decoded.segments {
+            print(String(format: "[sanitizer] %.2f–%.2f p=%.2f %@", segment.start, segment.end,
+                         segment.probability ?? -1, segment.text))
+        }
+        print("[sanitizer] model \(model.id), \(String(format: "%.1f", duration)) s, text: \(transcript.text)")
+
+        #expect(!decoded.segments.isEmpty)
+        let spoken = decoded.segments.filter { $0.start < Double(speech.count) / AudioRecorder.sampleRate }
+        #expect(spoken.allSatisfy { ($0.probability ?? 0) > 2 * TranscriptSanitizer.trailingWordProbability })
+        #expect(transcript.text.lowercased().contains("thursday"))
+        #expect(!transcript.text.contains("<|"))
+    }
+}

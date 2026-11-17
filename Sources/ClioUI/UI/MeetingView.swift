@@ -131,6 +131,11 @@ struct MeetingView: View {
                 text: "Nothing heard from the call yet. If others are talking, allow Clio "
                     + "under System Audio Recording in Privacy & Security.",
                 action: ("Open Privacy Settings", Self.openSystemAudioSettings))
+        case .refused:
+            return Warning(
+                text: "Clio is not allowed to hear the call, so only your side is being "
+                    + "written down. Allow it under System Audio Recording in Privacy & Security.",
+                action: ("Open Privacy Settings", Self.openSystemAudioSettings))
         case .unavailable(let reason):
             return Warning(text: "Only your microphone is being recorded. \(reason)",
                            action: nil)

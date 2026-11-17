@@ -73,7 +73,12 @@ final class SystemAudioCapture: @unchecked Sendable {
     /// Create the tap and the aggregate around it, ready to start. Throws a
     /// `Failure` naming the step that refused; anything made before it is
     /// destroyed again.
-    static func open(onSamples: @escaping @Sendable ([Float]) -> Void) throws -> SystemAudioCapture {
+    ///
+    /// `onlyOwnProcess` turns the tap inside out — Clio's own sound and
+    /// nothing else — for `SystemAudioProbe`, which plays a tone to find
+    /// out whether a tap is allowed to hear anything.
+    static func open(onlyOwnProcess: Bool = false,
+                     onSamples: @escaping @Sendable ([Float]) -> Void) throws -> SystemAudioCapture {
         guard let output = AudioDevices.defaultOutputDeviceID(),
               let outputUID = AudioDevices.uid(of: output) else {
             throw Failure(step: "finding the output device", status: -1)
@@ -81,8 +86,17 @@ final class SystemAudioCapture: @unchecked Sendable {
 
         // Clio's own sounds are not part of the meeting.
         let ownProcess = processObject(for: ProcessInfo.processInfo.processIdentifier)
-        let description = CATapDescription(
-            stereoGlobalTapButExcludeProcesses: ownProcess.map { [$0] } ?? [])
+        let description: CATapDescription
+        if onlyOwnProcess {
+            // No process object until this process has made a sound.
+            guard let ownProcess else {
+                throw Failure(step: "finding Clio among the audio processes", status: -1)
+            }
+            description = CATapDescription(stereoMixdownOfProcesses: [ownProcess])
+        } else {
+            description = CATapDescription(
+                stereoGlobalTapButExcludeProcesses: ownProcess.map { [$0] } ?? [])
+        }
         description.uuid = UUID()
         description.name = "Clio meeting"
         description.isPrivate = true
@@ -618,6 +632,109 @@ extension SystemAudioRecorder {
         private var buffer: [Float] = []
         func append(_ samples: [Float]) { lock.lock(); buffer += samples; lock.unlock() }
         var samples: [Float] { lock.lock(); defer { lock.unlock() }; return buffer }
+    }
+}
+
+// MARK: - Is a tap allowed to hear?
+
+/// Whether macOS lets Clio record system audio, found out rather than
+/// assumed.
+///
+/// A refused permission does not fail: the tap is made, runs, and delivers
+/// silence — and so does an allowed one while nobody is talking. A meeting
+/// that has heard nothing cannot tell which it is in. So this makes a sound
+/// of its own and listens for it: a tone far too quiet to hear, played to
+/// the default output, and a second tap that takes in Clio's own process
+/// and nothing else. Exact zeros back means the tap is not allowed to hear.
+///
+/// The tap sits upstream of the output's volume and mute, so neither
+/// changes the answer. Nothing of anyone else's is listened to, and no
+/// microphone is opened.
+public enum SystemAudioProbe {
+
+    public enum Result: Equatable, Sendable {
+        /// The tone came back: system audio is being heard.
+        case allowed
+        /// The tone was played and silence came back.
+        case refused
+        /// The probe itself could not run — no output, no tap. Says nothing
+        /// about the permission.
+        case inconclusive(String)
+    }
+
+    /// 150 Hz at about −74 dBFS: below anything a speaker turns into sound
+    /// at any volume, and six steps of a 16-bit sample, so not zero.
+    static let toneFrequency = 150.0
+    static let toneAmplitude: Float = 0.0002
+
+    static func tone(seconds: Double, sampleRate: Double = 48_000) -> [Float] {
+        (0..<Int(seconds * sampleRate)).map {
+            toneAmplitude * Float(sin(2 * Double.pi * toneFrequency * Double($0) / sampleRate))
+        }
+    }
+
+    /// Plays the tone for at most `seconds` and says whether a tap heard it.
+    /// Returns as soon as it has.
+    public static func run(seconds: Double = 2) async -> Result {
+        guard #available(macOS 14.2, *) else {
+            return .inconclusive(SystemAudioRecorder.Unsupported().localizedDescription)
+        }
+        return await Task.detached { probe(seconds: seconds) }.value
+    }
+
+    @available(macOS 14.2, *)
+    private static func probe(seconds: Double) -> Result {
+        let player: AVAudioPlayer
+        do {
+            player = try AVAudioPlayer(
+                data: AudioWAV.data(tone(seconds: 1), sampleRate: 48_000))
+        } catch {
+            return .inconclusive("The test tone could not be made: \(error.localizedDescription)")
+        }
+        player.numberOfLoops = -1
+        guard player.play() else {
+            return .inconclusive("The test tone could not be played.")
+        }
+        defer { player.stop() }
+
+        let heard = Heard()
+        let capture: SystemAudioCapture
+        do {
+            // Clio appears among the audio processes once it is playing,
+            // which is a moment after `play` returns.
+            var opened: SystemAudioCapture?
+            var failure: Error?
+            for _ in 0..<10 where opened == nil {
+                do {
+                    opened = try SystemAudioCapture.open(onlyOwnProcess: true) { samples in
+                        if samples.contains(where: { $0 != 0 }) { heard.set() }
+                    }
+                } catch {
+                    failure = error
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+            }
+            guard let opened else { throw failure ?? SystemAudioCapture.Failure(step: "opening the tap", status: -1) }
+            capture = opened
+            try capture.start()
+        } catch {
+            return .inconclusive(error.localizedDescription)
+        }
+        defer { capture.stop() }
+
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if heard.value { return .allowed }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return heard.value ? .allowed : .refused
+    }
+
+    private final class Heard: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+        func set() { lock.lock(); flag = true; lock.unlock() }
+        var value: Bool { lock.lock(); defer { lock.unlock() }; return flag }
     }
 }
 

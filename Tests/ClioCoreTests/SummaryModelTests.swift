@@ -46,7 +46,7 @@ struct SummaryModelTests {
     }
 
     @Test("A small model gets the transcript in pieces, then the bullets, and the notes lead the last prompt")
-    func piecesForASmallModel() async {
+    func piecesForASmallModel() async throws {
         let model = ScriptedModel(pieceLimit: 1_000) { instructions, _ in
             instructions == MeetingSummarizer.pieceInstructions ? "- a point" : "### Done"
         }
@@ -59,7 +59,11 @@ struct SummaryModelTests {
         #expect(pieces.allSatisfy { $0.prompt.count <= 1_000 })
         let last = model.prompts.last!
         #expect(last.instructions == MeetingSummarizer.finalInstructions)
-        #expect(last.prompt.hasPrefix("Notes written during the meeting:\nwhat mattered"))
+        // What the meeting was, then the notes, then the material.
+        #expect(last.prompt.hasPrefix("Meeting: "))
+        let notes = try #require(last.prompt.range(of: "Notes written during the meeting:\nwhat mattered"))
+        let material = try #require(last.prompt.range(of: "Bullet points from the transcript:"))
+        #expect(notes.lowerBound < material.lowerBound)
         #expect(last.prompt.contains("Bullet points from the transcript:\n- a point"))
     }
 

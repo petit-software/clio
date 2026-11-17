@@ -51,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 220 tests live here.
+  without standing up an app. All 230 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 220 tests, 32 suites, no network
+swift test                                  # 230 tests, 33 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -80,6 +80,7 @@ Gated suites and tools, all off by default:
 CLIO_INTEGRATION=1 swift test --filter Integration        # downloads ~81 MB
 CLIO_INTEGRATION=1 CLIO_INTEGRATION_MODEL=<catalog id> swift test --filter "Integration|LongAudio"   # prove a model before offering it
 CLIO_INTEGRATION=1 swift test --filter StartupLatency     # where start() spends time
+CLIO_INTEGRATION=1 swift test --filter SanitizerIntegration   # what the installed speech model says after three seconds of silence, segment by segment; downloads nothing
 CLIO_INTEGRATION=1 swift test --filter ModelResidency     # load, use and free the installed speech model and GGUF: does the memory come back; downloads nothing
 CLIO_INTEGRATION=1 CLIO_SUMMARY_MODEL=~/Library/Application\ Support/com.bartbak.clio/models/<id>/<file>.gguf swift test --filter SummaryModelIntegration   # a GGUF through llama.cpp: a prompt, then a whole meeting; downloads nothing
 CLIO_LONG_MEETING=60 swift test --filter LongMeeting      # an hour of meeting through a real session and an installed model; downloads nothing
@@ -98,7 +99,7 @@ CLIO_RECORDER_STRESS_ALL=1 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio 
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
 CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a given tab
-CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, finishing, finished
+CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, refused, finishing, finished
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
 CLIO_TYPE=$'## Agenda\n- [ ] item' CLIO_LIBRARY_SHOW=live .build/debug/Clio   # types into the notes editor in the real window and reports how it laid out
@@ -112,6 +113,7 @@ CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio 
 CLIO_MEETING_PANE=transcript CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_WIDTH=1100 CLIO_LIBRARY_SHOW=1 swift run Clio   # a long page scrolled under the toolbar, for its fade
 CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/Clio   # flips the output's rate mid-capture (and back): the tap must rebuild and keep hearing
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
+CLIO_SYSTEM_AUDIO_PROBE=1 Clio.app/Contents/MacOS/Clio    # is a tap allowed to hear? plays the inaudible tone and listens for it; exits 0 when allowed
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
 CLIO_SUMMARIZE="$HOME/Documents/Clio Meetings/<file>.md" Clio.app/Contents/MacOS/Clio   # Summarize Again on that file with the model Settings names; writes into it, prints the summary
 ```
@@ -394,6 +396,26 @@ quiet stretch pulled the next "Others" line earlier. A refused permission
 does not throw either; it is silence, which is why the window's warning is
 worded "if others are talking".
 
+**Silence from the call is looked into, not guessed at.** After twenty
+seconds of nothing a meeting runs `SystemAudioProbe` once: a 150 Hz tone at
+−74 dBFS to the default output, and a second tap that takes in Clio's own
+process and nothing else. The meeting's tap cannot do it — it leaves Clio's
+own sound out on purpose. The tone coming back means the call is only
+quiet, and nothing is said; exact zeros means refused, and the window says
+so; a probe that could not run leaves the old "if others are talking".
+Clio has no process object in the HAL until it has made a sound, so the
+tap is opened after `play`, with retries.
+
+**The sanitizer does not catch a sentence invented in real silence.**
+`TranscriptSanitizer` drops a segment that starts past the end of the
+audio, cuts one that runs past it, and drops a last single word the model
+was unsure of. Given three seconds of silence after speech, large-v3 wrote
+"Thank you." at 0.80, starting where the speech stopped: none of the three
+rules. What stops that is upstream — `VoiceActivityTrimmer` for dictation,
+the segmenter's cut at a pause for meetings — and `SanitizerIntegration`
+shows both halves. The probabilities come from each segment's token
+log-probabilities, so word timestamps and their second pass stay off.
+
 **One WhisperKit pipeline, two callers.** The engine is an actor, but actors
 re-enter at every `await` and `transcribe` awaits throughout: a dictation
 during a meeting would have run on the pipeline alongside a chunk. Everything
@@ -533,6 +555,8 @@ Verified by something repeatable:
   (`LongMeeting`): large-v3 turbo transcribes it in about two minutes, both
   sides, and resident memory goes from 55 MB to a 161 MB peak — under the
   test's limit, but not flat, and not yet explained
+- the tap is allowed to hear, on this Mac with the permission granted:
+  the probe's tone comes back in about half a second (`CLIO_SYSTEM_AUDIO_PROBE`)
 - segmenting, echo removal, the queue's order, calendar matching, call
   detection decisions, a whole session on fake sources (drain on stop,
   wall-clock gaps, the mic muted while dictating, the summary), the Markdown
@@ -566,7 +590,14 @@ Not verified, and worth knowing:
 - **the calendar prompt and EventKit reading real events.** Matching is
   tested on values; nobody has granted access and seen a meeting named.
 - **a refused system-audio permission.** Assumed to deliver silence, as it
-  does for a tap with nothing playing; not seen.
+  does for a tap with nothing playing; not seen. The probe's "refused" rests
+  on the same assumption: turn System Audio Recording off for Clio and run
+  `CLIO_SYSTEM_AUDIO_PROBE` — it should say refused. Nobody has listened
+  for the tone either; it is meant to be inaudible at any volume.
+- **the held-microphone rule against a real call app.** A call is offered
+  after two checks on the microphone; that Zoom or Teams opening it for a
+  moment at launch is what the first check lands on is the reason, not
+  something watched.
 - **a summary by a downloaded model.** `LocalSummaryModel` builds, links and
   fails cleanly on a missing file, and the app bundle carries the framework;
   but no GGUF has been run through it from this checkout, and the catalog's

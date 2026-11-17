@@ -388,6 +388,30 @@ struct MeetingSummaryTests {
         #expect(MeetingSummarizer.finalPrompt(notes: "  ", material: "x", label: "T") == "T:\nx")
     }
 
+    @Test("The last prompt opens with what the meeting was and who was invited")
+    func promptNamesTheMeeting() {
+        var record = MeetingRecord(title: "Kiln pricing")
+        record.attendees = [MeetingAttendee(name: "Ana Ruiz"),
+                            MeetingAttendee(markdown: "Tom Berg (declined)"),
+                            MeetingAttendee(name: "Lee Chen")]
+        let details = MeetingSummarizer.details(of: record)
+        #expect(details.hasPrefix("Meeting: Kiln pricing\nDate: "))
+        #expect(details.hasSuffix("Invited: Ana Ruiz, Lee Chen"))
+
+        let prompt = MeetingSummarizer.finalPrompt(about: details, notes: "n", material: "x", label: "T")
+        #expect(prompt.hasPrefix(details + "\n\nNotes written during the meeting:\nn\n\nT:\nx"))
+    }
+
+    @Test("A company-wide invitation does not crowd out the transcript")
+    func attendeesAreCapped() {
+        var record = MeetingRecord(title: "All hands")
+        record.attendees = (0..<500).map { MeetingAttendee(name: "Person Number \($0)") }
+        let details = MeetingSummarizer.details(of: record)
+        #expect(details.count < MeetingSummarizer.attendeesLimit + 120)
+        #expect(details.contains("Person Number 0,"))
+        #expect(details.contains(" more"))
+    }
+
     @Test("A long transcript is split at line breaks into pieces the model can hold")
     func splitsIntoPieces() {
         let line = String(repeating: "word ", count: 40)   // 200 characters
@@ -417,16 +441,29 @@ struct CallDetectionTests {
         #expect(CallDetection.classify(bundleID: "com.apple.VoiceMemos") == nil)
     }
 
-    @Test("A call app on the microphone is offered once; a browser only during a calendar call")
+    @Test("A call app that keeps the microphone is offered once; a browser only during a calendar call")
     func offers() {
         var watch = CallWatch()
         #expect(watch.offer(apps: [chrome], event: nil) == nil)
         #expect(watch.offer(apps: [chrome], event: call) == chrome)
         #expect(watch.offer(apps: [chrome], event: call) == nil)
-        #expect(watch.offer(apps: [zoom], event: nil) == zoom)
+        #expect(watch.offer(apps: [zoom], event: nil) == nil)      // first seen
+        #expect(watch.offer(apps: [zoom], event: nil) == zoom)     // still there
         #expect(watch.offer(apps: [zoom], event: nil) == nil)
         // The call ends and another begins: offered again.
         #expect(watch.offer(apps: [], event: nil) == nil)
+        #expect(watch.offer(apps: [zoom], event: nil) == nil)
+        #expect(watch.offer(apps: [zoom], event: nil) == zoom)
+    }
+
+    @Test("A microphone opened for a moment is not a call, however often it happens")
+    func ignoresAProbe() {
+        var watch = CallWatch()
+        for _ in 0..<5 {
+            #expect(watch.offer(apps: [zoom], event: nil) == nil)
+            #expect(watch.offer(apps: [], event: nil) == nil)
+        }
+        #expect(watch.offer(apps: [zoom], event: nil) == nil)
         #expect(watch.offer(apps: [zoom], event: nil) == zoom)
     }
 
@@ -502,6 +539,66 @@ struct MeetingSessionTests {
 
     private func tempFolder() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("clio-session-\(UUID().uuidString)")
+    }
+
+    @Test("Silence from the call is looked into once: refused is said, a quiet call is left alone")
+    func silenceIsProbed() async throws {
+        final class Asked: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            func ask() { lock.lock(); count += 1; lock.unlock() }
+            var times: Int { lock.lock(); defer { lock.unlock() }; return count }
+        }
+        func meeting(answering result: SystemAudioProbe.Result,
+                     asked: Asked, system: FakeSource, folder: URL) -> MeetingSession {
+            let meeting = session(mic: FakeSource(), system: system, clock: TestClock(), folder: folder)
+            meeting.silenceGrace = .milliseconds(10)
+            meeting.silenceInterval = .milliseconds(10)
+            meeting.probeSystemAudio = { asked.ask(); return result }
+            return meeting
+        }
+        func wait(for status: MeetingSession.SystemAudioStatus, _ meeting: MeetingSession) async {
+            for _ in 0..<200 where meeting.systemAudio != status {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        // Refused: said, asked once however long it lasts, and taken back
+        // the moment something is heard.
+        let system = FakeSource(), asked = Asked()
+        system.hasHeardSound = false
+        let refused = meeting(answering: .refused, asked: asked, system: system, folder: folder)
+        await refused.start()
+        await wait(for: .refused, refused)
+        #expect(refused.systemAudio == .refused)
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(asked.times == 1)
+        system.hasHeardSound = true
+        await wait(for: .listening, refused)
+        #expect(refused.systemAudio == .listening)
+        await refused.stop()
+
+        // Allowed: nobody has spoken yet, and nothing is said about it.
+        let quiet = FakeSource(), askedQuiet = Asked()
+        quiet.hasHeardSound = false
+        let allowed = meeting(answering: .allowed, asked: askedQuiet, system: quiet, folder: folder)
+        await allowed.start()
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(askedQuiet.times == 1)
+        #expect(allowed.systemAudio == .listening)
+        await allowed.stop()
+
+        // The probe could not run: the old, careful wording.
+        let unknown = FakeSource()
+        unknown.hasHeardSound = false
+        let inconclusive = meeting(answering: .inconclusive("no output"), asked: Asked(),
+                                   system: unknown, folder: folder)
+        await inconclusive.start()
+        await wait(for: .silent, inconclusive)
+        #expect(inconclusive.systemAudio == .silent)
+        await inconclusive.stop()
     }
 
     @Test("Both sides are transcribed, in time order, and stop waits for the last of them before the file is final")

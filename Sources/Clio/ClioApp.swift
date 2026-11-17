@@ -97,6 +97,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        // Ask whether a tap is allowed to hear: the probe a silent meeting
+        // runs, alone. From the bundle — the permission is the bundle's.
+        if ProcessInfo.processInfo.environment["CLIO_SYSTEM_AUDIO_PROBE"] != nil {
+            Task { @MainActor in
+                let started = Date()
+                let result = await SystemAudioProbe.run()
+                FileHandle.standardError.write(Data(String(
+                    format: "[system audio probe] %@ after %.2f s\n",
+                    "\(result)", Date().timeIntervalSince(started)).utf8))
+                exit(result == .allowed ? 0 : 1)
+            }
+            return
+        }
+
         // Listen to system audio through the meeting tap and quit. Not
         // DEBUG-only, for the reason the stress is not: the permission is
         // the signed bundle's.

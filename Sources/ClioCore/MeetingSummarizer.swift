@@ -92,8 +92,36 @@ public enum MeetingSummarizer {
             label = "Bullet points from the transcript"
         }
         if Task.isCancelled { return nil }
-        let prompt = finalPrompt(notes: record.notes, material: material, label: label, limit: limit)
+        let prompt = finalPrompt(about: details(of: record), notes: record.notes,
+                                 material: material, label: label, limit: limit)
         return await respond(model, instructions: finalInstructions, prompt: prompt)
+    }
+
+    /// How much room the attendees may take. A company-wide invitation
+    /// lists hundreds, and the transcript is what the summary is of.
+    static let attendeesLimit = 400
+
+    /// What the meeting was and who was invited, to lead the last prompt:
+    /// the transcript only says "Me" and "Others", and a name said aloud
+    /// means more to the model once it has seen the list. Those who declined
+    /// are left out; they were not there to be quoted.
+    static func details(of record: MeetingRecord) -> String {
+        var lines = ["Meeting: \(record.title)",
+                     "Date: \(record.startDate.formatted(date: .abbreviated, time: .shortened))"]
+        var names: [String] = []
+        var used = 0
+        let present = record.attendees.filter { !$0.declined && !$0.name.isEmpty }
+        for attendee in present {
+            guard used + attendee.name.count + 2 <= attendeesLimit else { break }
+            names.append(attendee.name)
+            used += attendee.name.count + 2
+        }
+        if !names.isEmpty {
+            let more = present.count - names.count
+            lines.append("Invited: " + names.joined(separator: ", ")
+                         + (more > 0 ? ", and \(more) more" : ""))
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// How much of the user's notes goes in. They are the guide — what
@@ -105,13 +133,13 @@ public enum MeetingSummarizer {
 
     /// The last prompt: the notes, capped, then the material, capped — so it
     /// always fits, however much was written or said.
-    static func finalPrompt(notes: String, material: String, label: String,
-                            limit: Int = pieceLimit) -> String {
+    static func finalPrompt(about details: String = "", notes: String, material: String,
+                            label: String, limit: Int = pieceLimit) -> String {
         let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        var block = ""
+        var block = details.isEmpty ? "" : details + "\n\n"
         if !notes.isEmpty {
             let kept = notes.count > notesLimit ? String(notes.prefix(notesLimit)) + "…" : notes
-            block = "Notes written during the meeting:\n\(kept)\n\n"
+            block += "Notes written during the meeting:\n\(kept)\n\n"
         }
         return "\(block)\(label):\n\(String(material.prefix(limit)))"
     }

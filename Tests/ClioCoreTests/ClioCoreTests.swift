@@ -90,6 +90,62 @@ func vocabularyBecomesPrompt() {
             == "Bart, Clio")
 }
 
+@Test("A meeting's vocabulary is the user's words, the people invited, then the title's names")
+func meetingVocabulary() {
+    let attendees = [MeetingAttendee(name: "Ana Ruiz"),
+                     MeetingAttendee(name: "lee@example.com"),
+                     MeetingAttendee(markdown: "Tom Berg (declined)")]
+    let terms = TranscriptFormatter.meetingVocabulary(
+        user: ["Clio", " kiln "], title: "Weekly sync with Acme on Kiln Q3 OKRs",
+        attendees: attendees)
+    // "Kiln" is the user's "kiln" again; "Weekly" is only first; the
+    // address and the one who declined are not names to listen for.
+    #expect(terms == ["Clio", "kiln", "Ana Ruiz", "Acme", "Q3", "OKRs"])
+
+    #expect(TranscriptFormatter.meetingVocabulary(user: ["Clio"], title: nil, attendees: [])
+            == ["Clio"])
+}
+
+@Test("A long invitation is cut to what Whisper's prompt holds, the user's words kept")
+func meetingVocabularyIsCapped() {
+    let attendees = (0..<200).map { MeetingAttendee(name: "Person Number \($0)") }
+    let terms = TranscriptFormatter.meetingVocabulary(user: ["Clio"], title: nil,
+                                                      attendees: attendees)
+    #expect(terms.first == "Clio")
+    #expect(terms.count < 200)
+    #expect((TranscriptFormatter.initialPrompt(from: terms) ?? "").count
+            <= TranscriptFormatter.vocabularyLimit)
+}
+
+@Test("A segment after the end of the audio is dropped, one running past it is cut")
+func sanitizerDropsWhatWasNotSaid() {
+    typealias Segment = TranscriptSanitizer.Segment
+    let segments = [Segment(start: 0, end: 4, text: "<|0.00|> Hello there.<|4.00|>", probability: 0.9),
+                    Segment(start: 8, end: 12, text: " Still talking", probability: 0.8),
+                    Segment(start: 10, end: 11, text: " Thanks for watching!", probability: 0.9)]
+    let kept = TranscriptSanitizer.sanitize(segments, audioDuration: 10)
+    #expect(kept.count == 2)
+    #expect(kept[1].end == 10)
+    #expect(TranscriptSanitizer.text(of: kept) == "Hello there. Still talking")
+}
+
+@Test("A last word the model was unsure of is dropped; a sure one, or a sentence, is kept")
+func sanitizerDropsATrailingGuess() {
+    typealias Segment = TranscriptSanitizer.Segment
+    let hello = Segment(start: 0, end: 4, text: "Hello there.", probability: 0.9)
+    func kept(_ last: Segment) -> Int {
+        TranscriptSanitizer.sanitize([hello, last], audioDuration: 10).count
+    }
+    #expect(kept(Segment(start: 5, end: 6, text: " you", probability: 0.1)) == 1)
+    #expect(kept(Segment(start: 5, end: 6, text: " Yes.", probability: 0.8)) == 2)
+    #expect(kept(Segment(start: 5, end: 6, text: " not sure really", probability: 0.1)) == 2)
+    #expect(kept(Segment(start: 5, end: 6, text: " you", probability: nil)) == 2)
+    // Only the last one: an unsure word in the middle was followed by speech.
+    let middle = TranscriptSanitizer.sanitize(
+        [Segment(start: 0, end: 1, text: "um", probability: 0.1), hello], audioDuration: 10)
+    #expect(middle.count == 2)
+}
+
 // MARK: - Hotkey
 
 @Test("Default hotkey renders as ⌃;")

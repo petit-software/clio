@@ -138,6 +138,14 @@ public struct CallWatch: Sendable {
     private var offered: Set<String> = []
     /// Consecutive checks the meeting's call app has been off the microphone.
     private var quietChecks = 0
+    /// Consecutive checks each app has been on the microphone, by bundle ID.
+    private var held: [String: Int] = [:]
+
+    /// How many checks in a row on the microphone make a call. Two, at one
+    /// every five seconds: an app that has kept it for five to ten seconds.
+    /// Call apps open the microphone for a moment without a call — a device
+    /// test, a settings page, launch — and one check could land on that.
+    public static let heldChecksToOffer = 2
 
     /// How many checks in a row without the microphone end a meeting. At one
     /// check every five seconds, half a minute: long enough to survive a
@@ -146,12 +154,19 @@ public struct CallWatch: Sendable {
 
     public init() {}
 
-    /// The call to offer notes for, if any: a call app on the microphone,
-    /// or a browser on it while the calendar has a call on.
+    /// The call to offer notes for, if any: a call app that has kept the
+    /// microphone for `heldChecksToOffer` checks, or a browser that has
+    /// while the calendar has a call on. Called once per check.
     public mutating func offer(apps: Set<CallApp>, event: MeetingEvent?) -> CallApp? {
         // Calls that ended may be offered again next time.
         offered = offered.filter { key in apps.contains { key.hasPrefix($0.bundleID + "|") } }
-        let candidates = apps.filter { !$0.isBrowser || event?.isCall == true }
+        // Letting go, even once, starts the count again.
+        var stillHeld: [String: Int] = [:]
+        for app in apps { stillHeld[app.bundleID] = (held[app.bundleID] ?? 0) + 1 }
+        held = stillHeld
+        let candidates = apps
+            .filter { (held[$0.bundleID] ?? 0) >= Self.heldChecksToOffer }
+            .filter { !$0.isBrowser || event?.isCall == true }
             .sorted { !$0.isBrowser && $1.isBrowser }
         for app in candidates {
             let key = "\(app.bundleID)|\(event?.id ?? "")"
