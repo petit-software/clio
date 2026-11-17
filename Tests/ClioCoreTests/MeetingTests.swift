@@ -396,7 +396,8 @@ struct MeetingSummaryTests {
                             MeetingAttendee(name: "Lee Chen")]
         let details = MeetingSummarizer.details(of: record)
         #expect(details.hasPrefix("Meeting: Kiln pricing\nDate: "))
-        #expect(details.hasSuffix("Invited: Ana Ruiz, Lee Chen"))
+        #expect(details.contains("Invited: Ana Ruiz, Lee Chen\n"))
+        #expect(details.hasSuffix(MeetingSummarizer.attribution))
 
         let prompt = MeetingSummarizer.finalPrompt(about: details, notes: "n", material: "x", label: "T")
         #expect(prompt.hasPrefix(details + "\n\nNotes written during the meeting:\nn\n\nT:\nx"))
@@ -407,7 +408,8 @@ struct MeetingSummaryTests {
         var record = MeetingRecord(title: "All hands")
         record.attendees = (0..<500).map { MeetingAttendee(name: "Person Number \($0)") }
         let details = MeetingSummarizer.details(of: record)
-        #expect(details.count < MeetingSummarizer.attendeesLimit + 120)
+        #expect(details.count < MeetingSummarizer.attendeesLimit + 120
+                + MeetingSummarizer.attribution.count)
         #expect(details.contains("Person Number 0,"))
         #expect(details.contains(" more"))
     }
@@ -730,6 +732,31 @@ struct MeetingSessionTests {
             await meeting.stop(summarizing: summarizing)
             #expect(meeting.record.summary == (summarizing ? "### Lines\n- 1" : nil))
         }
+    }
+
+    @Test("A meeting Clio named is renamed from its summary, and its file with it; one the user or the calendar named is not")
+    func titleFromTheSummary() async throws {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func run(placeholder: Bool, typed: String? = nil) async -> MeetingSession {
+            let mic = FakeSource(), system = FakeSource(), clock = TestClock()
+            let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+            meeting.titleIsPlaceholder = placeholder
+            meeting.summarize = { _ in "### Pricing\n- Agreed." }
+            meeting.suggestTitle = { summary in summary.contains("Pricing") ? "Pricing review" : nil }
+            await meeting.start()
+            if let typed { meeting.setTitle(typed) }
+            system.push(tone(2) + silence(1), clock: clock)
+            await meeting.stop()
+            return meeting
+        }
+        let named = await run(placeholder: true)
+        #expect(named.record.title == "Pricing review")
+        #expect(named.fileURL?.lastPathComponent.contains("Pricing review") == true)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
+
+        #expect(await run(placeholder: false).record.title == "Test")
+        #expect(await run(placeholder: true, typed: "Mine").record.title == "Mine")
     }
 }
 

@@ -51,7 +51,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 230 tests live here.
+  without standing up an app. All 237 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +61,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 230 tests, 33 suites, no network
+swift test                                  # 237 tests, 33 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -99,6 +99,8 @@ CLIO_RECORDER_STRESS_ALL=1 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio 
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
 CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a given tab
+CLIO_SETTINGS_HEIGHT=1000 CLIO_MEMORY_GB=8 CLIO_SETTINGS_TAB=model CLIO_SETTINGS_SHOW=1 swift run Clio   # …tall enough to show the whole tab (nothing there can scroll it), as an 8 GB Mac would list the models
+CLIO_SETTINGS_PROMPT=1 CLIO_SETTINGS_HEIGHT=760 CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # …with the summary's instructions open
 CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, refused, finishing, finished
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
@@ -281,10 +283,27 @@ beside Sparkle, thinned to arm64 and re-signed — its release signature is
 ad-hoc and would fail notarization. `LocalSummaryModel` runs on a dispatch
 queue of its own (an actor with a `DispatchSerialQueue` executor): a summary
 is tens of seconds of synchronous C calls, which the cooperative pool must
-not host. It asks the model for 8k tokens of context, not its maximum — the
-KV cache is sized from that, and an 8 GB Mac has to carry it beside the
-weights — and sizes its piece at three characters a token so a transcript in
-a language that tokenizes worse than English still fits.
+not host. The weights are loaded once; the context is made per request, to
+fit the prompt counted in real tokens plus room for the answer, in steps of
+2k, under a ceiling. The KV cache is what a context costs — 143 KB a token
+on Qwen3 4B: 0.7 GB at 4k, 1.6 at 10k, 3.1 at 20k, 4.5 at 30k
+(`ModelResidency`, contextCost) — so the ceiling is the lower of two limits:
+by the Mac (8k on 8 GB, 16k to 16 GB, 32k above) and by the model, weights
+and cache together under half the memory. The cache per token is estimated
+from the weights' size, calibrated on that one model; a 12B model's has not
+been measured. A piece is still cut at three characters a token — a
+transcript's timestamps tokenize at about 3.5 — so one in a language that
+tokenizes worse than English still fits.
+
+**Those invited are in the summary's prompt, with a warning.** Given the
+list alone, Qwen3 4B worked out who "Others" must be by elimination and
+wrote "release notes to be written by Tom" — Tom was invited and never
+named. `MeetingSummarizer.attribution` follows the list and says it is for
+spelling names only; `SummaryModelIntegration` fails if Tom comes back.
+
+**A `DisclosureGroup` in a grouped Settings form shows nothing.** It drew
+its label, left room under it, and never its content. The summary's
+instructions are plain rows of the section with an Edit… button.
 
 **The tokenizer ships beside each model.** WhisperKit's CoreML folders carry no
 `tokenizer.json`, so without this the first transcription quietly reaches for
@@ -557,6 +576,12 @@ Verified by something repeatable:
   test's limit, but not flat, and not yet explained
 - the tap is allowed to hear, on this Mac with the permission granted:
   the probe's tone comes back in about half a second (`CLIO_SYSTEM_AUDIO_PROBE`)
+- a summary by a downloaded model (`SummaryModelIntegration`, Qwen3 4B): a
+  short meeting in 0.8 s in a 4k context under a 32k ceiling, a title from
+  the summary, the user's own instructions followed in place of Clio's
+- Settings ▸ Model as an 8 GB Mac lists it — Qwen3 4B recommended, Gemma 3
+  12B dimmed with no download and the reason — and the summary's
+  instructions open in Settings ▸ Meetings: looked at, not clicked
 - segmenting, echo removal, the queue's order, calendar matching, call
   detection decisions, a whole session on fake sources (drain on stop,
   wall-clock gaps, the mic muted while dictating, the summary), the Markdown
@@ -598,13 +623,21 @@ Not verified, and worth knowing:
   after two checks on the microphone; that Zoom or Teams opening it for a
   moment at launch is what the first check lands on is the reason, not
   something watched.
-- **a summary by a downloaded model.** `LocalSummaryModel` builds, links and
-  fails cleanly on a missing file, and the app bundle carries the framework;
-  but no GGUF has been run through it from this checkout, and the catalog's
-  two models (Qwen3 4B, Gemma 3 12B) have been checked for existence and
-  size on Hugging Face, not downloaded. `SummaryModelIntegration` is the
-  proof, on any GGUF; then Settings ▸ Model on a real one, and Summarize
-  Again on a meeting Apple's model wrote.
+- **Gemma 3 12B.** Checked for existence and size on Hugging Face, never
+  downloaded: its summaries, its speed, and what its context really costs —
+  the ceiling for it is an estimate scaled from Qwen3 4B.
+- **an 8 GB Mac.** The speech model is freed before a downloaded summary
+  model loads there (`makeRoomForSummary`), and the ceiling is 8k; both are
+  decisions tested on numbers, on a 64 GB machine.
+- **the summary's instructions, typed into.** The editor opens and shows
+  Clio's own; nobody has typed in it, pressed Reset, or run a summary from
+  the app with changed ones — only through the test.
+- **a meeting renamed by the model, in the app.** The session renames the
+  record and its file (`MeetingTests`); the library window following a file
+  that changes name under it at the end of a meeting has not been watched.
+- **quitting with a summary model loaded.** A test process that exited with
+  one still loaded died of signal 6, once. Quitting does not unload it, so
+  a quit within two minutes of a summary may do the same.
 - **the UI has no tests.** `ClioUI` is a library the test target could import,
   but nothing does yet. Previews cover the states; no assertions do.
 

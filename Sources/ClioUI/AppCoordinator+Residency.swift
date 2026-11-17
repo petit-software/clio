@@ -38,6 +38,33 @@ extension AppCoordinator {
         Task { [engine] in await engine.unload() }
     }
 
+    /// Whether the speech model has to go before a downloaded summary
+    /// model loads, whatever the toggle says: on 8 GB there is not room
+    /// for both. Above that there is, and keeping it is what the toggle
+    /// promises.
+    nonisolated static func speechModelYieldsToSummary(
+        ram: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Bool {
+        ram <= 8 * 1_073_741_824
+    }
+
+    /// Frees the speech model ahead of a summary by a downloaded model, on
+    /// a Mac where both do not fit. Not while it is in use: a dictation in
+    /// progress, or a meeting still recording — other than `ending`, the
+    /// one this summary is of, whose last chunk is already transcribed.
+    /// The next key-down loads it again, as after any release.
+    func makeRoomForSummary(by model: any SummaryLanguageModel,
+                            ending: MeetingSession?) async {
+        guard model is LocalSummaryModel, Self.speechModelYieldsToSummary() else { return }
+        guard !state.isCancellable else { return }
+        if let meeting, meeting !== ending {
+            switch meeting.phase {
+            case .finished, .failed: break
+            default: return
+            }
+        }
+        await engine.unload()
+    }
+
     /// The toggle changed. Off: release now, and the summary models follow
     /// at the shorter idle time. On: nothing to free; the next key-down
     /// loads and the model stays from then.

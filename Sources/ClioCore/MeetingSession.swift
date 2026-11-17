@@ -109,6 +109,12 @@ public final class MeetingSession {
 
     /// Run after the last chunk is in, to write the summary. Nil skips it.
     public var summarize: ((MeetingRecord) async -> String?)?
+    /// Names the meeting from its summary. Asked only while
+    /// `titleIsPlaceholder`.
+    public var suggestTitle: ((String) async -> String?)?
+    /// Whether the title is one Clio made up ("Meeting at 14:30") rather
+    /// than the calendar's or the user's. Only such a title is replaced.
+    public var titleIsPlaceholder = false
 
     private let folder: URL
     private let queue: TranscriptionQueue
@@ -278,6 +284,12 @@ public final class MeetingSession {
         if summarizing, let summarize, !record.lines.isEmpty {
             phase = .summarizing
             record.summary = await summarize(record)
+            if titleIsPlaceholder, let summary = record.summary, let suggestTitle,
+               let title = await suggestTitle(summary),
+               titleIsPlaceholder {     // not typed over while the model thought
+                record.title = title
+                titleIsPlaceholder = false
+            }
         }
         phase = .finished
         save()
@@ -301,6 +313,7 @@ public final class MeetingSession {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != record.title else { return }
         record.title = trimmed
+        titleIsPlaceholder = false
         save()
     }
 
@@ -313,6 +326,7 @@ public final class MeetingSession {
     /// Takes the title, attendees and link from a calendar event.
     public func apply(_ event: MeetingEvent) {
         record.title = event.title
+        titleIsPlaceholder = false
         record.attendees = event.attendees
         record.joinURL = event.joinURL
         record.eventID = event.id

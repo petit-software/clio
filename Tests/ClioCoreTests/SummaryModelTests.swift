@@ -97,6 +97,85 @@ struct SummaryModelTests {
         #expect(large.pieceLimit > MeetingSummarizer.pieceLimit)
     }
 
+    @Test("The user's instructions replace Clio's for the summary, not for the pieces; empty ones are Clio's")
+    func customInstructions() async {
+        let model = ScriptedModel(pieceLimit: 1_000) { instructions, _ in
+            instructions == MeetingSummarizer.pieceInstructions ? "- a point" : "Done"
+        }
+        _ = await MeetingSummarizer.summarize(record(lines: 40), with: model,
+                                              instructions: "  Write three sentences.  ")
+        #expect(model.prompts.last?.instructions == "Write three sentences.")
+        #expect(model.prompts.dropLast().allSatisfy {
+            $0.instructions == MeetingSummarizer.pieceInstructions
+        })
+        #expect(MeetingSummarizer.instructions(custom: " \n") == MeetingSummarizer.finalInstructions)
+        #expect(MeetingSummarizer.instructions(custom: nil) == MeetingSummarizer.finalInstructions)
+    }
+
+    @Test("A title is the answer's first line with its marks off; an essay is no title")
+    func titles() async {
+        #expect(MeetingSummarizer.cleanTitle("**Pricing review.**\nBecause…") == "Pricing review")
+        #expect(MeetingSummarizer.cleanTitle("Title: \"Q3 planning\"") == "Q3 planning")
+        #expect(MeetingSummarizer.cleanTitle("## iOS beta") == "iOS beta")
+        #expect(MeetingSummarizer.cleanTitle("  \n") == nil)
+        #expect(MeetingSummarizer.cleanTitle(String(repeating: "word ", count: 30)) == nil)
+
+        let model = ScriptedModel(pieceLimit: 5_000) { _, _ in "<think>hm</think>\n“Pricing review”" }
+        let title = await MeetingSummarizer.title(forSummary: "### Pricing\n- Agreed.", with: model)
+        #expect(title == "Pricing review")
+        #expect(model.prompts.first?.instructions == MeetingSummarizer.titleInstructions)
+        #expect(await MeetingSummarizer.title(forSummary: " ", with: model) == nil)
+    }
+
+    @Test("The context is made to fit the prompt, in steps, and never over the ceiling")
+    func contextFitsThePrompt() {
+        typealias Model = LocalSummaryModel
+        // A short meeting on a big Mac gets a small context.
+        #expect(Model.contextSize(forPrompt: 1_000, ceiling: 32_768) == 4_096)
+        // 1,000 + 1,600 of answer + 256 of slack: one step is not enough.
+        #expect(Model.contextSize(forPrompt: 300, ceiling: 32_768) == 4_096)
+        #expect(Model.contextSize(forPrompt: 100, ceiling: 2_048) == 2_048)
+        // A long one gets more room for its answer, up to a limit.
+        #expect(Model.answerTokens(forPrompt: 0) == 1_500)
+        #expect(Model.answerTokens(forPrompt: 10_000) == 2_500)
+        #expect(Model.answerTokens(forPrompt: 100_000) == 4_000)
+        #expect(Model.contextSize(forPrompt: 10_000, ceiling: 32_768) == 14_336)
+        // The ceiling holds, and what does not fit under it is refused.
+        #expect(Model.contextSize(forPrompt: 5_800, ceiling: 8_192) == 8_192)
+        #expect(Model.contextSize(forPrompt: 6_000, ceiling: 8_192) == nil)
+    }
+
+    @Test("The ceiling follows the Mac's memory and the model's size; a piece cut at the limit fits under it")
+    func ceilingFollowsMemory() {
+        let gigabyte: UInt64 = 1 << 30
+        func ceiling(_ ram: UInt64, weights: Double) -> Int {
+            LocalSummaryModel.contextCeiling(ram: ram * gigabyte,
+                                             weightsBytes: Int64(weights * Double(gigabyte)))
+        }
+        // A 4B model: the Mac is the limit.
+        #expect(ceiling(8, weights: 2.5) == 8_192)
+        #expect(ceiling(16, weights: 2.5) == 16_384)
+        #expect(ceiling(32, weights: 2.5) == 32_768)
+        // A 12B model: its own size is, until the Mac is large.
+        #expect(ceiling(16, weights: 7.3) == 4_096)
+        #expect((8_192...12_288).contains(ceiling(24, weights: 7.3)))
+        #expect(ceiling(64, weights: 7.3) == 32_768)
+        // Weights and cache together stay under half the memory.
+        for (ram, weights) in [(24.0, 7.3), (32.0, 7.3), (16.0, 2.5), (8.0, 2.5)] {
+            let bytes = Int64(weights * Double(gigabyte))
+            let tokens = ceiling(UInt64(ram), weights: weights)
+            let cache = Double(tokens) * LocalSummaryModel.cacheBytesPerToken(weightsBytes: bytes)
+            #expect(Double(bytes) + cache <= ram * Double(gigabyte) / 2)
+        }
+        for ceiling in [8_192, 16_384, 32_768] {
+            let model = LocalSummaryModel(file: URL(fileURLWithPath: "/nonexistent.gguf"),
+                                          contextTokens: ceiling)
+            // The piece at three characters a token, plus the instructions.
+            let prompt = model.pieceLimit / 3 + 600
+            #expect(LocalSummaryModel.contextSize(forPrompt: prompt, ceiling: ceiling) != nil)
+        }
+    }
+
     @Test("A missing file is a load error, not a crash")
     func missingFile() async {
         let model = LocalSummaryModel(file: URL(fileURLWithPath: "/nonexistent/model.gguf"))
@@ -163,6 +242,27 @@ struct SummaryModelIntegrationTests {
         #expect(summary.contains("### "))
         #expect(summary.lowercased().contains("thursday") || summary.lowercased().contains("beta"))
         #expect(!summary.contains("<think>"))
+        print("[summary-model] context \(await model.currentContextTokens) of \(model.contextTokens) tokens")
+        #expect(await model.currentContextTokens < model.contextTokens)
+
+        // Who was invited is in the prompt now: the model can say who "Ana" is.
+        record.attendees = [MeetingAttendee(name: "Ana Ruiz"), MeetingAttendee(name: "Tom Berg")]
+        let named = try #require(await MeetingSummarizer.summarize(record, with: model))
+        print("[summary-model] with attendees:\n\(named)")
+        // Tom was invited and never named: nothing may be pinned on him.
+        #expect(!named.contains("Tom"))
+
+        // And a meeting with no title of its own gets one.
+        let title = try #require(await MeetingSummarizer.title(forSummary: summary, with: model))
+        print("[summary-model] title: \(title)")
+        #expect(title.split(separator: " ").count <= 8)
+
+        // The user's own instructions are followed in place of Clio's.
+        let custom = try #require(await MeetingSummarizer.summarize(
+            record, with: model,
+            instructions: "Summarize the meeting in exactly one sentence. No headings, no lists."))
+        print("[summary-model] custom instructions: \(custom)")
+        #expect(!custom.contains("### "))
         await model.unload()
     }
 }

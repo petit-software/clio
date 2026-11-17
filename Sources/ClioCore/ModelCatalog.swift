@@ -63,13 +63,22 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
     /// file — a GGUF — rather than a folder named `id`. It is installed as
     /// `<models>/<id>/<fileName>`, so every model is still a folder.
     public var fileName: String?
+    /// The least memory, in gigabytes, a Mac needs to run it at all. Under
+    /// it Settings does not offer the download. Nil: runs anywhere.
+    public var minimumMemoryGB: Int?
+    /// The memory from which it is the one to suggest. Of the models a Mac
+    /// meets this for, the one asking most is recommended.
+    public var recommendedMemoryGB: Int?
 
     public init(id: String, displayName: String, repo: String,
                 tokenizerRepo: String? = nil,
                 approximateBytes: Int64, tier: QualityTier,
                 languages: ModelLanguages, note: String? = nil,
                 retired: Bool = false,
-                kind: ModelKind = .speech, fileName: String? = nil) {
+                kind: ModelKind = .speech, fileName: String? = nil,
+                minimumMemoryGB: Int? = nil, recommendedMemoryGB: Int? = nil) {
+        self.minimumMemoryGB = minimumMemoryGB
+        self.recommendedMemoryGB = recommendedMemoryGB
         self.id = id
         self.displayName = displayName
         self.repo = repo
@@ -99,6 +108,13 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
         retired = try c.decodeIfPresent(Bool.self, forKey: .retired) ?? false
         kind = try c.decodeIfPresent(ModelKind.self, forKey: .kind) ?? .speech
         fileName = try c.decodeIfPresent(String.self, forKey: .fileName)
+        minimumMemoryGB = try c.decodeIfPresent(Int.self, forKey: .minimumMemoryGB)
+        recommendedMemoryGB = try c.decodeIfPresent(Int.self, forKey: .recommendedMemoryGB)
+    }
+
+    /// Whether a Mac with `memoryGB` of memory can run it.
+    public func runs(onMemoryGB memoryGB: Int) -> Bool {
+        memoryGB >= (minimumMemoryGB ?? 0)
     }
 
     /// The folder in the repo the model's files are listed from: the model's
@@ -213,7 +229,8 @@ public enum ModelCatalog {
             languages: .multilingual,
             note: "Better summaries than Apple Intelligence; reads the whole transcript. Needs 8 GB of memory.",
             kind: .language,
-            fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+            fileName: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+            minimumMemoryGB: 8, recommendedMemoryGB: 8),
         CatalogModel(
             id: "gemma-3-12b-it-q4_k_m",
             displayName: "Gemma 3 12B",
@@ -223,8 +240,30 @@ public enum ModelCatalog {
             languages: .multilingual,
             note: "Best summaries. Slower, and needs 16 GB of memory or more.",
             kind: .language,
-            fileName: "gemma-3-12b-it-Q4_K_M.gguf"),
+            fileName: "gemma-3-12b-it-Q4_K_M.gguf",
+            minimumMemoryGB: 16, recommendedMemoryGB: 24),
     ]
+
+    /// This Mac's memory in whole gigabytes, as the catalog counts it.
+    public static var memoryGB: Int {
+        // For looking at Settings ▸ Model as a smaller Mac would show it:
+        // CLIO_MEMORY_GB=8. Only what is offered and suggested follows it.
+        if let pretend = ProcessInfo.processInfo.environment["CLIO_MEMORY_GB"].flatMap(Int.init) {
+            return pretend
+        }
+        return Int((Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824).rounded())
+    }
+
+    /// The model of `kind` to suggest on a Mac with `memoryGB`: of those it
+    /// is recommended for, the one that asks for most. Nil when none is —
+    /// a summary model on a Mac under 8 GB, where Apple's is the one to use.
+    public static func recommended(_ kind: ModelKind, in catalog: [CatalogModel],
+                                   memoryGB: Int = ModelCatalog.memoryGB) -> CatalogModel? {
+        catalog
+            .filter { $0.kind == kind && !$0.retired }
+            .filter { ($0.recommendedMemoryGB).map { memoryGB >= $0 } ?? false }
+            .max { ($0.recommendedMemoryGB ?? 0) < ($1.recommendedMemoryGB ?? 0) }
+    }
 
     public static let defaultModelID = "distil-whisper_distil-large-v3_594MB"
     /// The summary model Settings offers first, to anyone on Apple's.

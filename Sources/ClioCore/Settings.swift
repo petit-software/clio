@@ -81,6 +81,11 @@ public struct Settings: Codable, Equatable, Sendable {
     /// for Apple Intelligence — the model built into macOS 26, which needs
     /// no download and is what everyone starts on.
     public var summaryModelID: String? = nil
+    /// What the model is told when it writes a summary, in the user's
+    /// words. Empty means Clio's own (`MeetingSummarizer.finalInstructions`),
+    /// so a better default in a later version reaches everyone who never
+    /// changed it.
+    public var summaryPrompt: String = ""
     /// Offer to take notes when a call starts during a calendar event.
     public var meetingDetection: Bool = true
 
@@ -171,6 +176,7 @@ public struct Settings: Codable, Equatable, Sendable {
 
         meetingsFolderPath = readOptional(.meetingsFolderPath, String.self)
         meetingSummaries = read(.meetingSummaries, defaults.meetingSummaries)
+        summaryPrompt = read(.summaryPrompt, defaults.summaryPrompt)
         summaryModelID = readOptional(.summaryModelID, String.self)
         meetingDetection = read(.meetingDetection, defaults.meetingDetection)
     }

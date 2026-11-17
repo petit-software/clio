@@ -129,6 +129,26 @@ func catalogHasSummaryModels() throws {
     #expect(models.filter { $0.kind == .speech }.contains { $0.id == ModelCatalog.defaultModelID })
 }
 
+@Test("A summary model is recommended by the Mac's memory, and not offered under its minimum")
+func recommendedByMemory() {
+    let catalog = ModelCatalog.builtIn
+    func recommended(_ memory: Int) -> String? {
+        ModelCatalog.recommended(.language, in: catalog, memoryGB: memory)?.displayName
+    }
+    #expect(recommended(4) == nil)
+    #expect(recommended(8) == "Qwen3 4B")
+    #expect(recommended(16) == "Qwen3 4B")
+    #expect(recommended(24) == "Gemma 3 12B")
+    #expect(recommended(64) == "Gemma 3 12B")
+    // Nothing is suggested among speech models: none says when it should be.
+    #expect(ModelCatalog.recommended(.speech, in: catalog, memoryGB: 64) == nil)
+
+    let gemma = catalog.first { $0.displayName == "Gemma 3 12B" }!
+    #expect(!gemma.runs(onMemoryGB: 8))
+    #expect(gemma.runs(onMemoryGB: 16))
+    #expect(catalog.filter { $0.kind == .speech }.allSatisfy { $0.runs(onMemoryGB: 4) })
+}
+
 @MainActor
 @Test("Each tab lists its own kind")
 func listedByKind() {

@@ -112,6 +112,50 @@ struct ModelResidency {
 
     /// A shorter idle time set while the weights are waiting to be freed
     /// frees them at the new length, not the old.
+    /// What a context costs beside the weights, at the sizes the ceiling
+    /// allows: the number `LocalSummaryModel.contextCeiling` is chosen on.
+    @Test("A longer prompt gets a larger context, and this is what each costs")
+    func contextCost() async throws {
+        let named = ProcessInfo.processInfo.environment["CLIO_SUMMARY_MODEL"]
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        let manager = await ModelManager()
+        let installed = await manager.installed(.language).first?.weightsFile
+        guard let file = named ?? installed else {
+            print("[residency] no summary model installed; skipping")
+            return
+        }
+        let model = LocalSummaryModel(file: file, contextTokens: 32_768, idleTime: .seconds(600))
+        let before = try footprint()
+        try await model.load()
+        let weights = try footprint()
+        print("[residency] \(file.lastPathComponent): weights +\(ProcessMemory.describe(weights - before))")
+
+        let line = "[00:00] Others: The beta goes to testers on Thursday and pricing is still open.\n"
+        var sizes: [Int] = []
+        for lines in [20, 300, 700, 1_150] {
+            let began = Date()
+            let answer: String
+            do {
+                answer = try await model.respond(
+                    instructions: "Answer with the one word: done.",
+                    prompt: String(repeating: line, count: lines) + "/no_think")
+            } catch {
+                await model.unload()
+                throw error
+            }
+            let size = await model.currentContextTokens
+            sizes.append(size)
+            print("[residency] \(lines) lines → context \(size): +"
+                  + ProcessMemory.describe(try footprint() - weights)
+                  + String(format: " over the weights, %.1f s", Date().timeIntervalSince(began))
+                  + ", answered \(answer.count) characters")
+        }
+        await model.unload()
+        #expect(sizes == sizes.sorted())
+        #expect(Set(sizes).count > 2)
+        #expect(sizes.allSatisfy { $0 <= 32_768 })
+    }
+
     @Test("Shortening the idle time frees the weights sooner")
     func idleTimeFollowsTheSetting() async throws {
         let manager = await ModelManager()

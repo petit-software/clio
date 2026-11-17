@@ -51,8 +51,17 @@ extension AppCoordinator {
                             attendees: event?.attendees ?? []))),
                 sensitivity: settings.vadSensitivity,
                 micDeviceUID: settings.inputDeviceUID)
+            session.titleIsPlaceholder = event == nil
             if settings.meetingSummaries, let model = summaryModel {
-                session.summarize = { await MeetingSummarizer.summarize($0, with: model) }
+                session.summarize = { [weak self, weak session] record in
+                    await self?.makeRoomForSummary(by: model, ending: session)
+                    return await MeetingSummarizer.summarize(
+                        record, with: model,
+                        instructions: self?.settingsStore.settings.summaryPrompt)
+                }
+                session.suggestTitle = {
+                    await MeetingSummarizer.title(forSummary: $0, with: model)
+                }
             }
             session.currentModel = { [weak self] in self?.activeModel }
             if let event { session.apply(event) }

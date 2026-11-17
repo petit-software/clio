@@ -88,7 +88,10 @@ extension AppCoordinator {
         summarizingFiles.insert(url)
         let name = summaryModelName
         summaryTasks[url] = Task { @MainActor [weak self] in
-            let summary = await MeetingSummarizer.summarize(record, with: model)
+            await self?.makeRoomForSummary(by: model, ending: nil)
+            let summary = await MeetingSummarizer.summarize(
+                record, with: model,
+                instructions: self?.settingsStore.settings.summaryPrompt)
             guard let self else { return }
             defer {
                 summaryTasks[url] = nil

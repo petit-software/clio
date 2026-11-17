@@ -22,6 +22,13 @@ public struct SettingsView: View {
         #endif
     }()
 
+    /// For the CLIO_SETTINGS_SHOW tool: CLIO_SETTINGS_HEIGHT makes the
+    /// window tall enough to show a whole tab, which nothing there can
+    /// scroll.
+    private static let toolHeight: CGFloat? =
+        ProcessInfo.processInfo.environment["CLIO_SETTINGS_HEIGHT"]
+            .flatMap(Double.init).map { CGFloat($0) }
+
     public var body: some View {
         TabView(selection: $tab) {
             GeneralTab(coordinator: coordinator)
@@ -51,7 +58,7 @@ public struct SettingsView: View {
         }
         .softTopEdge()
         // Wide enough for eight tabs in one row.
-        .frame(width: 560, height: 420)
+        .frame(width: 560, height: Self.toolHeight ?? 420)
         .floatingWindow()
     }
 }
@@ -449,6 +456,69 @@ private struct SystemSummaryModelRow: View {
 /// delete control. The row does not know what being chosen means — the
 /// speech model for dictation, or the language model for summaries — so the
 /// tab that shows it says.
+/// What the model is told when it writes a summary, to be changed.
+///
+/// Shows Clio's own instructions until something else is typed, and stores
+/// nothing while the text is still those — so an install that never
+/// touched them follows the default when a later version improves it.
+private struct SummaryPromptEditor: View {
+    @Bindable var coordinator: AppCoordinator
+    /// Open from the start for the CLIO_SETTINGS_SHOW tool, when
+    /// CLIO_SETTINGS_PROMPT is set: nothing else can click it there.
+    @State private var isOpen = ProcessInfo.processInfo.environment["CLIO_SETTINGS_PROMPT"] != nil
+
+    private var isCustom: Bool {
+        !coordinator.settingsStore.settings.summaryPrompt
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var text: Binding<String> {
+        Binding(
+            get: {
+                isCustom ? coordinator.settingsStore.settings.summaryPrompt
+                         : MeetingSummarizer.finalInstructions
+            },
+            set: {
+                coordinator.settingsStore.settings.summaryPrompt =
+                    $0 == MeetingSummarizer.finalInstructions ? "" : $0
+            })
+    }
+
+    // Rows of the section, not a DisclosureGroup: in a grouped form one
+    // drew its label, left room underneath, and never showed what was in it.
+    var body: some View {
+        LabeledContent {
+            Button(isOpen ? "Done" : "Edit…") { isOpen.toggle() }
+        } label: {
+            Text("Instructions for the summary")
+            if isCustom {
+                Text("Changed from Clio's own.")
+            }
+        }
+        if isOpen {
+            VStack(alignment: .leading, spacing: 8) {
+                TextEditor(text: text)
+                    .font(.system(.callout, design: .monospaced))
+                    .frame(minHeight: 190)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                HStack(alignment: .firstTextBaseline) {
+                    Text("The transcript, your notes and who was invited are given to the "
+                         + "model after this. Used for the next summary, and by Summarize Again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset to Default") {
+                        coordinator.settingsStore.settings.summaryPrompt = ""
+                    }
+                    .disabled(!isCustom)
+                }
+            }
+        }
+    }
+}
+
 struct ModelRow: View {
     @Bindable var coordinator: AppCoordinator
     let model: CatalogModel
@@ -470,11 +540,29 @@ struct ModelRow: View {
                     .onTapGesture { if installed != nil { makeActive() } }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.displayName).font(.body)
+                    HStack(spacing: 6) {
+                        Text(model.displayName).font(.body)
+                        if isRecommended {
+                            Text("Recommended for this Mac")
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Color.accentColor.opacity(0.15), in: Capsule())
+                                .foregroundStyle(Color.accentColor)
+                        }
+                    }
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let tooSmall {
+                        Text(tooSmall)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
+                // A model this Mac cannot carry is shown, so nobody goes
+                // looking for it, and plainly not on offer.
+                .opacity(tooSmall != nil && installed == nil ? 0.5 : 1)
 
                 Spacer()
                 controls
@@ -522,11 +610,23 @@ struct ModelRow: View {
                     .foregroundStyle(.tertiary)
                     .help("In the shared Hugging Face cache, so Clio will not delete it")
             }
-        } else {
+        } else if tooSmall == nil {
             iconButton("arrow.down.circle.fill", "Download \(model.displayName)", .accentColor) {
                 models.download(model)
             }
         }
+    }
+
+    /// Why this Mac cannot run the model, when it cannot. One already
+    /// installed keeps its row and its Delete: it was put there on purpose.
+    private var tooSmall: String? {
+        let memory = ModelCatalog.memoryGB
+        guard let minimum = model.minimumMemoryGB, !model.runs(onMemoryGB: memory) else { return nil }
+        return "Needs \(minimum) GB of memory; this Mac has \(memory)."
+    }
+
+    private var isRecommended: Bool {
+        ModelCatalog.recommended(model.kind, in: models.catalog)?.id == model.id
     }
 
     private func iconButton(_ symbol: String,
@@ -962,6 +1062,7 @@ private struct MeetingsTab: View {
                      : "Nothing can write one yet: download a summarization model under Settings ▸ Model.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                SummaryPromptEditor(coordinator: coordinator)
             } header: {
                 Text("Summaries")
             }

@@ -51,7 +51,7 @@ public enum MeetingSummarizer {
         talk. Use only what is in the transcript.
         """
 
-    static let finalInstructions = """
+    public static let finalInstructions = """
         You write meeting notes. You are given either a transcript or bullet \
         points from one, and possibly the notes the person wrote during the \
         meeting. Their notes show what mattered most: cover those topics first \
@@ -72,9 +72,19 @@ public enum MeetingSummarizer {
         return await summarize(record, with: system)
     }
 
+    /// The instructions for the last request: the user's own, if they
+    /// wrote any, else `finalInstructions`.
+    static func instructions(custom: String?) -> String {
+        let custom = (custom ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return custom.isEmpty ? finalInstructions : custom
+    }
+
     /// With `model`. Nil when it had nothing to say, or failed throughout.
+    /// `instructions` replaces Clio's own for the summary itself; the
+    /// bullets a long transcript is first reduced to are always Clio's.
     public static func summarize(_ record: MeetingRecord,
-                                 with model: any SummaryLanguageModel) async -> String? {
+                                 with model: any SummaryLanguageModel,
+                                 instructions: String? = nil) async -> String? {
         let limit = max(1_000, model.pieceLimit)
         var material = record.transcriptText
         var label = "Transcript"
@@ -94,12 +104,55 @@ public enum MeetingSummarizer {
         if Task.isCancelled { return nil }
         let prompt = finalPrompt(about: details(of: record), notes: record.notes,
                                  material: material, label: label, limit: limit)
-        return await respond(model, instructions: finalInstructions, prompt: prompt)
+        return await respond(model, instructions: Self.instructions(custom: instructions),
+                             prompt: prompt)
+    }
+
+    // MARK: A title
+
+    static let titleInstructions = """
+        You name meetings. Given the notes of one, answer with a title for it: \
+        at most six words, what it was about, in the language of the notes. \
+        No quotation marks, no full stop, nothing but the title.
+        """
+
+    /// A title for a meeting that has none of its own, from its summary —
+    /// short enough for any model, and already what the meeting was about.
+    /// Nil when the model gave nothing usable.
+    public static func title(forSummary summary: String,
+                             with model: any SummaryLanguageModel) async -> String? {
+        let summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty else { return nil }
+        let prompt = String(summary.prefix(min(3_000, max(1_000, model.pieceLimit))))
+        guard let answer = await respond(model, instructions: titleInstructions, prompt: prompt)
+        else { return nil }
+        return cleanTitle(answer)
+    }
+
+    /// The first line of the answer as a title: Markdown marks, quotes and a
+    /// closing full stop off, and nothing if what is left is no title — too
+    /// long to be one, or empty.
+    static func cleanTitle(_ answer: String) -> String? {
+        guard var line = answer.split(whereSeparator: \.isNewline).first.map(String.init)
+        else { return nil }
+        if line.lowercased().hasPrefix("title:") { line.removeFirst("title:".count) }
+        let marks = CharacterSet(charactersIn: "#*_`\"'“”‘’ ").union(.whitespaces)
+        line = line.trimmingCharacters(in: marks)
+        while line.hasSuffix(".") { line.removeLast() }
+        line = line.trimmingCharacters(in: marks)
+        guard !line.isEmpty, line.count <= 80 else { return nil }
+        return line
     }
 
     /// How much room the attendees may take. A company-wide invitation
     /// lists hundreds, and the transcript is what the summary is of.
     static let attendeesLimit = 400
+
+    /// Said after the list of those invited. The list is for spelling a
+    /// name the transcript says; it is not who is speaking.
+    static let attribution = "The list is only for spelling names. The transcript does not "
+        + "say which of them is speaking, or who came: name a person only where the "
+        + "transcript itself names them."
 
     /// What the meeting was and who was invited, to lead the last prompt:
     /// the transcript only says "Me" and "Others", and a name said aloud
@@ -120,6 +173,11 @@ public enum MeetingSummarizer {
             let more = present.count - names.count
             lines.append("Invited: " + names.joined(separator: ", ")
                          + (more > 0 ? ", and \(more) more" : ""))
+            // Without this the model works out who "Others" must be by
+            // elimination and writes it down as fact: two invited, one
+            // addressed by name, so the other one "will write the release
+            // notes" (seen on Qwen3 4B, SummaryModelIntegration).
+            lines.append(attribution)
         }
         return lines.joined(separator: "\n")
     }
