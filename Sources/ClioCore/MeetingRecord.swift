@@ -23,14 +23,20 @@ public struct MeetingLine: Codable, Sendable, Equatable, Identifiable {
     public var start: TimeInterval
     public var end: TimeInterval
     public var text: String
+    /// Which of the voices on the call said it, once they have been told
+    /// apart: 1, 2, 3… in the order they first spoke. Nil for "Me", and for
+    /// "Others" until — or unless — the call's audio has been diarized.
+    public var voice: Int?
 
     public init(id: UUID = UUID(), speaker: MeetingSpeaker,
-                start: TimeInterval, end: TimeInterval, text: String) {
+                start: TimeInterval, end: TimeInterval, text: String,
+                voice: Int? = nil) {
         self.id = id
         self.speaker = speaker
         self.start = start
         self.end = end
         self.text = text
+        self.voice = voice
     }
 
     /// "04:07", or "1:04:07" past the hour.
@@ -42,6 +48,19 @@ public struct MeetingLine: Codable, Sendable, Equatable, Identifiable {
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, secs)
             : String(format: "%02d:%02d", minutes, secs)
+    }
+}
+
+/// Who a voice on the call is, as far as anyone has said.
+public struct MeetingVoice: Codable, Sendable, Equatable {
+    public var name: String
+    /// True when the user gave the name; false when a model worked it out.
+    /// A name the user gave is never replaced by a guess.
+    public var confirmed: Bool
+
+    public init(name: String, confirmed: Bool) {
+        self.name = name
+        self.confirmed = confirmed
     }
 }
 
@@ -92,6 +111,9 @@ public struct MeetingRecord: Sendable, Equatable {
     public var eventID: String?
     /// Ordered by start time, whichever stream finished transcribing first.
     public internal(set) var lines: [MeetingLine] = []
+    /// The voices on the call that have a name, by number. One without an
+    /// entry is "Speaker 2".
+    public private(set) var voices: [Int: MeetingVoice] = [:]
 
     public init(title: String, startDate: Date = Date()) {
         self.title = title
@@ -167,8 +189,62 @@ public struct MeetingRecord: Sendable, Equatable {
     /// The transcript as plain lines, for the summary and for copying.
     public var transcriptText: String {
         MeetingMarkdown.paragraphs(lines)
-            .map { "[\($0.timestamp)] \($0.speaker.label): \($0.text)" }
+            .map { "[\($0.timestamp)] \(label(for: $0)): \($0.text)" }
             .joined(separator: "\n")
+    }
+
+    // MARK: Who said it
+
+    /// What a line is headed with: "Me"; a voice's name, or "Speaker 2"
+    /// until it has one; "Others" where voices were never told apart.
+    public func label(for line: MeetingLine) -> String {
+        guard line.speaker == .others, let voice = line.voice else { return line.speaker.label }
+        return voices[voice]?.name ?? Self.placeholder(voice)
+    }
+
+    public static func placeholder(_ voice: Int) -> String { "Speaker \(voice)" }
+
+    /// The voices that speak in the transcript, in order.
+    public var voiceNumbers: [Int] {
+        Array(Set(lines.compactMap(\.voice))).sorted()
+    }
+
+    /// Names a voice. An empty name takes the name away again. A guess
+    /// (`confirmed` false) never replaces a name the user gave. Returns
+    /// whether anything changed.
+    @discardableResult
+    public mutating func name(voice: Int, as name: String, confirmed: Bool) -> Bool {
+        let name = Self.cleanName(name)
+        if !confirmed, voices[voice]?.confirmed == true { return false }
+        let new = name.isEmpty ? nil : MeetingVoice(name: name, confirmed: confirmed)
+        guard voices[voice] != new else { return false }
+        voices[voice] = new
+        return true
+    }
+
+    /// A name as it can stand in the file: on one line, without the marks
+    /// the transcript's own format is made of, and never one of the labels
+    /// that mean something else.
+    static func cleanName(_ name: String) -> String {
+        let cleaned = name.components(separatedBy: .newlines).joined(separator: " ")
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: "[", with: "")
+            .replacingOccurrences(of: "]", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        let reserved = ["me", "others"]
+        if reserved.contains(cleaned.lowercased()) { return "" }
+        if cleaned.lowercased().hasPrefix("speaker "),
+           Int(cleaned.dropFirst("speaker ".count)) != nil { return "" }
+        return String(cleaned.prefix(60))
+    }
+
+    /// Puts each of the others' lines on the voice that spoke most of it.
+    /// `assignment` is by line id; a line it leaves out keeps what it had.
+    public mutating func assignVoices(_ assignment: [UUID: Int]) {
+        for index in lines.indices where lines[index].speaker == .others {
+            if let voice = assignment[lines[index].id] { lines[index].voice = voice }
+        }
     }
 }
 
@@ -207,6 +283,13 @@ public enum MeetingMarkdown {
         if let end = record.endDate { out.append("end: \(iso.string(from: end))") }
         if let url = record.joinURL { out.append("link: \(url.absoluteString)") }
         if let event = record.eventID { out.append("event: \(event)") }
+        // The names of the voices, and who gave them: the transcript shows
+        // the name, and this is what says which voice it belongs to and
+        // whether a model may still change it.
+        for voice in record.voices.keys.sorted() {
+            guard let named = record.voices[voice] else { continue }
+            out.append("speaker-\(voice)\(named.confirmed ? "" : "-guess"): \(named.name)")
+        }
         out += ["---", "", "# \(record.title)", ""]
 
         let day = DateFormatter()
@@ -241,7 +324,7 @@ public enum MeetingMarkdown {
             out.append("*Nothing transcribed yet.*")
         } else {
             for line in paragraphs {
-                out += ["**[\(line.timestamp)] \(line.speaker.label):** \(line.text)", ""]
+                out += ["**[\(line.timestamp)] \(record.label(for: line)):** \(line.text)", ""]
             }
         }
         return out.joined(separator: "\n")
@@ -319,7 +402,21 @@ public enum MeetingMarkdown {
             if let section { sections[section, default: []].append(line) }
         }
 
-        let transcript = (sections["transcript"] ?? []).compactMap(transcriptLine)
+        var voices: [Int: MeetingVoice] = [:]
+        for (key, value) in front where key.hasPrefix("speaker-") && !value.isEmpty {
+            let rest = key.dropFirst("speaker-".count)
+            let guess = rest.hasSuffix("-guess")
+            guard let number = Int(guess ? rest.dropLast("-guess".count) : rest) else { continue }
+            voices[number] = MeetingVoice(name: value, confirmed: !guess)
+        }
+        // A name heads a line as "Speaker 2" would; back to its number.
+        // Two voices given one name read back as the first of them.
+        var numbers: [String: Int] = [:]
+        for number in voices.keys.sorted().reversed() {
+            numbers[voices[number]!.name.lowercased()] = number
+        }
+
+        let transcript = (sections["transcript"] ?? []).compactMap { transcriptLine($0, voices: numbers) }
         guard title != nil || !transcript.isEmpty else { return nil }
 
         let start = front["start"].flatMap(iso.date(from:)) ?? fallbackDate
@@ -335,6 +432,9 @@ public enum MeetingMarkdown {
         // Straight in, in file order: these were checked for echo when they
         // were first said.
         record.lines = transcript
+        for (number, voice) in voices {
+            record.name(voice: number, as: voice.name, confirmed: voice.confirmed)
+        }
         return record
     }
 
@@ -344,8 +444,9 @@ public enum MeetingMarkdown {
         (lines ?? []).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// "**[04:07] Others:** text" → a line at 247 s.
-    static func transcriptLine(_ raw: String) -> MeetingLine? {
+    /// "**[04:07] Others:** text" → a line at 247 s. "Speaker 2", or a
+    /// name in `voices` (lowercased, to its number), is that voice.
+    static func transcriptLine(_ raw: String, voices: [String: Int] = [:]) -> MeetingLine? {
         let line = raw.trimmingCharacters(in: .whitespaces)
         guard line.hasPrefix("**["), let close = line.range(of: "]"),
               let labelEnd = line.range(of: ":**") else { return nil }
@@ -355,8 +456,17 @@ public enum MeetingMarkdown {
         let parts = stamp.split(separator: ":").compactMap { Double($0) }
         guard !parts.isEmpty, !text.isEmpty else { return nil }
         let seconds = parts.reduce(0) { $0 * 60 + $1 }
-        let speaker: MeetingSpeaker = label.lowercased() == "me" ? .me : .others
-        return MeetingLine(speaker: speaker, start: seconds, end: seconds, text: text)
+        let lowered = label.lowercased()
+        let speaker: MeetingSpeaker = lowered == "me" ? .me : .others
+        var voice: Int?
+        if speaker == .others {
+            if lowered.hasPrefix("speaker "), let number = Int(lowered.dropFirst("speaker ".count)) {
+                voice = number
+            } else {
+                voice = voices[lowered]
+            }
+        }
+        return MeetingLine(speaker: speaker, start: seconds, end: seconds, text: text, voice: voice)
     }
 
     /// `name` in `folder`, or "name 2", "name 3"… if another meeting has
@@ -382,7 +492,7 @@ public enum MeetingMarkdown {
     public static func paragraphs(_ lines: [MeetingLine]) -> [MeetingLine] {
         var result: [MeetingLine] = []
         for line in lines {
-            if let last = result.last, last.speaker == line.speaker,
+            if let last = result.last, last.speaker == line.speaker, last.voice == line.voice,
                line.start - last.end < 8 {
                 result[result.count - 1].text += " " + line.text
                 result[result.count - 1].end = max(last.end, line.end)

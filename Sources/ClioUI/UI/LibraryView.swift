@@ -810,7 +810,12 @@ struct MeetingDocumentView: View {
                                    minHeight: 0)
                         .padding(.horizontal, 8)
                 case .transcript:
-                    TranscriptList(lines: record.lines, isLive: false)
+                    TranscriptList(record: record, isLive: false) { voice, name in
+                        guard self.record?.name(voice: voice, as: name, confirmed: true) == true
+                        else { return }
+                        isDirty = true
+                        flush()
+                    }
                 }
             }
             .padding(.bottom, 80)
@@ -995,12 +1000,20 @@ private struct DictationView: View {
 
 /// What was said, in turns. No scroll of its own: it is part of the
 /// document's one scroll, under the toolbar.
+///
+/// A turn is headed "Me", or by the voice that spoke it: its name, or
+/// "Speaker 2" until it has one. A voice's heading is a button — click it
+/// to say whose voice it is, and every turn of that voice takes the name.
 struct TranscriptList: View {
-    let lines: [MeetingLine]
+    let record: MeetingRecord
     let isLive: Bool
+    /// Names a voice; nil where names cannot be changed.
+    var rename: ((Int, String) -> Void)?
+
+    @State private var naming: MeetingLine.ID?
 
     var body: some View {
-        let paragraphs = MeetingMarkdown.paragraphs(lines)
+        let paragraphs = MeetingMarkdown.paragraphs(record.lines)
         LazyVStack(alignment: .leading, spacing: 12) {
             if paragraphs.isEmpty {
                 Text(isLive ? "Listening. Lines appear a few seconds after they are said."
@@ -1010,9 +1023,7 @@ struct TranscriptList: View {
             }
             ForEach(paragraphs) { line in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(line.speaker.label) · \(line.timestamp)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(line.speaker == .me ? Color.accentColor : .secondary)
+                    heading(line)
                     Text(line.text)
                         .font(.system(size: 13))
                         .textSelection(.enabled)
@@ -1023,6 +1034,120 @@ struct TranscriptList: View {
         }
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func heading(_ line: MeetingLine) -> some View {
+        let font = Font.system(size: 11, weight: .semibold)
+        if let voice = line.voice, line.speaker == .others, let rename {
+            HStack(spacing: 0) {
+                Button {
+                    naming = line.id
+                } label: {
+                    Text(record.label(for: line))
+                        .font(font)
+                        .foregroundStyle(VoiceColor.of(voice))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(record.voices[voice] == nil ? "Say who this is" : "Change the name")
+                .popover(isPresented: Binding(get: { naming == line.id },
+                                              set: { if !$0 { naming = nil } }),
+                         arrowEdge: .bottom) {
+                    VoiceNamePopover(
+                        voice: voice,
+                        current: record.voices[voice],
+                        suggestions: suggestions(for: voice),
+                        done: { name in
+                            naming = nil
+                            if let name { rename(voice, name) }
+                        })
+                }
+                Text(" · \(line.timestamp)")
+                    .font(font)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Text("\(record.label(for: line)) · \(line.timestamp)")
+                .font(font)
+                .foregroundStyle(line.speaker == .me ? Color.accentColor
+                                 : line.voice.map(VoiceColor.of) ?? .secondary)
+        }
+    }
+
+    /// Those invited who are not already another voice's name.
+    private func suggestions(for voice: Int) -> [String] {
+        let taken = Set(record.voices.filter { $0.key != voice }.map { $0.value.name.lowercased() })
+        return record.attendees
+            .filter { !$0.declined && !$0.name.isEmpty && !$0.name.contains("@") }
+            .map(\.name)
+            .filter { !taken.contains($0.lowercased()) }
+    }
+}
+
+/// A colour per voice, so turns can be told apart at a glance before any
+/// has a name. Quiet ones: the accent stays "Me".
+enum VoiceColor {
+    static let palette: [Color] = [.secondary, .teal, .orange, .purple, .pink, .brown, .indigo, .mint]
+
+    static func of(_ voice: Int) -> Color {
+        palette[(max(1, voice) - 1) % palette.count]
+    }
+}
+
+/// Whose voice is this: a field, those invited to pick from, and a way
+/// back to "Speaker 2".
+private struct VoiceNamePopover: View {
+    let voice: Int
+    let current: MeetingVoice?
+    let suggestions: [String]
+    /// The name to give, an empty one to take it away, nil to leave it.
+    let done: (String?) -> Void
+
+    @State private var name = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(current == nil ? "Who is \(MeetingRecord.placeholder(voice))?" : "Who is this?")
+                .font(.system(size: 12, weight: .semibold))
+            TextField("Name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .onSubmit { done(name) }
+                .frame(width: 220)
+            if current?.confirmed == false {
+                Text("Clio worked this name out from the transcript. Press Return to keep it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 220, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(suggestions.prefix(8), id: \.self) { suggestion in
+                        Button(suggestion) { done(suggestion) }
+                            .buttonStyle(.link)
+                            .font(.system(size: 12))
+                    }
+                }
+            }
+            HStack {
+                if current != nil {
+                    Button("Remove Name") { done("") }
+                }
+                Spacer()
+                Button("Save") { done(name) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .controlSize(.small)
+        }
+        .padding(14)
+        .onAppear {
+            name = current?.name ?? ""
+            focused = true
+        }
     }
 }
 

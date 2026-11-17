@@ -52,6 +52,17 @@ extension AppCoordinator {
                 sensitivity: settings.vadSensitivity,
                 micDeviceUID: settings.inputDeviceUID)
             session.titleIsPlaceholder = event == nil
+            // With the speaker models installed, the voices on the call are
+            // told apart when it ends; with a summary model too, named.
+            if let speakers = models.installed(.speaker).first {
+                session.diarizer = SpeakerDiarizer(folder: speakers.url)
+                if let model = summaryModel {
+                    session.nameVoices = { [weak self, weak session] record in
+                        await self?.makeRoomForSummary(by: model, ending: session)
+                        return await SpeakerNamer.names(for: record, with: model)
+                    }
+                }
+            }
             if settings.meetingSummaries, let model = summaryModel {
                 session.summarize = { [weak self, weak session] record in
                     await self?.makeRoomForSummary(by: model, ending: session)
@@ -359,16 +370,27 @@ extension AppCoordinator {
         try? FileManager.default.removeItem(at: folder)
         let now = Date()
         func sample(_ title: String, hoursAgo: Double, minutes: Double, people: [String],
-                     notes: String, summary: String?, lines: [(MeetingSpeaker, String)]) {
+                     notes: String, summary: String?, lines: [(MeetingSpeaker, String)],
+                     voices: Bool = false) {
             var record = MeetingRecord(title: title, startDate: now.addingTimeInterval(-hoursAgo * 3600))
             record.endDate = record.startDate.addingTimeInterval(minutes * 60)
             record.attendees = people.map { samplePerson($0) }
             record.notes = notes
             record.summary = summary
+            var others = 0
             for (index, line) in lines.enumerated() {
                 let start = Double(index) * 9 + 3
-                record.add(MeetingLine(speaker: line.0, start: start, end: start + 6, text: line.1))
+                // Two voices on the call, taking turns: one a model has
+                // named, one still a number.
+                var voice: Int?
+                if voices, line.0 == .others {
+                    voice = others % 2 + 1
+                    others += 1
+                }
+                record.add(MeetingLine(speaker: line.0, start: start, end: start + 6,
+                                       text: line.1, voice: voice))
             }
+            if voices { record.name(voice: 1, as: "Ana Ruiz", confirmed: false) }
             try? MeetingMarkdown.write(record, to: folder)
         }
         sample("Weekly product sync", hoursAgo: 2, minutes: 32, people: ["Ana Ruiz", "Bo Chen"],
@@ -381,7 +403,8 @@ extension AppCoordinator {
                     + (0..<14).flatMap { round -> [(MeetingSpeaker, String)] in
                         [(.others, "Point \(round + 1): the pricing table needs one more pass before it goes out, and design wants to try the darker variant."),
                          (.me, "Agreed on point \(round + 1). I'll check the numbers again and send them round this afternoon.")]
-                    })
+                    },
+                voices: true)
         sample("1:1 with Ana", hoursAgo: 5, minutes: 25, people: ["Ana Ruiz"],
                 notes: "", summary: "### Hiring\n- Two onsite interviews next week.",
                 lines: [(.others, "How are the interviews going?"), (.me, "Two onsites next week.")])

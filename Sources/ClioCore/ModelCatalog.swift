@@ -14,12 +14,14 @@ public enum QualityTier: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// What a model is for. Clio downloads two kinds into one folder: speech
-/// models for WhisperKit, and language models — GGUF files run by llama.cpp
-/// — that write meeting summaries.
+/// What a model is for. Clio downloads three kinds into one folder: speech
+/// models for WhisperKit; language models — GGUF files run by llama.cpp —
+/// that write meeting summaries; and the speaker models SpeakerKit tells
+/// the voices on a call apart with.
 public enum ModelKind: String, Codable, Sendable, CaseIterable {
     case speech
     case language
+    case speaker
 }
 
 public enum ModelLanguages: String, Codable, Sendable {
@@ -63,6 +65,10 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
     /// file — a GGUF — rather than a folder named `id`. It is installed as
     /// `<models>/<id>/<fileName>`, so every model is still a folder.
     public var fileName: String?
+    /// The folder of the repo to list, when it is not one named `id`: ""
+    /// for the repo's root. The speaker models are several folders of one
+    /// repo, taken from its root.
+    public var repoFolder: String?
     /// The least memory, in gigabytes, a Mac needs to run it at all. Under
     /// it Settings does not offer the download. Nil: runs anywhere.
     public var minimumMemoryGB: Int?
@@ -76,7 +82,9 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
                 languages: ModelLanguages, note: String? = nil,
                 retired: Bool = false,
                 kind: ModelKind = .speech, fileName: String? = nil,
+                repoFolder: String? = nil,
                 minimumMemoryGB: Int? = nil, recommendedMemoryGB: Int? = nil) {
+        self.repoFolder = repoFolder
         self.minimumMemoryGB = minimumMemoryGB
         self.recommendedMemoryGB = recommendedMemoryGB
         self.id = id
@@ -108,6 +116,7 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
         retired = try c.decodeIfPresent(Bool.self, forKey: .retired) ?? false
         kind = try c.decodeIfPresent(ModelKind.self, forKey: .kind) ?? .speech
         fileName = try c.decodeIfPresent(String.self, forKey: .fileName)
+        repoFolder = try c.decodeIfPresent(String.self, forKey: .repoFolder)
         minimumMemoryGB = try c.decodeIfPresent(Int.self, forKey: .minimumMemoryGB)
         recommendedMemoryGB = try c.decodeIfPresent(Int.self, forKey: .recommendedMemoryGB)
     }
@@ -119,7 +128,7 @@ public struct CatalogModel: Codable, Sendable, Equatable, Identifiable {
 
     /// The folder in the repo the model's files are listed from: the model's
     /// own for a WhisperKit folder, the root for a single file.
-    var repoPath: String { fileName == nil ? id : "" }
+    var repoPath: String { repoFolder ?? (fileName == nil ? id : "") }
 }
 
 /// The list of models we offer.
@@ -242,6 +251,16 @@ public enum ModelCatalog {
             kind: .language,
             fileName: "gemma-3-12b-it-Q4_K_M.gguf",
             minimumMemoryGB: 16, recommendedMemoryGB: 24),
+        CatalogModel(
+            id: "speakerkit-pyannote",
+            displayName: "Speaker Recognition",
+            repo: "argmaxinc/speakerkit-coreml",
+            approximateBytes: 17_000_000,
+            tier: .balanced,
+            languages: .multilingual,
+            note: "Tells the voices on a call apart, so the transcript says who spoke instead of Others.",
+            kind: .speaker,
+            repoFolder: ""),
     ]
 
     /// This Mac's memory in whole gigabytes, as the catalog counts it.
@@ -264,6 +283,9 @@ public enum ModelCatalog {
             .filter { ($0.recommendedMemoryGB).map { memoryGB >= $0 } ?? false }
             .max { ($0.recommendedMemoryGB ?? 0) < ($1.recommendedMemoryGB ?? 0) }
     }
+
+    /// The models that tell voices apart. One entry: there is no choosing.
+    public static let speakerModelID = "speakerkit-pyannote"
 
     public static let defaultModelID = "distil-whisper_distil-large-v3_594MB"
     /// The summary model Settings offers first, to anyone on Apple's.

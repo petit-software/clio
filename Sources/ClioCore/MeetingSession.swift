@@ -55,6 +55,9 @@ public final class MeetingSession {
         case recording
         /// Stopped; the last chunks are still being transcribed.
         case finishing
+        /// Telling the voices on the call apart, and working out whose
+        /// they are.
+        case identifying
         /// Writing the summary.
         case summarizing
         case finished
@@ -106,6 +109,16 @@ public final class MeetingSession {
     /// changed in Settings mid-meeting was loaded for every dictation and
     /// unloaded for every chunk, seconds each way.
     public var currentModel: (() -> InstalledModel?)?
+
+    /// Tells the others' voices apart when the meeting ends. Set before
+    /// `start`: with one, the call's side is written to a temporary file
+    /// as it arrives — and deleted the moment the voices are told apart,
+    /// or the meeting ends any other way. Nil, and nothing is written.
+    public var diarizer: (any SpeakerDiarizing)?
+    /// Works out whose the voices are, once they are apart. What it
+    /// returns are guesses, by voice.
+    public var nameVoices: ((MeetingRecord) async -> [Int: String])?
+    private var recording: StreamRecording?
 
     /// Run after the last chunk is in, to write the summary. Nil skips it.
     public var summarize: ((MeetingRecord) async -> String?)?
@@ -207,6 +220,11 @@ public final class MeetingSession {
         }
         micFeed.onChunks = { deliver(.me, $0) }
         systemFeed.onChunks = { deliver(.others, $0) }
+        if diarizer != nil {
+            // No file, no voices: the meeting is still Me and Others.
+            recording = try? StreamRecording()
+            systemFeed.recording = recording
+        }
         microphone.onSamples = { [micFeed] in micFeed.append($0) }
         (microphone as? MeetingMicrophone)?.recorder.onFailure = { [weak self] error in
             self?.microphoneProblem = error.localizedDescription
@@ -233,6 +251,7 @@ public final class MeetingSession {
             return
         }
         if case .failure(let error) = micResult {
+            discardRecording()
             phase = .failed(error.localizedDescription)
             return
         }
@@ -281,6 +300,8 @@ public final class MeetingSession {
             await next.value
         }
 
+        await identifyVoices()
+
         if summarizing, let summarize, !record.lines.isEmpty {
             phase = .summarizing
             record.summary = await summarize(record)
@@ -295,9 +316,39 @@ public final class MeetingSession {
         save()
     }
 
+    /// Tells the others' voices apart from the recording of the call, puts
+    /// each of their lines on its voice, asks whose the voices are — and
+    /// deletes the recording, whatever came of it. A meeting where this
+    /// fails at any step is what it was before: Me and Others.
+    private func identifyVoices() async {
+        defer { discardRecording() }
+        guard let recording, let diarizer,
+              record.lines.contains(where: { $0.speaker == .others }) else { return }
+        phase = .identifying
+        recording.close()
+        guard recording.isComplete,
+              let diarization = try? await diarizer.diarize(recording: recording.url) else { return }
+        record.assignVoices(SpeakerAssignment.assign(lines: record.lines, diarization: diarization))
+        guard !record.voiceNumbers.isEmpty else { return }
+        save()
+        if let nameVoices {
+            for (voice, name) in await nameVoices(record) {
+                record.name(voice: voice, as: name, confirmed: false)
+            }
+            save()
+        }
+    }
+
+    private func discardRecording() {
+        systemFeed.recording = nil
+        recording?.discard()
+        recording = nil
+    }
+
     /// Stops without transcribing what is left, for quitting.
     public func abandon() {
         guard phase != .finished else { return }
+        discardRecording()
         silenceCheck?.cancel()
         microphone.stop()
         systemRecorder.stop()
@@ -314,6 +365,13 @@ public final class MeetingSession {
         guard !trimmed.isEmpty, trimmed != record.title else { return }
         record.title = trimmed
         titleIsPlaceholder = false
+        save()
+    }
+
+    /// The user says whose a voice is. An empty name takes it back to
+    /// "Speaker 2".
+    public func nameVoice(_ voice: Int, as name: String) {
+        guard record.name(voice: voice, as: name, confirmed: true) else { return }
         save()
     }
 
@@ -450,6 +508,13 @@ public final class MeetingSession {
 private final class StreamFeed: @unchecked Sendable {
     let speaker: MeetingSpeaker
     var onChunks: (@Sendable ([SpeechChunk]) -> Void)?
+    /// Where the stream is written as it arrives, on the meeting's clock.
+    /// Set before the first sample.
+    var recording: StreamRecording? {
+        get { lock.lock(); defer { lock.unlock() }; return _recording }
+        set { lock.lock(); _recording = newValue; lock.unlock() }
+    }
+    private var _recording: StreamRecording?
 
     private let lock = NSLock()
     private var segmenter: SpeechSegmenter
@@ -483,7 +548,11 @@ private final class StreamFeed: @unchecked Sendable {
         guard !finished else { lock.unlock(); return }
         let rate = AudioRecorder.sampleRate
         let arrivedAt = now().timeIntervalSince(meetingStart) - Double(samples.count) / rate
-        if origin == nil { origin = max(0, arrivedAt) }
+        if origin == nil {
+            origin = max(0, arrivedAt)
+            // The stream opened this long after the meeting began.
+            _recording?.appendSilence(samples: Int((origin ?? 0) * rate))
+        }
         var chunks: [SpeechChunk] = []
         // The tap sends nothing while nothing plays, so a stream's samples
         // are not its clock. A gap of more than half a second is real time
@@ -493,11 +562,13 @@ private final class StreamFeed: @unchecked Sendable {
             let gap = Int((arrivedAt - expected) * rate)
             chunks += segmenter.skip(gap)
             accounted += gap
+            _recording?.appendSilence(samples: gap)
         }
         // Silence in its place while dictating, so the timeline does not slip.
         let input = suppressed ? [Float](repeating: 0, count: samples.count) : samples
         chunks += segmenter.append(input)
         accounted += samples.count
+        _recording?.append(input)
         chunks = shifted(chunks)
         let handler = onChunks
         lock.unlock()

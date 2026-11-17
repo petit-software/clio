@@ -29,6 +29,10 @@ let package = Package(
                     "ClioObjC",
                     "llama",
                     .product(name: "WhisperKit", package: "WhisperKit"),
+                    // Who is speaking, among the others on a call
+                    // (SpeakerDiarizer). The same package and revision as
+                    // WhisperKit; a product of its own.
+                    .product(name: "SpeakerKit", package: "WhisperKit"),
                 ]),
         // llama.cpp, prebuilt by its own project for every release: the
         // runtime for a downloaded summary model (LocalSummaryModel). A

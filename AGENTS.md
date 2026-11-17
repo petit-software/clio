@@ -38,6 +38,7 @@ One meeting, end to end.
 | 4 | each stream cut at its pauses, chunks ≤ 25 s, stamped with when they were said | `ClioCore/SpeechSegmenter`, `MeetingSession.StreamFeed` |
 | 5 | transcribed one at a time behind any dictation | `ClioCore/TranscriptionQueue` |
 | 6 | added in time order, echo of the call in the mic dropped, Markdown rewritten | `ClioCore/MeetingRecord` |
+| 6½ | stop, with the speaker models installed: the call's side, written to a temporary file as it arrived, is diarized; each of the others' lines goes to the voice that spoke most of it ("Speaker 1", "Speaker 2"); a summary model names the voices the conversation names; the file is deleted | `ClioCore/SpeakerDiarization` (`StreamRecording`, `SpeakerAssignment`), `SpeakerDiarizer`, `SpeakerNamer`, `MeetingSession.identifyVoices` |
 | 7 | stop: drain, then a summary — by Apple's on-device model (macOS 26), or by a downloaded GGUF run by llama.cpp, whichever Settings ▸ Model names; any saved meeting can be summarized again from its ⋯ menu | `MeetingSession.stop`, `ClioCore/MeetingSummarizer`, `LocalSummaryModel`, `ClioUI/AppCoordinator+Summaries` |
 | 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
@@ -51,7 +52,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 237 tests live here.
+  without standing up an app. All 254 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -61,7 +62,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 237 tests, 33 suites, no network
+swift test                                  # 254 tests, 35 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -83,6 +84,8 @@ CLIO_INTEGRATION=1 swift test --filter StartupLatency     # where start() spends
 CLIO_INTEGRATION=1 swift test --filter SanitizerIntegration   # what the installed speech model says after three seconds of silence, segment by segment; downloads nothing
 CLIO_INTEGRATION=1 swift test --filter ModelResidency     # load, use and free the installed speech model and GGUF: does the memory come back; downloads nothing
 CLIO_INTEGRATION=1 CLIO_SUMMARY_MODEL=~/Library/Application\ Support/com.bartbak.clio/models/<id>/<file>.gguf swift test --filter SummaryModelIntegration   # a GGUF through llama.cpp: a prompt, then a whole meeting; downloads nothing
+CLIO_INTEGRATION=1 swift test --filter SpeakerIntegration   # the real speaker models on macOS's own voices: turns told apart, then a whole call through a session, Whisper and a summary model; the first run downloads 17 MB into /tmp
+CLIO_SPEAKER_MINUTES=60 CLIO_INTEGRATION=1 swift test --filter aLongCall   # an hour of call through the diarizer alone: the time and the memory
 CLIO_LONG_MEETING=60 swift test --filter LongMeeting      # an hour of meeting through a real session and an installed model; downloads nothing
 CLIO_OVERLAY_DUMP=/tmp/x swift run Clio                   # every pill state to PNG
 CLIO_OVERLAY_SHOW=recording swift run Clio                # the real panel, on screen
@@ -255,11 +258,14 @@ Engine's share of a CoreML model is charged to the system's `aned`, so
 large-v3 turbo adds only 201 MB to Clio's own row. A setting nobody has
 measured is a toggle that may do nothing.
 
-**Two kinds of model share one folder, and must never be confused.**
-`models/<id>/` holds WhisperKit folders (`.mlmodelc` inside) and summary
-models (one `.gguf` inside); `InstalledModel.kind` is read from the folder's
-contents and every fallback that reaches for "the first installed model"
-filters by it — `AppCoordinator.activeModel` once did not, and a GGUF
+**Three kinds of model share one folder, and must never be confused.**
+`models/<id>/` holds WhisperKit folders (`.mlmodelc` inside), summary
+models (one `.gguf` inside) and the speaker models (`speaker_segmenter/`
+and two more, each compiled model three folders down);
+`InstalledModel.kind` is read from the folder's contents and every fallback
+that reaches for "the first installed model" filters by it — `LongMeeting`
+did not, and once a GGUF was the largest thing installed it "transcribed"
+an hour in two seconds, to nothing — — `AppCoordinator.activeModel` once did not, and a GGUF
 offered to WhisperKit is a dictation that fails. A single-file model is
 listed from its repo's root (`CatalogModel.fileName`, `repoPath`) and still
 installed as a folder, so discovery, size, delete and the shared-cache rule
@@ -435,6 +441,42 @@ the segmenter's cut at a pause for meetings — and `SanitizerIntegration`
 shows both halves. The probabilities come from each segment's token
 log-probabilities, so word timestamps and their second pass stay off.
 
+**The speaker models must never be given digital silence.** The recording
+of the call is exact zeros wherever the tap sent nothing: before its first
+sound, and through every stretch nothing played. A turn that followed forty
+seconds of zeros came back as a different person from the same voice's
+later turns — as far from them as from the other speaker (0.86 against
+0.89) — and the last turns of a recording split off the same way.
+`SpeakerDiarizer.removeDigitalSilence` puts noise at −70 dBFS in place of
+every zero and fills the end out to a whole 30-second window; with it, 48
+turns of two voices all land on the right one, with any lead of silence.
+Why it works is a guess (features normalised per window); that it does is
+measured, in `SpeakerIntegration`.
+
+**The call's audio exists only until the voices are told apart.**
+`StreamRecording` is written only when a diarizer is set, into a folder in
+the temporary directory named for the process, and deleted at the end of
+`identifyVoices` whatever happened, on `abandon`, and on a failed start.
+At launch every folder whose process is gone is removed — by process, so a
+second copy of Clio (any tool here) never deletes the recording of a
+meeting the first is in. Time in the file is time in the meeting: the
+stream's late start and the tap's gaps are written as silence by
+`StreamFeed`, which is how a span becomes a line's voice with no mapping.
+
+**Telling an hour of call apart holds it all in memory.** SpeakerKit takes
+one array. Measured: an hour in 18 s, 1.3 GB at its peak, and about 270 MB
+that is not given back until quit (the same after a second run, so kept,
+not leaked). One copy of the samples, changed in place; a second cost
+another 230 MB an hour.
+
+**A voice is a number on the line, not a kind of speaker.** `MeetingLine.voice`
+beside `speaker`, so "Me"/"Others" and everything that tests them is as it
+was. The name is in the front matter (`speaker-2: Tom`, or
+`speaker-2-guess:` when a model gave it) and at the head of each line; a
+name reads back to its number through the front matter. A guess never
+replaces a name the user gave, and a name may not be "Me", "Others" or
+"Speaker 3" — they would read back as something else.
+
 **One WhisperKit pipeline, two callers.** The engine is an actor, but actors
 re-enter at every `await` and `transcribe` awaits throughout: a dictation
 during a meeting would have run on the pipeline alongside a chunk. Everything
@@ -582,6 +624,14 @@ Verified by something repeatable:
 - Settings ▸ Model as an 8 GB Mac lists it — Qwen3 4B recommended, Gemma 3
   12B dimmed with no download and the reason — and the summary's
   instructions open in Settings ▸ Meetings: looked at, not clicked
+- the speaker models (`SpeakerIntegration`): downloaded through
+  `ModelManager` (17 MB), loaded from Clio's folder with `download: false`,
+  two of macOS's voices told apart turn by turn on the meeting's clock; and
+  a whole call — a real session, Whisper, the models, Qwen3 4B — written
+  out as Me / Speaker 1 / Karen, the one who said her name named, the one
+  only spoken to left a number, and no audio left behind
+- a meeting's vocabulary as Whisper's prompt does not empty the transcript
+  (`SanitizerIntegration`)
 - segmenting, echo removal, the queue's order, calendar matching, call
   detection decisions, a whole session on fake sources (drain on stop,
   wall-clock gaps, the mic muted while dictating, the summary), the Markdown
@@ -623,6 +673,18 @@ Not verified, and worth knowing:
   after two checks on the microphone; that Zoom or Teams opening it for a
   moment at launch is what the first check lands on is the reason, not
   something watched.
+- **voices on a real call.** Everything above is synthetic voices, clean
+  and far apart (0.85 and more between them). People on one call, on one
+  codec, some of them on a speakerphone in one room, are the real test and
+  nobody has run it. Two people in one line of transcript go to whoever
+  spoke longer.
+- **the transcript with voices, on screen.** The names, their colours, the
+  popover that renames a voice and the Speakers row in Settings ▸ Model
+  build and have never been looked at: the screen was locked when they
+  were finished. `CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1` shows
+  a sample with one voice named and one not.
+- **a summary after a voice is renamed.** It still says the old name;
+  Summarize Again fixes it, and nothing does it for you.
 - **Gemma 3 12B.** Checked for existence and size on Hugging Face, never
   downloaded: its summaries, its speed, and what its context really costs —
   the ceiling for it is an estimate scaled from Qwen3 4B.

@@ -190,7 +190,9 @@ struct MeetingView: View {
     }
 
     private var transcriptPane: some View {
-        TranscriptList(lines: meeting.record.lines, isLive: meeting.isActive)
+        TranscriptList(record: meeting.record, isLive: meeting.isActive) { voice, name in
+            meeting.nameVoice(voice, as: name)
+        }
     }
 
     private var summaryPane: some View {

@@ -64,8 +64,10 @@ struct LongMeetingTests {
         let manager = ModelManager()
         let wanted = ProcessInfo.processInfo.environment["CLIO_LONG_MEETING_MODEL"]
         let model = try #require(
-            manager.installed.first { $0.id == wanted }
-                ?? manager.installed.max { $0.sizeBytes < $1.sizeBytes },
+            // Speech models only: the largest model installed is otherwise
+            // a GGUF, which WhisperKit transcribes nothing with.
+            manager.installed(.speech).first { $0.id == wanted }
+                ?? manager.installed(.speech).max { $0.sizeBytes < $1.sizeBytes },
             "No model installed to test with")
 
         let theirs = try speak("""
@@ -88,6 +90,14 @@ struct LongMeetingTests {
             queue: TranscriptionQueue(WhisperKitEngine()), model: model,
             options: TranscribeOptions(language: "en"), sensitivity: 0.5, micDeviceUID: nil,
             microphone: mic, systemAudio: system, now: { clock.now() })
+        // With the speaker models there — in Clio's own folder, or where
+        // SpeakerIntegration left them — the call is recorded and its
+        // voices told apart at the end, as in the app.
+        let cached = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-integration-models/\(ModelCatalog.speakerModelID)")
+        let speakerFolder = manager.installed(.speaker).first?.url
+            ?? (SpeakerModels.isInstalled(at: cached) ? cached : nil)
+        if let speakerFolder { session.diarizer = SpeakerDiarizer(folder: speakerFolder) }
         await session.start()
 
         func push(_ samples: [Float], to source: Source) {
@@ -117,8 +127,28 @@ struct LongMeetingTests {
             if minute == 0 { baseline = resident }   // the model is loaded by now
             peak = max(peak, resident)
         }
+        // Stopping: the last chunks, then — the part that holds the whole
+        // call in memory at once — the voices.
+        let beforeStop = ContinuousClock.now
+        let sampler = Task { @MainActor in
+            var most = 0.0
+            while !Task.isCancelled {
+                most = max(most, Self.residentMegabytes())
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            return most
+        }
         await session.stop(summarizing: false)
+        sampler.cancel()
+        let stopPeak = await sampler.value
+        let stopSeconds = Double((ContinuousClock.now - beforeStop).components.seconds)
         let wall = (ContinuousClock.now - began).components.seconds
+        if speakerFolder != nil {
+            let voices = "[long meeting] voices: stop took \(Int(stopSeconds)) s, memory peaked at "
+                + "\(Int(stopPeak)) MB while it ran; \(session.record.voiceNumbers.count) voice(s) found"
+            print(voices)
+            FileHandle.standardError.write(Data((voices + "\n").utf8))
+        }
 
         let lines = session.record.lines
         let growth = peak - (baseline ?? peak)

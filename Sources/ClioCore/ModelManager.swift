@@ -164,6 +164,7 @@ public final class ModelManager {
                   isDirectory.boolValue else { return false }
             let contents = (try? manager.contentsOfDirectory(atPath: url.path)) ?? []
             return contents.contains { $0.hasSuffix(".mlmodelc") || $0.lowercased().hasSuffix(".gguf") }
+                || SpeakerModels.isInstalled(at: url)
         }
     }
 
@@ -178,8 +179,11 @@ public final class ModelManager {
         return contents.contains { $0.lowercased().hasSuffix(".gguf") && isLink(url.appendingPathComponent($0)) }
     }
 
-    /// Speech or language, from what is in the folder.
+    /// Speech, language or speaker, from what is in the folder. The
+    /// speaker models are compiled Core ML too, but never at the top of
+    /// their folder: each sits three folders down, under its own name.
     static func kind(of url: URL) -> ModelKind {
+        if SpeakerModels.isSpeakerFolder(url) { return .speaker }
         let contents = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
         return contents.contains { $0.hasSuffix(".mlmodelc") } ? .speech : .language
     }
@@ -265,6 +269,9 @@ public final class ModelManager {
             guard !isDirectory.boolValue, source.pathExtension.lowercased() == "gguf"
             else { throw LinkError.notALanguageModel }
             name = source.deletingPathExtension().lastPathComponent
+        case .speaker:
+            // One set, downloaded; there is nothing of the user's to add.
+            throw LinkError.notASpeechModel
         }
         let destination = modelsDirectory.appendingPathComponent(name)
         guard !manager.fileExists(atPath: destination.path),
@@ -274,7 +281,7 @@ public final class ModelManager {
         switch kind {
         case .speech:
             try manager.createSymbolicLink(at: destination, withDestinationURL: source)
-        case .language:
+        case .language, .speaker:
             try manager.createDirectory(at: destination, withIntermediateDirectories: true)
             try manager.createSymbolicLink(at: destination.appendingPathComponent(source.lastPathComponent),
                                            withDestinationURL: source)
@@ -382,6 +389,12 @@ public final class ModelManager {
             // of it, and one is wanted.
             if let fileName = model.fileName {
                 files = files.filter { $0.file.path == fileName }
+                guard !files.isEmpty else { throw ModelTransportError.emptyListing }
+            }
+            // The speaker models: the folders of their repo this Mac loads,
+            // out of every variant it holds.
+            if model.kind == .speaker {
+                files = files.filter { SpeakerModels.wants(path: $0.file.path) }
                 guard !files.isEmpty else { throw ModelTransportError.emptyListing }
             }
 

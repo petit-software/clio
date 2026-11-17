@@ -341,6 +341,20 @@ struct SanitizerIntegrationTests {
         let options = TranscribeOptions(language: "en")
         let decoded = try await engine.decode(samples: samples, options: options)
         let transcript = try await engine.transcribe(samples: samples, options: options)
+        // A meeting's vocabulary as Whisper's prompt: names and the title's
+        // words. A prompt once made WhisperKit return nothing at all, on
+        // every model (argmax-oss-swift #489); this is whether it does here.
+        let vocabulary = TranscriptFormatter.meetingVocabulary(
+            user: ["Clio"], title: "Kiln pricing with Acme Q3",
+            attendees: [MeetingAttendee(name: "Ana Ruiz"), MeetingAttendee(name: "Tom Berg")])
+        let prompted = try await engine.transcribe(
+            samples: samples,
+            options: TranscribeOptions(language: "en",
+                                       initialPrompt: TranscriptFormatter.initialPrompt(from: vocabulary)))
+        print("[sanitizer] with the prompt \"\(vocabulary.joined(separator: ", "))\": \(prompted.text)")
+        #expect(prompted.text.lowercased().contains("thursday"))
+        #expect(!prompted.text.contains("Ana Ruiz"))            // the prompt is not the transcript
+
         // What dictation does before the engine sees anything.
         let trimmed = try #require(VoiceActivityTrimmer.trim(samples, sensitivity: 0.5))
         let afterTrim = try await engine.transcribe(samples: trimmed.samples, options: options)

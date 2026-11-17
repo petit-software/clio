@@ -22,7 +22,8 @@ struct MeetingPill: View {
     private let surface = PillSurface()
 
     private var isWorking: Bool {
-        meeting.phase == .finishing || meeting.phase == .summarizing
+        meeting.phase == .finishing || meeting.phase == .identifying
+            || meeting.phase == .summarizing
     }
 
     var body: some View {
@@ -106,6 +107,7 @@ struct MeetingPill: View {
             return meeting.pendingChunks > 0
                 ? "Finishing the transcript · \(meeting.pendingChunks) left"
                 : "Finishing the transcript"
+        case .identifying: return "Working out who spoke"
         case .summarizing: return "Writing the summary"
         case .finished: return "Saved · \(MeetingLine.timestamp(meeting.elapsed))"
         case .failed(let reason): return reason

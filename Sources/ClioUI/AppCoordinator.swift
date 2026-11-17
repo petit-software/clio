@@ -170,6 +170,9 @@ public final class AppCoordinator {
 
     public func start() {
         try? AppPaths.ensureDirectories()
+        // The call's side of a meeting that did not end — a crash, a
+        // forced quit — is not kept either.
+        StreamRecording.removeLeftovers()
         watchForCalls()
 
         overlay = OverlayController()

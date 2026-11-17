@@ -734,6 +734,76 @@ struct MeetingSessionTests {
         }
     }
 
+    @Test("With a diarizer, the call is recorded on the meeting's clock, its lines put on voices and named, and the recording deleted")
+    func voices() async throws {
+        final class FakeDiarizer: SpeakerDiarizing, @unchecked Sendable {
+            var seconds = 0.0
+            var soundAt: Double?
+            var file: URL?
+            var fails = false
+            func diarize(recording file: URL) async throws -> Diarization {
+                struct Broken: Error {}
+                if fails { throw Broken() }
+                self.file = file
+                let samples = try StreamRecording.samples(at: file)
+                seconds = Double(samples.count) / AudioRecorder.sampleRate
+                soundAt = samples.firstIndex { $0 != 0 }.map { Double($0) / AudioRecorder.sampleRate }
+                // Whoever spoke first, then someone else from 20 s on.
+                return Diarization(spans: [SpeakerSpan(speaker: 5, start: 0, end: 20),
+                                           SpeakerSpan(speaker: 2, start: 20, end: 60)])
+            }
+        }
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let mic = FakeSource(), system = FakeSource(), clock = TestClock(), diarizer = FakeDiarizer()
+        let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+        meeting.diarizer = diarizer
+        meeting.nameVoices = { record in
+            #expect(record.voiceNumbers == [1, 2])
+            return [2: "Ana Ruiz"]
+        }
+        meeting.summarize = { record in record.transcriptText }
+        await meeting.start()
+        clock.advance(10)                                        // nobody speaks for ten seconds
+        system.push(tone(3) + silence(3), clock: clock)
+        clock.advance(10)                                        // and the tap sends nothing for ten more
+        system.push(tone(3) + silence(1), clock: clock)
+        mic.push(tone(2) + silence(1), clock: clock)
+        await meeting.stop()
+
+        // The file had the meeting's time in it: the waits as silence.
+        #expect(abs(diarizer.seconds - 30) < 1.5)
+        #expect(abs((diarizer.soundAt ?? 0) - 10) < 0.5)
+        let lines = meeting.record.lines
+        #expect(lines.map(\.voice) == [1, 2, nil])
+        #expect(lines.map(meeting.record.label(for:)) == ["Speaker 1", "Ana Ruiz", "Me"])
+        #expect(meeting.record.voices[2] == MeetingVoice(name: "Ana Ruiz", confirmed: false))
+        // The summary is written after, from a transcript that has the names.
+        #expect(meeting.record.summary?.contains("Ana Ruiz:") == true)
+        // And the audio is gone.
+        let file = try #require(diarizer.file)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+
+        // Named by hand afterwards: the user's, in the file.
+        meeting.nameVoice(1, as: "Tom")
+        let saved = try String(contentsOf: try #require(meeting.fileURL), encoding: .utf8)
+        #expect(saved.contains("speaker-1: Tom\n") && saved.contains("speaker-2-guess: Ana Ruiz\n"))
+
+        // A diarizer that fails leaves a meeting of Me and Others, and no file.
+        let broken = FakeDiarizer()
+        broken.fails = true
+        let second = session(mic: FakeSource(), system: system, clock: clock, folder: folder)
+        second.diarizer = broken
+        await second.start()
+        system.push(tone(3) + silence(3), clock: clock)
+        await second.stop()
+        #expect(second.phase == .finished)
+        #expect(second.record.lines.map(second.record.label(for:)) == ["Others"])
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: StreamRecording.directory.path)) ?? []
+        #expect(left.isEmpty)
+    }
+
     @Test("A meeting Clio named is renamed from its summary, and its file with it; one the user or the calendar named is not")
     func titleFromTheSummary() async throws {
         let folder = tempFolder()

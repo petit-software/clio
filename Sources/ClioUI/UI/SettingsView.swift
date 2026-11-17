@@ -267,6 +267,27 @@ private struct ModelTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                ForEach(models.listedCatalog(.speaker)) { model in
+                    ModelRow(coordinator: coordinator,
+                             model: model,
+                             isActive: models.isInstalled(model.id),
+                             makeActive: {},
+                             deleted: {},
+                             deleteError: $deleteError)
+                }
+            } header: {
+                Text("Speakers")
+            } footer: {
+                Text("With this installed, a meeting's transcript says who spoke — Speaker 1, "
+                     + "Speaker 2 — instead of Others, and a summarization model names them where "
+                     + "the conversation says who they are. Click a speaker in a transcript to "
+                     + "name them yourself. The call's audio is kept only until the meeting "
+                     + "ends, to tell the voices apart, and then deleted.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             if let deleteError {
                 Section {
                     Label(deleteError, systemImage: "exclamationmark.triangle")
@@ -350,6 +371,7 @@ private struct AddModelButton: View {
                 switch kind {
                 case .speech: coordinator.settingsStore.settings.activeModelID = installed.id
                 case .language: coordinator.settingsStore.settings.summaryModelID = installed.id
+                case .speaker: break
                 }
             } catch {
                 problem = error.localizedDescription
@@ -648,7 +670,9 @@ struct ModelRow: View {
     }
 
     private var subtitle: String {
-        var parts = [model.tier.label, model.languages.label]
+        // Speed and language are what speech and language models are
+        // chosen by; there is one set of speaker models and nothing to choose.
+        var parts = model.kind == .speaker ? [] : [model.tier.label, model.languages.label]
         if let installed {
             parts.append(Self.format(installed.sizeBytes) + " on disk")
         } else {
