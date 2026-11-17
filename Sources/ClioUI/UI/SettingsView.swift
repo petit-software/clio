@@ -589,9 +589,16 @@ struct ModelRow: View {
             HStack(alignment: .firstTextBaseline) {
                 // The active model is chosen by selecting an installed row,
                 // rather than a separate picker that can point at nothing.
-                Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
-                    .onTapGesture { if installed != nil { makeActive() } }
+                // The speaker models are one set: installed or not, with
+                // nothing to choose between, so a tick and no radio button.
+                if model.kind == .speaker {
+                    Image(systemName: installed != nil ? "checkmark.circle.fill" : "circle.dashed")
+                        .foregroundStyle(installed != nil ? Color.accentColor : .secondary)
+                } else {
+                    Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+                        .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                        .onTapGesture { if installed != nil { makeActive() } }
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {

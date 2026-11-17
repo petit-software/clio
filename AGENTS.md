@@ -714,11 +714,10 @@ Not verified, and worth knowing:
 - **the voice controls in Settings ▸ Model ▸ Speakers**, and trashing a
   meeting taking its voices: written, tested underneath (`VoiceMemory`),
   not clicked.
-- **the transcript with voices, on screen.** The names, their colours, the
-  popover that renames a voice and the Speakers row in Settings ▸ Model
-  build and have never been looked at: the screen was locked when they
-  were finished. `CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1` shows
-  a sample with one voice named and one not.
+- **naming a voice, by clicking.** The transcript with one voice named and
+  one a number, and the Speakers row in Settings ▸ Model, have been looked
+  at (`CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1`). The popover a
+  click on a name opens has not: nothing here can click it.
 - **a summary after a voice is renamed.** It still says the old name;
   Summarize Again fixes it, and nothing does it for you.
 - **Gemma 3 12B.** Checked for existence and size on Hugging Face, never
