@@ -674,6 +674,14 @@ takes about 150 ms, and a "Pasting" label for that long read as a flicker
 between "Transcribing" and "Copied", never as a word. The menu bar still says
 "Pasting…".
 
+**The intro card casts its own shadow; its window casts none.** The card
+arrives scaling from 0.92 and fading in, and the window's shadow was taken
+from it part-way: a smaller, greyer copy of the card stuck off one corner,
+its edge a second outline inside the real one. `IntroSurface` draws the
+shadow under the card and cut out of it, so it moves with the card, and
+the window is `shadowMargin` larger all round to hold it. The same reason
+the pill's panel has no shadow, met a second time.
+
 **The intro's main button is not `.glassProminent`.** Given a label that
 sets its own height, that style drew a rounded rectangle whatever border shape
 it was told, and AppKit's blue focus ring with it, which

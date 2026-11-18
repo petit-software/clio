@@ -44,6 +44,21 @@ struct IntroSurface: View {
                 shape.fill(palette.surface)
             }
         }
+        // The card's own shadow, under it and nowhere inside it: the shape
+        // casts it and is then cut out of it, so the glass is not standing
+        // on a black card. Part of the card, so it arrives with it — the
+        // window casts none.
+        .background {
+            shape
+                .fill(Color.black)
+                .shadow(color: .black.opacity(0.22), radius: 24, y: 12)
+                .mask {
+                    Rectangle()
+                        .padding(-IntroView.shadowMargin)
+                        .overlay { shape.blendMode(.destinationOut) }
+                        .compositingGroup()
+                }
+        }
         // `strokeBorder` draws inside its shape, which would sit the hairline
         // within the card's edge. Grown by a point — still concentric — it
         // sits just outside, which is why the window is a point larger than

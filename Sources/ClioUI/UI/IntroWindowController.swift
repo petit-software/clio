@@ -37,7 +37,8 @@ public final class IntroWindowController {
             defer: false)
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = true
+        // The card casts its own (`IntroSurface`); see `IntroView.shadowMargin`.
+        window.hasShadow = false
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.title = "Welcome to Clio"

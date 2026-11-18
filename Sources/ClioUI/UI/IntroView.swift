@@ -45,9 +45,15 @@ struct IntroView: View {
 
     static let cornerRadius: CGFloat = 32
     static let cardSize = CGSize(width: 420, height: 480)
-    /// The window: the card and a point either side of it, where the hairline
-    /// outside the card's edge is drawn.
-    static let size = CGSize(width: cardSize.width + 2, height: cardSize.height + 2)
+    /// Room round the card for the shadow it casts. The card draws its own:
+    /// the window's was taken from the card while it was still arriving —
+    /// smaller, and fainter — and stayed that shape, a grey slab off one
+    /// corner with a second outline inside the first.
+    static let shadowMargin: CGFloat = 56
+    /// The window: the card, a point either side of it where the hairline
+    /// outside the card's edge is drawn, and the shadow's room.
+    static let size = CGSize(width: cardSize.width + 2 + 2 * shadowMargin,
+                             height: cardSize.height + 2 + 2 * shadowMargin)
 
     /// How the card arrives: a fade with a little growth, 0.92 → 1. Each
     /// element on it then does the same, one step behind the last, so the
@@ -88,6 +94,7 @@ struct IntroView: View {
                 .padding(12)
         }
         .padding(1)
+        .padding(Self.shadowMargin)
         .entering(hasEntered, step: 0)
         // A plain assignment, not `withAnimation`: each element carries its
         // own delayed copy of the animation, and one animation wrapped around
