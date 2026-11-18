@@ -187,6 +187,15 @@ struct MeetingView: View {
                 }
             }
             .onDisappear { meeting.setNotes(notes) }
+            // The moment the meeting stops — the pill, ⌘., the menu, or the
+            // call ending by itself — what is typed goes in at once, not a
+            // beat later: the summary is written from the notes, and a line
+            // typed just before stopping is the one most likely to matter.
+            .onChange(of: meeting.phase) { _, phase in
+                guard phase != .starting, phase != .recording else { return }
+                notesSave?.cancel()
+                meeting.setNotes(notes)
+            }
     }
 
     private var transcriptPane: some View {

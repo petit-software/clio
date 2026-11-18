@@ -382,9 +382,22 @@ struct MeetingSummaryTests {
         let notes = String(repeating: "a note that goes on ", count: 1_000)       // 20,000 characters
         let material = String(repeating: "something that was said ", count: 1_000)
         let prompt = MeetingSummarizer.finalPrompt(notes: notes, material: material, label: "Transcript")
-        #expect(prompt.count <= MeetingSummarizer.notesLimit + MeetingSummarizer.pieceLimit + 100)
-        #expect(prompt.hasPrefix("Notes written during the meeting:\na note"))
+        let heading = MeetingSummarizer.notesHeading
+        #expect(prompt.count <= MeetingSummarizer.notesLimit + MeetingSummarizer.pieceLimit
+                + heading.count + 100)
+        #expect(prompt.hasPrefix(heading + "\na note"))
         #expect(prompt.contains("Transcript:\nsomething that was said"))
+
+        // A model with room gets more of the notes — a fifth of what it
+        // holds — and the transcript gives up exactly that much.
+        let roomy = MeetingSummarizer.finalPrompt(notes: notes, material: material, label: "Transcript",
+                                                  limit: 50_000)
+        let keptNotes = roomy.components(separatedBy: "\n\nTranscript:\n")[0].count - heading.count - 1
+        #expect(keptNotes == 10_001)                                  // 10,000 and the "…"
+        #expect(roomy.count <= 50_000 + MeetingSummarizer.notesLimit + heading.count + 100)
+        // Short notes cost the transcript nothing.
+        let short = MeetingSummarizer.finalPrompt(notes: "a note", material: material, label: "T", limit: 9_000)
+        #expect(short.hasSuffix(String(material.prefix(9_000))))
         #expect(MeetingSummarizer.finalPrompt(notes: "  ", material: "x", label: "T") == "T:\nx")
     }
 
@@ -400,7 +413,7 @@ struct MeetingSummaryTests {
         #expect(details.hasSuffix(MeetingSummarizer.attribution))
 
         let prompt = MeetingSummarizer.finalPrompt(about: details, notes: "n", material: "x", label: "T")
-        #expect(prompt.hasPrefix(details + "\n\nNotes written during the meeting:\nn\n\nT:\nx"))
+        #expect(prompt.hasPrefix(details + "\n\n" + MeetingSummarizer.notesHeading + "\nn\n\nT:\nx"))
     }
 
     @Test("A company-wide invitation does not crowd out the transcript")

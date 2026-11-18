@@ -61,7 +61,7 @@ struct SummaryModelTests {
         #expect(last.instructions == MeetingSummarizer.finalInstructions)
         // What the meeting was, then the notes, then the material.
         #expect(last.prompt.hasPrefix("Meeting: "))
-        let notes = try #require(last.prompt.range(of: "Notes written during the meeting:\nwhat mattered"))
+        let notes = try #require(last.prompt.range(of: MeetingSummarizer.notesHeading + "\nwhat mattered"))
         let material = try #require(last.prompt.range(of: "Bullet points from the transcript:"))
         #expect(notes.lowerBound < material.lowerBound)
         #expect(last.prompt.contains("Bullet points from the transcript:\n- a point"))
@@ -263,6 +263,29 @@ struct SummaryModelIntegrationTests {
             instructions: "Summarize the meeting in exactly one sentence. No headings, no lists."))
         print("[summary-model] custom instructions: \(custom)")
         #expect(!custom.contains("### "))
+
+        // The notes steer it. One line of the call, in passing, is about
+        // parking; nothing else is. With no note it is small talk; with a
+        // note asking about it, it has to be in the summary — under Clio's
+        // instructions and under the user's own, which never mention notes.
+        var noted = MeetingRecord(title: "Weekly product sync")
+        for (speaker, start, text) in lines {
+            noted.add(MeetingLine(speaker: speaker, start: start, end: start + 4, text: text))
+        }
+        noted.add(MeetingLine(speaker: .others, start: 60, end: 64,
+                              text: "By the way, the garage is closed on Monday, so park on the street."))
+        noted.notes = "- where do we park monday?"
+        let steered = try #require(await MeetingSummarizer.summarize(noted, with: model))
+        print("[summary-model] with a note about parking:\n\(steered)")
+        #expect(steered.lowercased().contains("park") || steered.lowercased().contains("garage"))
+        let steeredCustom = try #require(await MeetingSummarizer.summarize(
+            noted, with: model, instructions: "Summarize the meeting in two sentences."))
+        print("[summary-model] the same, with the user's instructions: \(steeredCustom)")
+        #expect(steeredCustom.lowercased().contains("park") || steeredCustom.lowercased().contains("garage"))
+        noted.notes = ""
+        let unsteered = try #require(await MeetingSummarizer.summarize(
+            noted, with: model, instructions: "Summarize the meeting in two sentences."))
+        print("[summary-model] and without the note: \(unsteered)")
         await model.unload()
     }
 }

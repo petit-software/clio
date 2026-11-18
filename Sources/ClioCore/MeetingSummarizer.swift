@@ -182,24 +182,44 @@ public enum MeetingSummarizer {
         return lines.joined(separator: "\n")
     }
 
-    /// How much of the user's notes goes in. They are the guide — what
-    /// mattered — so they lead the prompt, but long ones are cut: written
-    /// out in full they pushed the prompt past the model's context, and the
-    /// summary was dropped without a word on exactly the meetings where the
-    /// user had written most.
+    /// The least of the user's notes that goes in, whatever the model: they
+    /// are the guide — what mattered — so they lead the prompt, but long
+    /// ones are cut. Written out in full they pushed the prompt past a small
+    /// model's context, and the summary was dropped without a word on
+    /// exactly the meetings where the user had written most.
     static let notesLimit = 2_000
 
+    /// How much of the notes a model with `limit` characters of room is
+    /// given: a fifth of it, and never under `notesLimit`. Apple's model
+    /// gets 2,000 characters; a downloaded one that holds an hour of
+    /// meeting gets pages of them.
+    static func notesLimit(for limit: Int) -> Int {
+        max(notesLimit, limit / 5)
+    }
+
+    /// What heads the notes in the prompt. It says what they are and what
+    /// to do with them, here and not only in the instructions — which the
+    /// user may have replaced with their own, and theirs may not mention
+    /// notes at all.
+    static let notesHeading = "Notes written during the meeting, by the person this summary "
+        + "is for. They are what mattered to them: cover every point in them, filled in "
+        + "from what was said."
+
     /// The last prompt: the notes, capped, then the material, capped — so it
-    /// always fits, however much was written or said.
+    /// always fits, however much was written or said. Notes beyond the
+    /// least every model gets take their room from the material.
     static func finalPrompt(about details: String = "", notes: String, material: String,
                             label: String, limit: Int = pieceLimit) -> String {
         let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         var block = details.isEmpty ? "" : details + "\n\n"
+        var room = limit
         if !notes.isEmpty {
-            let kept = notes.count > notesLimit ? String(notes.prefix(notesLimit)) + "…" : notes
-            block += "Notes written during the meeting:\n\(kept)\n\n"
+            let most = notesLimit(for: limit)
+            let kept = notes.count > most ? String(notes.prefix(most)) + "…" : notes
+            block += "\(notesHeading)\n\(kept)\n\n"
+            room -= max(0, kept.count - notesLimit)
         }
-        return "\(block)\(label):\n\(String(material.prefix(limit)))"
+        return "\(block)\(label):\n\(String(material.prefix(room)))"
     }
 
     /// Splits text into pieces at line breaks, none over `limit`.
