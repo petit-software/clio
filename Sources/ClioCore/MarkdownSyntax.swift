@@ -35,6 +35,10 @@ public enum MarkdownSyntax {
         case fence
         /// `---`, `***` or `___` alone on a line.
         case rule
+        /// "<!--12:40-->" at the end of a line: when in the meeting the
+        /// line was written, in seconds. An HTML comment, so every other
+        /// Markdown reader shows nothing there at all.
+        case timeMark(seconds: Double)
     }
 
     public struct Span: Equatable, Sendable {
@@ -110,9 +114,53 @@ public enum MarkdownSyntax {
             inlineFrom = NSMaxRange(match.range)
         }
 
-        let rest = NSRange(location: inlineFrom, length: NSMaxRange(line) - inlineFrom)
+        var rest = NSRange(location: inlineFrom, length: NSMaxRange(line) - inlineFrom)
+        // The time the line was written, off the end, before anything
+        // inline is looked for in what is left.
+        if let match = timeMark.firstMatch(in: string as String, range: line),
+           let seconds = seconds(string.substring(with: match.range(at: 1))) {
+            spans.append(Span(.timeMark(seconds: seconds), match.range))
+            rest.length = max(0, match.range.location - rest.location)
+        }
         if rest.length > 0 { spans += inlineSpans(string, rest) }
         return spans
+    }
+
+    // MARK: When a line was written
+
+    /// " <!--12:40-->" for 760 seconds into the meeting.
+    public static func timeMark(_ seconds: Double) -> String {
+        " <!--\(MeetingLine.timestamp(seconds))-->"
+    }
+
+    /// "12:40" or "1:04:07" as seconds; nil for anything else.
+    static func seconds(_ stamp: String) -> Double? {
+        let parts = stamp.split(separator: ":").map { Double($0) }
+        guard (2...3).contains(parts.count), !parts.contains(nil) else { return nil }
+        return parts.compactMap { $0 }.reduce(0) { $0 * 60 + $1 }
+    }
+
+    /// The line with the time it was written added to its end — unless it
+    /// has one, has nothing on it but a list marker, or is a heading: a
+    /// note's title is not a moment in the meeting.
+    public static func stamped(_ line: String, at seconds: Double) -> String? {
+        let ns = line as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        guard timeMark.firstMatch(in: line, range: whole) == nil,
+              heading.firstMatch(in: line, range: whole) == nil else { return nil }
+        var content = line
+        if let match = checkbox.firstMatch(in: line, range: whole) ?? listItem.firstMatch(in: line, range: whole) {
+            content = ns.substring(from: NSMaxRange(match.range))
+        }
+        guard !content.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return line + timeMark(seconds)
+    }
+
+    /// The notes without the times in them: for a summary's prompt, a
+    /// preview, the clipboard — anywhere the notes are read as words.
+    public static func withoutTimeMarks(_ text: String) -> String {
+        timeMark.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: (text as NSString).length),
+                                          withTemplate: "")
     }
 
     private static func inlineSpans(_ string: NSString, _ range: NSRange) -> [Span] {
@@ -160,6 +208,7 @@ public enum MarkdownSyntax {
     nonisolated(unsafe) static let checkbox = regex(#"^([ \t]*)([-*+])[ \t]+(\[[ xX]\])[ \t]"#)
     nonisolated(unsafe) static let listItem = regex(#"^([ \t]*)([-*+]|\d+[.)])[ \t]"#)
     nonisolated(unsafe) static let quoteLine = regex(#"^([ \t]*>[ \t]?)"#)
+    nonisolated(unsafe) static let timeMark = regex(#"[ \t]?<!--((?:\d{1,2}:)?\d{1,2}:\d{2})-->[ \t]*$"#)
     nonisolated(unsafe) static let code = regex(#"`[^`\n]+`"#)
     nonisolated(unsafe) static let link = regex(#"\[([^\]\n]+)\]\(([^)\s]+)\)"#)
     nonisolated(unsafe) static let bold = regex(#"(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#)

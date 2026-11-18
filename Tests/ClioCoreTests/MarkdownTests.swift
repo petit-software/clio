@@ -127,4 +127,29 @@ struct MarkdownTests {
         #expect(edit.replacement == "[docs]()")
         #expect(edit.selection == NSRange(location: 11, length: 0))
     }
+
+    @Test("The time a line was written is a comment off its end: found, stamped once, and taken out for reading")
+    func timeMarks() {
+        let source = "# Title\n- ask about **pricing** <!--12:40-->\nplain <!--1:04:07-->\nnot <!--12:40--> at the end\n<!-- a comment -->"
+        #expect(text(.timeMark(seconds: 760), in: source) == [" <!--12:40-->"])
+        #expect(text(.timeMark(seconds: 3847), in: source) == [" <!--1:04:07-->"])
+        #expect(MarkdownSyntax.spans(in: source).filter {
+            if case .timeMark = $0.kind { return true }
+            return false
+        }.count == 2)
+        // What is before the mark is still Markdown.
+        #expect(text(.bold, in: source) == ["**pricing**"])
+
+        #expect(MarkdownSyntax.stamped("- ask about pricing", at: 760) == "- ask about pricing <!--12:40-->")
+        #expect(MarkdownSyntax.stamped("plain", at: 3847) == "plain <!--1:04:07-->")
+        #expect(MarkdownSyntax.stamped("- ask <!--00:10-->", at: 760) == nil)      // once
+        #expect(MarkdownSyntax.stamped("- [ ] ", at: 760) == nil)                  // nothing written
+        #expect(MarkdownSyntax.stamped("  ", at: 760) == nil)
+        #expect(MarkdownSyntax.stamped("## Agenda", at: 760) == nil)               // not a moment
+
+        #expect(MarkdownSyntax.withoutTimeMarks(source)
+                == "# Title\n- ask about **pricing**\nplain\nnot <!--12:40--> at the end\n<!-- a comment -->")
+        // A marked item still continues its list.
+        #expect(MarkdownSyntax.continuation(after: "- ask <!--12:40-->") == .continueWith("- "))
+    }
 }

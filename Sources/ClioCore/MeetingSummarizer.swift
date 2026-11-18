@@ -210,7 +210,9 @@ public enum MeetingSummarizer {
     /// least every model gets take their room from the material.
     static func finalPrompt(about details: String = "", notes: String, material: String,
                             label: String, limit: Int = pieceLimit) -> String {
-        let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        // As words: the times lines were written at are for the page.
+        let notes = MarkdownSyntax.withoutTimeMarks(notes)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         var block = details.isEmpty ? "" : details + "\n\n"
         var room = limit
         if !notes.isEmpty {

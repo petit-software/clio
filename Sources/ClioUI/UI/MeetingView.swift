@@ -175,7 +175,10 @@ struct MeetingView: View {
     private var notesPane: some View {
         MarkdownEditor(text: $notes,
                        placeholder: "Write notes…", placeholderHeading: "New note",
-                       focusOnAppear: meeting.isActive, minHeight: 320)
+                       focusOnAppear: meeting.isActive,
+                       // Each line written while it records is marked with when.
+                       meetingTime: { [meeting] in meeting.phase == .recording ? meeting.elapsed : nil },
+                       minHeight: 320)
             .padding(.horizontal, 8)
             // Saved a beat after typing stops, not on every key.
             .onChange(of: notes) { _, new in
@@ -339,7 +342,7 @@ extension MeetingView.Pane {
     /// in turns.
     func text(of record: MeetingRecord) -> String {
         switch self {
-        case .notes: return record.notes
+        case .notes: return MarkdownSyntax.withoutTimeMarks(record.notes)
         case .summary: return record.titledSummary ?? ""
         case .transcript: return record.transcriptText
         }

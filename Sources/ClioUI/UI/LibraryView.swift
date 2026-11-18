@@ -933,7 +933,11 @@ struct MeetingDocumentView: View {
                 switch pane {
                 case .notes:
                     MarkdownEditor(text: binding(\.notes), placeholder: "Write notes…",
-                                   placeholderHeading: "New note", minHeight: 320)
+                                   placeholderHeading: "New note",
+                                   // A line's time plays the meeting from a
+                                   // moment before it was written.
+                                   onTime: player.hasAudio ? { player.play(from: max(0, $0 - 5)) } : nil,
+                                   minHeight: 320)
                         .padding(.horizontal, 8)
                 case .summary:
                     if isSummarizing {

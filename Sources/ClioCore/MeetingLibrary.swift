@@ -194,7 +194,7 @@ public final class MeetingLibrary {
                     return line
                 }
         }
-        return firstLine(record.summary) ?? firstLine(record.notes)
+        return firstLine(record.summary) ?? firstLine(MarkdownSyntax.withoutTimeMarks(record.notes))
             ?? record.lines.first?.text ?? ""
     }
 

@@ -25,6 +25,12 @@ struct MarkdownEditor: NSViewRepresentable {
     var focusOnAppear = false
     /// False for a summary or a dictation: rendered, selectable, not typed in.
     var isEditable = true
+    /// How far into the meeting it is, while one is being recorded: set,
+    /// each line written is marked with when. Nil anywhere else.
+    var meetingTime: (() -> TimeInterval?)?
+    /// Called with a line's time when its mark is clicked — to play the
+    /// meeting from there. Nil where there is nothing to play.
+    var onTime: ((TimeInterval) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, startsWithHeading: startsWithHeading)
@@ -55,6 +61,8 @@ struct MarkdownEditor: NSViewRepresentable {
         textView.typingAttributes = MarkdownStyle.base
         textView.placeholder = placeholder
         textView.placeholderHeading = placeholderHeading
+        textView.meetingTime = meetingTime
+        textView.onTime = onTime
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
         textView.textContainer?.widthTracksTextView = true
@@ -75,6 +83,12 @@ struct MarkdownEditor: NSViewRepresentable {
 
     func updateNSView(_ textView: MarkdownTextView, context: Context) {
         context.coordinator.text = $text
+        textView.meetingTime = meetingTime
+        if (textView.onTime == nil) != (onTime == nil) {
+            // The marks become buttons, or stop being: the pointer follows.
+            textView.window?.invalidateCursorRects(for: textView)
+        }
+        textView.onTime = onTime
         guard textView.string != text else { return }
         // Nothing saved, and the editor showing the empty heading it starts
         // with: the same note.
@@ -123,6 +137,12 @@ struct MarkdownEditor: NSViewRepresentable {
 final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var placeholder = ""
     var placeholderHeading = ""
+    /// See `MarkdownEditor.meetingTime` and `onTime`.
+    var meetingTime: (() -> TimeInterval?)?
+    var onTime: ((TimeInterval) -> Void)?
+    /// When the line being written was begun: what it is marked with, so a
+    /// long line is found at its start and not where Return was pressed.
+    private var lineBegan: TimeInterval?
     /// What `MarkdownStyle` asked to be drawn in place of hidden syntax.
     private var decorations: [MarkdownStyle.Decoration] = []
     /// The line whose syntax shows, while editing.
@@ -362,6 +382,12 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
     /// `[]` at the start of a line — or after a bullet — makes it a to-do
     /// the moment the bracket closes, as long as nothing follows on the line.
     override func insertText(_ string: Any, replacementRange: NSRange) {
+        // The first thing typed on a line, during a meeting: this is when
+        // the line was written.
+        if let meetingTime, lineBegan == nil,
+           MarkdownSyntax.stamped(currentLine().text, at: 0) == nil {
+            lineBegan = meetingTime()
+        }
         super.insertText(string, replacementRange: replacementRange)
         let typed = (string as? String) ?? (string as? NSAttributedString)?.string
         guard typed == "]", selectedRange().length == 0 else { return }
@@ -377,12 +403,28 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
 
     // MARK: Return and Tab
 
-    override func insertNewline(_ sender: Any?) {
+    /// Marks the line the caret is at the end of with when it was written,
+    /// if a meeting is being recorded and the line has something on it.
+    private func stampLine() {
+        defer { lineBegan = nil }
+        guard let time = lineBegan ?? meetingTime?() else { return }
         let (line, lineRange) = currentLine()
+        guard let stamped = MarkdownSyntax.stamped(line, at: time) else { return }
+        let content = NSRange(location: lineRange.location,
+                              length: lineRange.length - trailingNewlineLength(lineRange))
+        replace(content, with: stamped)
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        var (line, lineRange) = currentLine()
         // Only at the end of the line; Return in the middle splits as usual.
         guard selectedRange().length == 0,
               selectedRange().location == NSMaxRange(lineRange) - trailingNewlineLength(lineRange)
         else { return super.insertNewline(sender) }
+        if meetingTime != nil {
+            stampLine()
+            (line, lineRange) = currentLine()
+        }
         switch MarkdownSyntax.continuation(after: line) {
         case .newline:
             super.insertNewline(sender)
@@ -447,8 +489,24 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let index = characterIndex(at: point), toggleCheckbox(atCharacter: index) { return }
+        if let index = characterIndex(at: point) {
+            if toggleCheckbox(atCharacter: index) { return }
+            if let onTime, let seconds = timeMark(atCharacter: index) {
+                onTime(seconds)
+                return
+            }
+        }
         super.mouseDown(with: event)
+    }
+
+    /// The time of the mark `index` falls in, if it falls in one.
+    func timeMark(atCharacter index: Int) -> TimeInterval? {
+        for span in MarkdownSyntax.spans(in: string) {
+            if case .timeMark(let seconds) = span.kind, NSLocationInRange(index, span.range) {
+                return seconds
+            }
+        }
+        return nil
     }
 
     /// Ticks or unticks the checkbox `index` falls in. False if it falls in
@@ -472,7 +530,11 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
         // The pointing hand over every checkbox, so it reads as a button.
         guard let layoutManager, let textContainer else { return }
         for span in MarkdownSyntax.spans(in: string) {
-            guard case .checkbox = span.kind else { continue }
+            switch span.kind {
+            case .checkbox: break
+            case .timeMark where onTime != nil: break
+            default: continue
+            }
             let glyphs = layoutManager.glyphRange(forCharacterRange: span.range, actualCharacterRange: nil)
             var rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
             rect.origin.x += textContainerOrigin.x
@@ -692,6 +754,23 @@ enum MarkdownStyle {
                 ], range: span.range)
             case .fence:
                 shown ? dim(span.range) : hide(span.range)
+            case .timeMark:
+                // "<!--12:40-->": the comment's own marks are never shown,
+                // on the caret's line or off it — they are not something to
+                // edit — and the time between them is small and quiet at
+                // the end of the line.
+                let text = string.substring(with: span.range) as NSString
+                let open = text.range(of: "<!--"), close = text.range(of: "-->")
+                guard open.location != NSNotFound, close.location != NSNotFound else { break }
+                let digits = NSRange(location: span.range.location + NSMaxRange(open),
+                                     length: close.location - NSMaxRange(open))
+                hide(NSRange(location: span.range.location + open.location, length: open.length))
+                hide(NSRange(location: span.range.location + close.location,
+                             length: span.range.length - close.location))
+                storage.addAttributes([
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: size - 3, weight: .medium),
+                    .foregroundColor: NSColor.tertiaryLabelColor,
+                ], range: digits)
             case .rule:
                 if shown {
                     dim(span.range)
@@ -784,6 +863,36 @@ extension MarkdownTextView {
         set("see ")
         type("[]")
         expect("[] mid-line stays brackets", view.string, "see []")
+
+        // During a meeting: a line is marked with when it was begun, once.
+        var clock: TimeInterval = 760
+        view.meetingTime = { clock }
+        set("- ")
+        type("ask")
+        clock = 795                                   // still typing, half a minute on
+        type(" about pricing")
+        view.insertNewline(nil)
+        expect("A line written in a meeting is marked with when it was begun",
+               view.string, "- ask about pricing <!--12:40-->\n- ")
+        view.insertNewline(nil)
+        expect("…and an empty item still ends the list, unmarked",
+               view.string, "- ask about pricing <!--12:40-->\n")
+        set("- already <!--01:00-->")
+        view.insertNewline(nil)
+        expect("A line marked once is not marked again",
+               view.string, "- already <!--01:00-->\n- ")
+        set("# Title")
+        view.insertNewline(nil)
+        expect("A heading is not a moment in the meeting", view.string, "# Title\n")
+        view.meetingTime = nil
+        set("- later")
+        view.insertNewline(nil)
+        expect("Outside a meeting nothing is marked", view.string, "- later\n- ")
+        set("note <!--12:40-->")
+        expect("A click on a mark finds its time",
+               view.timeMark(atCharacter: 9).map { String(Int($0)) } ?? "nil", "760")
+        expect("…and a click on the words does not",
+               view.timeMark(atCharacter: 2).map { String(Int($0)) } ?? "nil", "nil")
 
         set("- item")
         view.insertTab(nil)
