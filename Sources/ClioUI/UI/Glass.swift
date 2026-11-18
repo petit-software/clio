@@ -181,28 +181,26 @@ struct SearchButton: View {
 }
 
 /// What scrolls under a bar fades into the surface before it reaches the
-/// controls: a blur, then the window's own colour, so the end of the fade is
-/// the sidebar or the page and not a frost of its own. Solid at `edge`.
-/// The sidebar's foot and a page's top share it, so the two match.
+/// controls: into the window's own colour and nothing else, so with
+/// nothing under it the fade is not there to be seen. Solid at `edge`.
+/// The sidebar's head and foot and a page's top and foot share it, so
+/// they match.
+///
+/// It was a blur under the colour — a material masked with the same
+/// gradient. A material is never clear: over an empty white page it drew a
+/// grey band (#F8F8F8 on #FFFFFF) between the page and the controls, a
+/// fade with nothing fading in it.
 struct EdgeFade: View {
     var edge: VerticalEdge
 
     var body: some View {
         let from: UnitPoint = edge == .bottom ? .top : .bottom
         let to: UnitPoint = edge == .bottom ? .bottom : .top
-        ZStack {
-            Rectangle()
-                .fill(.regularMaterial)
-                .mask {
-                    LinearGradient(stops: [.init(color: .clear, location: 0),
-                                           .init(color: .black, location: 0.5)],
-                                   startPoint: from, endPoint: to)
-                }
-            LinearGradient(stops: [.init(color: .clear, location: 0),
-                                   .init(color: Color(nsColor: .windowBackgroundColor), location: 0.7)],
-                           startPoint: from, endPoint: to)
-        }
-        .allowsHitTesting(false)
+        let surface = Color(nsColor: .windowBackgroundColor)
+        LinearGradient(stops: [.init(color: surface.opacity(0), location: 0),
+                               .init(color: surface, location: 0.7)],
+                       startPoint: from, endPoint: to)
+            .allowsHitTesting(false)
     }
 }
 

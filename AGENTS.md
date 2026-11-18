@@ -384,8 +384,10 @@ on the page changed nothing (captured identical), and AppKit's own
 `NSScrollEdgeEffectStyle` (26.1) is offered only to accessory view
 controllers. So the title bar is transparent (`titlebarAppearsTransparent`)
 and every page draws `pageTopFade` — the same `EdgeFade` as the sidebar's
-foot: a blur, then the window's colour, so the fade ends in the surface and
-not in a frost. A page without it puts the title on the text.
+foot: the window's own colour, from clear to solid, and no material — a
+material is never clear, and over an empty page it drew a grey band
+(#F8F8F8 on white) where nothing was fading. A page without it puts the
+title on the text.
 
 **The window's glyphs are SVGs, not symbols.** `LibraryIcon` draws them
 from Resources/Icon/Library — copy, ⋯, sidebar, chevrons, the rows'
@@ -416,9 +418,8 @@ still the whole story. `CLIO_LIBRARY_WIDTH` shows either side of it.
 
 **`scrollEdgeEffectStyle` does nothing on the sidebar's `List`.** Rows
 scrolled straight through the foot's controls, and under the search field,
-with `.soft` set on the list for either edge. The foot draws its own
-progressive blur: a material masked with a vertical gradient, behind the
-inset. `CLIO_LIBRARY_HEIGHT` makes a window short enough to see it.
+with `.soft` set on the list for either edge. The foot and the head draw
+their own fade (`EdgeFade`) behind the inset. `CLIO_LIBRARY_HEIGHT` makes a window short enough to see it.
 
 **System audio is a process tap, not ScreenCaptureKit.** ScreenCaptureKit
 records a display to get at its sound, so it needs Screen Recording; a tap
