@@ -708,17 +708,50 @@ enum MarkdownStyle {
                 // the to-do's "[ ]" — the same font, three characters wide —
                 // and the dash is drawn in the middle of it. Shown or
                 // hidden alike, so the line does not shift under the caret.
-                if box == nil, ["-", "*", "+"].contains(marker) {
-                    let mono = NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
-                    let character = ("0" as NSString).size(withAttributes: [.font: mono]).width
+                let mono = NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
+                let character = ("0" as NSString).size(withAttributes: [.font: mono]).width
+                let isBullet = box == nil && ["-", "*", "+"].contains(marker)
+                if isBullet {
                     storage.addAttributes([.font: mono, .kern: character * 2], range: span.range)
                 }
+                // An item that runs to a second line carries on under its
+                // own first word, never under its dash, number or circle:
+                // every line after the first is set in by as much room as
+                // the marker takes on the first.
+                let itemLine = string.lineRange(for: span.range)
+                let lead = string.substring(with: NSRange(location: itemLine.location,
+                                                          length: span.range.location - itemLine.location))
+                func width(_ text: String, _ font: NSFont) -> CGFloat {
+                    (text as NSString).size(withAttributes: [.font: font]).width
+                }
+                var hang = width(lead, body) + width(" ", body)
+                if box != nil {
+                    // The circle's room; and, on the caret's line, the "- "
+                    // that is shown in front of it there.
+                    hang += character * 3 + (shown ? width(marker + " ", body) : 0)
+                } else if isBullet {
+                    hang += character * 3
+                } else {
+                    hang += width(marker, .monospacedDigitSystemFont(ofSize: size, weight: .medium))
+                }
+                let hanging = NSMutableParagraphStyle()
+                hanging.setParagraphStyle(paragraph)
+                hanging.headIndent = hang
+                storage.addAttribute(.paragraphStyle, value: hanging, range: itemLine)
                 if shown {
                     storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
                                          range: span.range)
                 } else if let box {
-                    hide(NSRange(location: span.range.location,
-                                 length: box.location - span.range.location))
+                    // The "- " in front of a to-do's box takes no room — but
+                    // by being set too small to see, not by being hidden as
+                    // other syntax is: with nothing but hidden characters at
+                    // its start, a paragraph's first line took the indent
+                    // meant for the lines after it, and every to-do moved in.
+                    storage.addAttributes([
+                        .font: NSFont.systemFont(ofSize: 0.01),
+                        .foregroundColor: NSColor.clear,
+                    ], range: NSRange(location: span.range.location,
+                                      length: box.location - span.range.location))
                 } else if ["-", "*", "+"].contains(marker) {
                     // Kept for its width, and drawn over as a bullet.
                     storage.addAttribute(.foregroundColor, value: NSColor.clear, range: span.range)

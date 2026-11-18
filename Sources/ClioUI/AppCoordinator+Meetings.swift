@@ -500,7 +500,7 @@ extension AppCoordinator {
             }
         }
         sample("Weekly product sync", hoursAgo: 2, minutes: 32, people: ["Ana Ruiz", "Bo Chen"],
-                notes: "## Before the call\n- iOS beta **date**? <!--02:10-->\n- pricing page *copy* <!--14:35-->\n  - the `starter` tier\n\n## Follow-ups\n- [x] send the build to Ana\n- [ ] write the release notes\n\n## Order\n1. beta to testers\n2. pricing table\n\n> Bo: ship it when the table is final\n\nSee [the spec](https://example.com/spec) and ~~the old plan~~.",
+                notes: "## Before the call\n- iOS beta **date**? <!--02:10-->\n- pricing page *copy*, which has to go to design before the table is final and to legal after that, so it cannot ship before the week after the beta at the earliest <!--14:35-->\n  - the `starter` tier\n\n## Follow-ups\n- [x] send the build to Ana\n- [ ] write the release notes for the beta and send them round to everyone who was on the call, with the list of what changed since the last build\n- [ ] write the release notes\n\n## Order\n1. beta to testers, starting with the ones who reported the import bug so that they can confirm it is gone before anyone else sees it\n2. pricing table\n\n> Bo: ship it when the table is final\n\nSee [the spec](https://example.com/spec) and ~~the old plan~~.",
                 summary: "### iOS beta\n- Build is ready; goes to testers Thursday.\n\n### Pricing page\n- Copy drafted; design reviewing the table.\n\n### Next steps\n- [ ] Write the release notes — Me\n- [ ] Final pass on the pricing table — Bo",
                 lines: [(.others, "Okay, I think everyone's here. Let's start with the beta."),
                         (.me, "The build is ready. I'd like to send it to testers on Thursday."),

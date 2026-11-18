@@ -613,6 +613,13 @@ so it can be edited; a read-only editor — summaries, dictations — shows none
 `layoutManager` is touched, so this is TextKit 1; a TextKit 2 rewrite would
 have to find another way to hide characters.
 
+**A list item's second line hangs under its first word.** `headIndent`
+on the item's paragraph, as wide as the room its marker takes
+(`MarkdownStyle`, `.listMarker`). And a to-do's leading "- " is not hidden
+as other syntax is but set at a hundredth of a point and clear: with
+nothing but null glyphs at its start, a paragraph's *first* line took the
+head indent too, and every to-do moved in by its own hang.
+
 **Never size the notes editor by resizing its own text container.** SwiftUI
 asks a representable for its size at several widths — a near-zero one for the
 minimum among them — and whichever came last was the width the text was then
