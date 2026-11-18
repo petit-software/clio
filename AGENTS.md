@@ -39,6 +39,7 @@ One meeting, end to end.
 | 5 | transcribed one at a time behind any dictation | `ClioCore/TranscriptionQueue` |
 | 6 | added in time order, echo of the call in the mic dropped, Markdown rewritten | `ClioCore/MeetingRecord` |
 | 6½ | stop, with the speaker models installed: the call's side, written to a temporary file as it arrived, is diarized; each of the others' lines goes to the voice that spoke most of it ("Speaker 1", "Speaker 2"); a summary model names the voices the conversation names; the file is deleted | `ClioCore/SpeakerDiarization` (`StreamRecording`, `SpeakerAssignment`), `SpeakerDiarizer`, `SpeakerNamer`, `MeetingSession.identifyVoices` |
+| 6⅝ | the invitation holds the voices to itself: more voices than people invited and a small one that sounds like another is folded into it; a guess is never the name of whoever records, nor of anyone uninvited while the count allows; the last voice is the last person | `ClioCore/SpeakerRoster`, `Diarization.folded`, `SpeakerNamer.settle` |
 | 6¾ | each voice's print is compared with those of earlier meetings: one they are sure of is named from them alone, the rest go to the model as evidence; then the prints are kept, under the names they ended with | `ClioCore/VoiceMemory` (`VoiceprintMatcher`), `ClioUI/AppCoordinator+Voices` |
 | 6⅞ | where Settings ▸ Meetings keeps audio: both sides encoded to AAC beside the notes (`Name.me.m4a`, `Name.others.m4a`), on the meeting's clock, renamed and trashed with the Markdown; played from the meeting's page | `ClioCore/MeetingAudio`, `ClioUI/UI/MeetingPlayer` |
 | 7 | stop: drain, then a summary — by Apple's on-device model (macOS 26), or by a downloaded GGUF run by llama.cpp, whichever Settings ▸ Model names; any saved meeting can be summarized again from its ⋯ menu | `MeetingSession.stop`, `ClioCore/MeetingSummarizer`, `LocalSummaryModel`, `ClioUI/AppCoordinator+Summaries` |
@@ -56,7 +57,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 279 tests live here.
+  without standing up an app. All 283 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -66,7 +67,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 279 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
+swift test                                  # 283 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -518,6 +519,21 @@ name reads back to its number through the front matter. A guess never
 replaces a name the user gave, and a name may not be "Me", "Others" or
 "Speaker 3" — they would read back as something else.
 
+**A model reading for names takes any name it meets.** On a call of
+three — the one recording, Claire and Lukasz, all invited by address
+alone — Gemma heard "…, Bart?" and named Lukasz's voice Bart, who was
+"Me"; a few of Claire's short answers the diarizer had set apart became a
+third voice, named Thomas after a child somebody mentioned; and the
+invitation was never in the prompt, because a name with an @ in it was
+left out. `SpeakerRoster` reads an address as a name
+(`MeetingAttendee.personName`), knows who records (`isMe`, from EventKit's
+`isCurrentUser`, `(me)` in the file) and `settle` holds every guess to
+it. `Diarization.folded` gives a small extra voice back only when it said
+under a quarter of the least voice kept and its print is within 0.60 of
+one — a number between two others, not a measurement. A calendar that
+does not say who records switches off the elimination and cannot rule
+their name out.
+
 **The matcher's thresholds are Biscotti's, not Clio's.** Accept under
 0.50, probable under 0.30, sure under 0.20 with three meetings, two of them
 confirmed, and nobody else near — calibrated by its author on real meetings
@@ -832,6 +848,12 @@ Not verified, and worth knowing:
   codec, some of them on a speakerphone in one room, are the real test and
   nobody has run it. A turn that changes hands inside one of Whisper's
   own segments still goes whole to one of them.
+- **the invitation's rules on a real call.** `settle` and `folded` are
+  tested on values, and the scripted calls still come out right with the
+  new prompt (`SpeakerIntegration`, Gemma 3 12B). The call they were
+  written for cannot be run again — its audio was deleted, as it should
+  be — so whether its third voice was within 0.60 of Claire's is not
+  known, nor whether EventKit marks the user on that calendar.
 - **recognising a real person.** The thresholds are borrowed and the only
   voices tried are synthetic. Whether a colleague on AirPods one day and a
   laptop the next is one voice, and whether two colleagues are two, is

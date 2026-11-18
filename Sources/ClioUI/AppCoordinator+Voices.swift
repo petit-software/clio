@@ -19,19 +19,23 @@ extension AppCoordinator {
         var names: [Int: String] = [:]
         var hints: [Int: VoiceMatch] = [:]
         if settingsStore.settings.rememberVoices {
-            let present = record.attendees.filter { !$0.declined }
+            // Whoever is recording is "Me": not a voice to be recognised.
+            let present = record.attendees.filter { !$0.declined && !$0.isMe }
             let matches = await voiceMemory.matches(
                 for: voices.samples, space: voices.space,
                 meeting: VoiceMemory.key(for: record),
-                invited: present.map(\.name), invitedEmails: present.compactMap(\.email))
+                invited: present.map { $0.personName ?? $0.name }, invitedEmails: present.compactMap(\.email))
             for (voice, match) in matches {
                 if match.level == .high { names[voice] = match.name } else { hints[voice] = match }
             }
         }
-        guard let model else { return names }
-
         var known = record
         for (voice, name) in names { known.name(voice: voice, as: name, confirmed: true) }
+        guard let model else {
+            // No model to read the conversation; the invitation alone may
+            // still leave one voice for one person.
+            return names.merging(SpeakerNamer.settle([:], for: known)) { sure, _ in sure }
+        }
         await makeRoomForSummary(by: model, ending: session)
         for (voice, name) in await SpeakerNamer.names(for: known, with: model, matches: hints)
         where names[voice] == nil {

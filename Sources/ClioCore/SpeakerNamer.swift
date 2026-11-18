@@ -39,7 +39,9 @@ public enum SpeakerNamer {
         When a name you found belongs to someone invited, write it as the list \
         has it, in full. A name that is only talked about ("I spoke to Jeff \
         yesterday") names nobody on the call. "Me" is never one of the numbered \
-        speakers. If you cannot tell who a speaker is with confidence, leave \
+        speakers: when the name of "Me" is given, no numbered speaker has it, \
+        and someone who says that name is talking to "Me", not to another \
+        speaker. If you cannot tell who a speaker is with confidence, leave \
         them out.
 
         Answer with one line for each speaker you identified, in the form
@@ -67,7 +69,21 @@ public enum SpeakerNamer {
         } catch {
             return [:]
         }
-        return parse(MeetingSummarizer.clean(answer), voices: Set(open))
+        return settle(parse(MeetingSummarizer.clean(answer), voices: Set(open)), for: record)
+    }
+
+    /// A model's guesses, held to the invitation (`SpeakerRoster.settle`):
+    /// never the name of whoever is recording, nobody uninvited while
+    /// there are no more voices than people invited, and the last voice
+    /// given to the last person. With no guesses at all it is that last
+    /// rule alone, which needs no model.
+    public static func settle(_ guesses: [Int: String], for record: MeetingRecord) -> [Int: String] {
+        var known: [Int: String] = [:]
+        for voice in record.voiceNumbers {
+            if let named = record.voices[voice], named.confirmed { known[voice] = named.name }
+        }
+        return SpeakerRoster(attendees: record.attendees)
+            .settle(guesses, known: known, voices: record.voiceNumbers)
     }
 
     /// Those invited, then the transcript with the voices as numbers —
@@ -81,10 +97,12 @@ public enum SpeakerNamer {
             numbered.name(voice: voice, as: "", confirmed: true)
         }
         var parts: [String] = []
-        let invited = record.attendees.filter { !$0.declined && !$0.name.isEmpty && !$0.name.contains("@") }
-            .map(\.name)
-        if !invited.isEmpty {
-            parts.append("Invited: " + String(invited.joined(separator: ", ").prefix(MeetingSummarizer.attendeesLimit)))
+        // Those invited, less whoever is recording, who is said apart: in
+        // one list, "Bart" is a name for a voice like any other.
+        let roster = SpeakerRoster(attendees: record.attendees)
+        if let me = roster.me { parts.append("\"Me\" is: \(me)") }
+        if !roster.others.isEmpty {
+            parts.append("Invited: " + String(roster.others.joined(separator: ", ").prefix(MeetingSummarizer.attendeesLimit)))
         }
         if !matches.isEmpty {
             let lines = matches.keys.sorted().map { voice in

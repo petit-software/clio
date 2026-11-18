@@ -357,7 +357,11 @@ public final class MeetingSession {
         phase = .identifying
         recording.close()
         guard recording.isComplete,
-              let diarization = try? await diarizer.diarize(recording: recording.url) else { return }
+              var diarization = try? await diarizer.diarize(recording: recording.url) else { return }
+        // More voices than people invited: a few words of someone's the
+        // model set apart are given back to them.
+        let invited = SpeakerRoster(attendees: record.attendees).others.count
+        if invited > 0 { diarization = diarization.folded(to: invited) }
         // A line two people spoke in becomes a line each, before either
         // is given a voice.
         record.lines = SpeakerAssignment.split(lines: record.lines, diarization: diarization)

@@ -319,7 +319,9 @@ public actor VoiceMemory {
         let key = VoiceprintMatcher.key(name)
         let found = attendees.filter { attendee in
             guard attendee.email != nil else { return false }
-            let other = VoiceprintMatcher.key(attendee.name)
+            // As the roster reads them: an invitation that has only an
+            // address is still somebody a voice can be named for.
+            let other = VoiceprintMatcher.key(attendee.personName ?? attendee.name)
             return other == key || VoiceprintMatcher.isShortFor(key, other)
                 || VoiceprintMatcher.isShortFor(other, key)
         }

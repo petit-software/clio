@@ -87,17 +87,33 @@ public struct MeetingAttendee: Codable, Sendable, Equatable, Hashable {
     public var declined: Bool
     /// From the calendar, when it had one; what Copy Email copies.
     public var email: String?
+    /// Whoever is recording, by the calendar's account. They are "Me" in
+    /// the transcript, so theirs is the one name no other voice can have.
+    public var isMe: Bool
 
-    public init(name: String, declined: Bool = false, email: String? = nil) {
+    public init(name: String, declined: Bool = false, email: String? = nil, isMe: Bool = false) {
         self.name = name
         self.declined = declined
         self.email = email
+        self.isMe = isMe
     }
 
-    /// `Ana Ruiz <ana@example.com> (declined)`: how the Markdown has it.
+    /// Field by field, as `Settings` is: a value written before `isMe`
+    /// existed still reads.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decode(String.self, forKey: .name)
+        declined = (try? values.decode(Bool.self, forKey: .declined)) ?? false
+        email = try? values.decode(String.self, forKey: .email)
+        isMe = (try? values.decode(Bool.self, forKey: .isMe)) ?? false
+    }
+
+    /// `Ana Ruiz <ana@example.com> (declined)`: how the Markdown has it;
+    /// `(me)` after whoever recorded it.
     var markdown: String {
         var text = name
         if let email { text += " <\(email)>" }
+        if isMe { text += " (me)" }
         if declined { text += " (declined)" }
         return text
     }
@@ -106,6 +122,8 @@ public struct MeetingAttendee: Codable, Sendable, Equatable, Hashable {
         var text = markdown.trimmingCharacters(in: .whitespaces)
         declined = text.hasSuffix(" (declined)")
         if declined { text = String(text.dropLast(" (declined)".count)) }
+        isMe = text.hasSuffix(" (me)")
+        if isMe { text = String(text.dropLast(" (me)".count)) }
         if text.hasSuffix(">"), let open = text.lastIndex(of: "<") {
             email = String(text[text.index(after: open)..<text.index(before: text.endIndex)])
             text = String(text[..<open]).trimmingCharacters(in: .whitespaces)

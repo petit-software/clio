@@ -189,6 +189,116 @@ struct SpeakerTests {
         #expect(SpeakerNamer.parse("Here you go:\n1 | Ana\nHope that helps!", voices: voices) == [1: "Ana"])
     }
 
+    // MARK: The invitation
+
+    /// The call this was written for: three invited by address alone, one
+    /// of them recording.
+    private var threeInvited: [MeetingAttendee] {
+        [MeetingAttendee(name: "claire.rumore@example.com", email: "claire.rumore@example.com"),
+         MeetingAttendee(name: "lukasz@example.com", email: "lukasz@example.com"),
+         MeetingAttendee(name: "bart@example.com", email: "bart@example.com", isMe: true)]
+    }
+
+    @Test("A roster is those invited less whoever records, named from an address when that is all there is")
+    func roster() {
+        let roster = SpeakerRoster(attendees: threeInvited + [MeetingAttendee(name: "Tom Berg", declined: true)])
+        #expect(roster.me == "Bart")
+        #expect(roster.others == ["Claire Rumore", "Lukasz"])
+        #expect(MeetingAttendee(name: "ana+work", email: "ana+work@example.com").personName == "Ana")
+        #expect(MeetingAttendee(name: "Ana Ruiz", email: "a@example.com").personName == "Ana Ruiz")
+        #expect(MeetingAttendee(name: "1234@example.com").personName == nil)
+
+        #expect(roster.person(named: "Claire") == .other(0))
+        #expect(roster.person(named: "Łukasz") == .other(1))
+        #expect(roster.person(named: "bart") == .me)
+        #expect(roster.person(named: "Thomas") == .nobody)
+        let twoAnas = SpeakerRoster(me: "Bo", others: ["Ana Ruiz", "Ana Lee"])
+        #expect(twoAnas.person(named: "Ana") == .unclear)
+        #expect(twoAnas.person(named: "Ana Lee") == .other(1))
+    }
+
+    @Test("A guess is held to the invitation: never whoever records, nobody uninvited, and the last voice is the last person")
+    func settles() {
+        let roster = SpeakerRoster(attendees: threeInvited)
+        // What the model said of that call, once its third voice was folded.
+        #expect(roster.settle([1: "Claire", 2: "Bart"], voices: [1, 2])
+                == [1: "Claire Rumore", 2: "Lukasz"])
+        // Unfolded: three voices for two people, so someone uninvited may
+        // be there and "Thomas" is allowed — but "Bart" still is not, and
+        // nothing follows by elimination.
+        #expect(roster.settle([1: "Claire", 2: "Bart", 3: "Thomas"], voices: [1, 2, 3])
+                == [1: "Claire Rumore", 3: "Thomas"])
+        // No more voices than people: a name from outside was only talked about.
+        #expect(roster.settle([1: "Thomas"], voices: [1]).isEmpty)
+        // One person for two voices is wrong about one of them; with both
+        // left out, nothing is left to eliminate with.
+        #expect(roster.settle([1: "Claire", 2: "Claire Rumore"], voices: [1, 2]).isEmpty)
+        // A name that stands is not guessed again, and leaves one of each.
+        #expect(roster.settle([2: "Claire"], known: [1: "Claire"], voices: [1, 2]) == [2: "Lukasz"])
+        // A name that stands for somebody not invited: two people free, one voice.
+        #expect(roster.settle([:], known: [1: "Zoe"], voices: [1, 2]).isEmpty)
+        // Fewer voices than people: whoever is missing is not known.
+        #expect(roster.settle([:], voices: [1]).isEmpty)
+
+        // Not known who records: their name cannot be ruled out, and
+        // nothing is eliminated — the list has one person too many.
+        let unknown = SpeakerRoster(others: ["Claire", "Lukasz"])
+        #expect(unknown.settle([1: "Claire"], voices: [1, 2]) == [1: "Claire"])
+        // No invitation at all: the guesses as they came.
+        #expect(SpeakerRoster().settle([1: "Ana", 2: "Tom"], voices: [1, 2]) == [1: "Ana", 2: "Tom"])
+    }
+
+    @Test("The namer says who Me is, and what it answers is settled against the invitation")
+    func namesWithinTheInvitation() async {
+        final class Model: SummaryLanguageModel, @unchecked Sendable {
+            let pieceLimit = 5_000
+            var prompt = ""
+            func respond(instructions: String, prompt: String) async throws -> String {
+                self.prompt = prompt
+                return "1 | Claire\n2 | Bart"
+            }
+        }
+        var record = MeetingRecord(title: "Sync")
+        record.attendees = threeInvited
+        record.add(line(.others, 20, 25, "Hey, hi.", voice: 1))
+        record.add(line(.others, 30, 35, "Good to see you.", voice: 2))
+        let model = Model()
+        #expect(await SpeakerNamer.names(for: record, with: model) == [1: "Claire Rumore", 2: "Lukasz"])
+        #expect(model.prompt.hasPrefix("\"Me\" is: Bart\n\nInvited: Claire Rumore, Lukasz\n\nTranscript:\n"))
+
+        // Who records survives the file.
+        let read = MeetingMarkdown.parse(MeetingMarkdown.render(record))
+        #expect(read?.attendees == record.attendees)
+    }
+
+    @Test("More voices than people invited: one that said little and sounds like another is folded into it")
+    func folds() {
+        let claire: [Float] = [1, 0, 0], lukasz: [Float] = [0, 1, 0]
+        let aside: [Float] = [0.9, 0.3, 0]           // 0.05 from Claire
+        let spans = [SpeakerSpan(speaker: 0, start: 0, end: 300),
+                     SpeakerSpan(speaker: 1, start: 300, end: 560),
+                     SpeakerSpan(speaker: 2, start: 560, end: 580)]
+        let heard = Diarization(spans: spans, voiceprints: [0: claire, 1: lukasz, 2: aside])
+
+        let folded = heard.folded(to: 2)
+        #expect(folded.spans.map(\.speaker) == [0, 1, 0])
+        #expect(folded.voiceprints.keys.sorted() == [0, 1])
+        // As many voices as people, or no count: as it was.
+        #expect(heard.folded(to: 3) == heard)
+        #expect(heard.folded(to: 0) == heard)
+
+        // A voice like neither is a third person, whoever was invited.
+        let stranger = Diarization(spans: spans, voiceprints: [0: claire, 1: lukasz, 2: [0, 0, 1]])
+        #expect(stranger.folded(to: 2) == stranger)
+        // One that spoke as much as the others is no aside.
+        var talker = heard
+        talker.spans[2].end = 800
+        #expect(talker.folded(to: 2) == talker)
+        // No print, nothing to compare.
+        let silent = Diarization(spans: spans, voiceprints: [0: claire, 1: lukasz])
+        #expect(silent.folded(to: 2) == silent)
+    }
+
     @Test("The namer is asked about numbers, not earlier guesses, and only when a voice has no name of the user's")
     func asksAboutNumbers() async {
         final class Model: SummaryLanguageModel, @unchecked Sendable {
@@ -209,7 +319,8 @@ struct SpeakerTests {
         let model = Model()
         let names = await SpeakerNamer.names(for: record, with: model)
         #expect(names == [1: "Ana Ruiz"])                       // 2 is the user's: not asked, not taken
-        #expect(model.prompts[0].hasPrefix("Invited: Ana Ruiz\n\nTranscript:\n"))
+        // An invitation with only an address is still somebody: its words.
+        #expect(model.prompts[0].hasPrefix("Invited: Ana Ruiz, Tom\n\nTranscript:\n"))
         #expect(model.prompts[0].contains("Speaker 1: Hi, this is Ana."))
         #expect(model.prompts[0].contains("Tom: Morning."))
         #expect(!model.prompts[0].contains("Wrong Guess"))

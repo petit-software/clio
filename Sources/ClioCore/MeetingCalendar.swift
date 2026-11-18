@@ -239,7 +239,8 @@ public final class MeetingCalendar {
             guard let shown, !shown.isEmpty else { return nil }
             return MeetingAttendee(name: shown,
                                    declined: participant.participantStatus == .declined,
-                                   email: email.contains("@") ? email : nil)
+                                   email: email.contains("@") ? email : nil,
+                                   isMe: participant.isCurrentUser)
         }
         let declinedByMe = participants.contains {
             $0.isCurrentUser && $0.participantStatus == .declined

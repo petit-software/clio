@@ -37,6 +37,53 @@ public struct Diarization: Sendable, Equatable {
         for span in spans { result[span.speaker, default: 0] += max(0, span.end - span.start) }
         return result
     }
+
+    /// A voice folded into another is one that spoke for less than this
+    /// share of the least any voice kept did.
+    static let foldShare = 0.25
+    /// …and whose print is nearer than this to the voice it joins. Under
+    /// the closest two different people Biscotti measured (0.62), over the
+    /// one split of a single voice seen here (0.52). Not measured on a
+    /// real call.
+    static let foldDistance: Float = 0.60
+
+    /// The same, with no more voices than `count` where that can be had
+    /// without joining two people: the voices that spoke most are kept,
+    /// and each of the rest joins the kept voice it sounds most like — if
+    /// it said little beside them and does sound like one. A diarizer
+    /// splits a few short words off a voice ("Nice.", "Oh, goodness.")
+    /// far more readily than it hears a person who is not there, and the
+    /// invitation says how many there are. A voice that fails either test
+    /// is left: somebody may have joined who was not invited.
+    public func folded(to count: Int) -> Diarization {
+        let speaking = speakingSeconds.filter { $0.value >= SpeakerAssignment.leastSpeakingSeconds }
+        guard count >= 1, speaking.count > count else { return self }
+        // Most first; between equals the lower number, so the answer does
+        // not depend on the order of a dictionary.
+        let order = speaking.sorted { ($0.value, -$0.key) > ($1.value, -$1.key) }.map(\.key)
+        let kept = order.prefix(count)
+        let least = kept.map { speaking[$0] ?? 0 }.min() ?? 0
+
+        var into: [Int: Int] = [:]
+        for extra in order.dropFirst(count) {
+            guard (speaking[extra] ?? 0) < least * Self.foldShare,
+                  let print = voiceprints[extra] else { continue }
+            let nearest = kept.compactMap { voice in
+                voiceprints[voice].map { (voice, VoiceprintMath.distance(print, $0)) }
+            }.min { ($0.1, $0.0) < ($1.1, $1.0) }
+            if let nearest, nearest.1 < Self.foldDistance { into[extra] = nearest.0 }
+        }
+        guard !into.isEmpty else { return self }
+
+        var result = self
+        result.spans = spans.map { span in
+            var span = span
+            if let voice = into[span.speaker] { span.speaker = voice }
+            return span
+        }
+        for extra in into.keys { result.voiceprints[extra] = nil }
+        return result
+    }
 }
 
 /// Arithmetic on voiceprints.
