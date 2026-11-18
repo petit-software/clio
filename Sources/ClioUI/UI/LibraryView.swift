@@ -144,6 +144,10 @@ struct LibraryView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: paletteShown)
+        // A `clio://search` link: the palette, open on what it asked for.
+        .onChange(of: coordinator.requestedSearch, initial: true) { _, query in
+            if query != nil { paletteShown = true }
+        }
         #if DEBUG
         // CLIO_PALETTE_SHOW: the palette open on launch, its value typed in.
         .onAppear {

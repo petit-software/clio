@@ -32,7 +32,7 @@ One meeting, end to end.
 
 | | | |
 |---|---|---|
-| 1 | started from the menu (named after the calendar's current event), or from the offer when a call app opens its mic | `ClioUI/AppCoordinator+Meetings`, `ClioCore/CallDetection` |
+| 1 | started from the menu (named after the calendar's current event), from the offer when a call app opens its mic, or from the same card when the calendar says a call is starting | `ClioUI/AppCoordinator+Meetings`, `ClioCore/CallDetection` |
 | 2 | calendar asked for the first time a meeting starts, never at launch | `ClioCore/MeetingCalendar` (EventKit) |
 | 3 | mic streams through `AudioRecorder.onSamples` ("Me"); system audio through a process tap ("Others") | `AudioRecorder`, `ClioCore/SystemAudioCapture` |
 | 4 | each stream cut at its pauses, chunks ≤ 25 s, stamped with when they were said | `ClioCore/SpeechSegmenter`, `MeetingSession.StreamFeed` |
@@ -42,9 +42,10 @@ One meeting, end to end.
 | 6¾ | each voice's print is compared with those of earlier meetings: one they are sure of is named from them alone, the rest go to the model as evidence; then the prints are kept, under the names they ended with | `ClioCore/VoiceMemory` (`VoiceprintMatcher`), `ClioUI/AppCoordinator+Voices` |
 | 6⅞ | where Settings ▸ Meetings keeps audio: both sides encoded to AAC beside the notes (`Name.me.m4a`, `Name.others.m4a`), on the meeting's clock, renamed and trashed with the Markdown; played from the meeting's page | `ClioCore/MeetingAudio`, `ClioUI/UI/MeetingPlayer` |
 | 7 | stop: drain, then a summary — by Apple's on-device model (macOS 26), or by a downloaded GGUF run by llama.cpp, whichever Settings ▸ Model names; any saved meeting can be summarized again from its ⋯ menu | `MeetingSession.stop`, `ClioCore/MeetingSummarizer`, `LocalSummaryModel`, `ClioUI/AppCoordinator+Summaries` |
-| 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
+| 8 | the call app lets go of the mic for 30 s → a card says the call seems to have ended and counts fifteen seconds down; Keep Recording, or the meeting stops itself | `CallWatch`, `AppCoordinator.offerToKeepRecording` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
 | 9½ | a recording made elsewhere, dropped on the window or chosen from the menu, is put through a session of its own — the file as the call's side, a clock that runs as fast as it is read — and comes out a meeting like any other | `ClioCore/MeetingImport`, `ClioUI/AppCoordinator+Import` |
+| 9¾ | with Settings ▸ Meetings ▸ Other apps on: an MCP server on 127.0.0.1 answers three read-only tools — find meetings, read one, read its transcript; and `clio://` links open a meeting, a search, or start notes | `ClioCore/MCPServer` (`MCPProtocol`), `MeetingTools` (`AppLink`), `ClioUI/AppCoordinator+Sharing` |
 | 10 | the sidebar is a day: its calendar events with their notes, then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)` |
 
 The library window is Clio's one real window: meetings down the side (the
@@ -55,7 +56,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 268 tests live here.
+  without standing up an app. All 276 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -65,10 +66,11 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 268 tests, 36 suites, no network
+swift test                                  # 276 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
+./scripts/generate-cask.sh                  # the Homebrew cask for that DMG, into packaging/homebrew/
 xcodegen generate && open Clio.xcodeproj    # Xcode: run, debug, profile, ⌘U
 ```
 
@@ -158,7 +160,11 @@ Scripted, but the order matters:
 4. `gh release create vX.Y dist/Clio-X.Y.dmg --repo petit-software/clio`
 5. **Then** `cp dist/appcast.xml docs/appcast.xml`, commit, push.
 
-Step 5 last, always. An appcast naming a download that does not exist yet turns
+6. `scripts/generate-cask.sh`, and the cask into the tap — if there is one
+   yet; see `packaging/homebrew/README.md`. After the release exists, for
+   the appcast's reason.
+
+Step 5 last of those that are served, always. An appcast naming a download that does not exist yet turns
 every running copy's update check into a failure.
 
 `CFBundleVersion` is the git commit count, stamped by `release.sh`. Sparkle
@@ -547,6 +553,26 @@ at a time and waits while more than two chunks are untranscribed: the
 chunks waiting are audio in memory. The whole file is decoded into memory
 first, as the diarizer will want it anyway.
 
+**The MCP server speaks to this Mac and to nothing else.** Bound to
+127.0.0.1 (`requiredLocalEndpoint`), so no other machine can connect; and
+a request whose `Origin` is not this Mac is refused, so a page open in a
+browser cannot have the browser ask for it — the check the protocol asks
+of a local server. It answers `POST /mcp` with JSON and has no stream to
+open: 405 for GET, 202 for a notification. Every tool reads; an id is a
+file's name in the meetings folder and is refused if it is a path. Off by
+default, because it is the one way anything Clio wrote is read by
+something that is not Clio — the README's promise is worded for it.
+
+**A line's time is a comment in the notes, not something beside them.**
+`<!--12:40-->` at the end of the line it was written on. In the text, so
+it survives every edit, undo and reload with the line it belongs to, and
+is nothing at all in any other Markdown reader. `MarkdownStyle` never
+shows the comment's own marks, on the caret's line or off it; the time
+between them is drawn small. Stamped on Return, with when the line was
+begun (`insertText` remembers), only while a meeting records. Taken out
+wherever notes are read as words: the summary's prompt, the sidebar's
+preview, Copy, the MCP tools.
+
 **One WhisperKit pipeline, two callers.** The engine is an actor, but actors
 re-enter at every `await` and `transcribe` awaits throughout: a dictation
 during a meeting would have run on the pipeline alongside a chunk. Everything
@@ -711,6 +737,8 @@ Verified by something repeatable:
   short meeting, a title, the user's instructions followed, and a point
   that is only in the notes ("where do we park monday?") given a heading
   of its own
+- the MCP server over real HTTP on the loopback address (`MCPTests`): a
+  question answered, a page elsewhere refused, only `POST /mcp` heard
 - a meeting's vocabulary as Whisper's prompt does not empty the transcript
   (`SanitizerIntegration`)
 - segmenting, echo removal, the queue's order, calendar matching, call
@@ -779,6 +807,21 @@ Not verified, and worth knowing:
   really costs has not been measured — the ceiling for it is an estimate
   scaled from Qwen3 4B, which is no longer installed on the Mac this is
   developed on.
+- **an MCP client.** The server is tested with URLSession. No app that
+  speaks the protocol — Claude, LM Studio — has been pointed at it, and
+  the Settings toggle has not been turned on in the app.
+- **`clio://` links.** Parsed and built in tests; the scheme is in the
+  Info.plist, and nothing has been opened with `open clio://…` — it needs
+  an installed build.
+- **the card when a calendar call starts, and the countdown before a
+  meeting stops itself.** Decided in tests (`CallWatch.starting`); neither
+  has been seen, and the countdown changes what happened before: the
+  meeting stopped at once.
+- **the Homebrew cask.** Written and syntax-checked; not run through
+  `brew audit`, and there is no tap to install it from.
+- **a note's time, written in a real meeting.** The editing check stamps
+  lines and finds a click; nobody has typed notes during a recording and
+  then clicked a time to hear it.
 - **playing kept audio.** The control and the clickable times are on the
   page (`CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1`); nobody has
   pressed Play, heard both sides in step, or clicked a time. The files

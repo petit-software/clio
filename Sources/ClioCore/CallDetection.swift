@@ -152,7 +152,39 @@ public struct CallWatch: Sendable {
     /// mute that closes the device, or a rejoin.
     public static let quietChecksToStop = 6
 
+    /// Calendar calls whose start has been announced, so each is once.
+    private var announced: Set<String> = []
+    /// Events the user said "Not Now" to. A call app opening its
+    /// microphone for one of these is not asked about again.
+    private var declined: Set<String> = []
+
+    /// How long before a call's start it is announced, and how long after
+    /// it is still worth announcing — to someone who opened the Mac late.
+    public static let announceBefore: TimeInterval = 30
+    public static let announceAfter: TimeInterval = 120
+    /// How long the "the call has ended" card waits before the notes stop.
+    public static let stopCountdown: TimeInterval = 15
+
     public init() {}
+
+    /// The calendar call that is starting now, to offer notes for: one
+    /// with a link or other people in it, not declined, not all day —
+    /// and not already announced.
+    public mutating func starting(events: [MeetingEvent], now: Date = Date()) -> MeetingEvent? {
+        for event in events.sorted(by: { $0.start < $1.start }) {
+            guard event.isCall, !event.isAllDay, !event.declinedByMe,
+                  now >= event.start.addingTimeInterval(-Self.announceBefore),
+                  now < event.start.addingTimeInterval(Self.announceAfter),
+                  announced.insert(event.id).inserted else { continue }
+            return event
+        }
+        return nil
+    }
+
+    /// "Not Now" on the card for `event`: nothing more is offered for it.
+    public mutating func decline(_ event: MeetingEvent?) {
+        if let event { declined.insert(event.id) }
+    }
 
     /// The call to offer notes for, if any: a call app that has kept the
     /// microphone for `heldChecksToOffer` checks, or a browser that has
@@ -164,6 +196,7 @@ public struct CallWatch: Sendable {
         var stillHeld: [String: Int] = [:]
         for app in apps { stillHeld[app.bundleID] = (held[app.bundleID] ?? 0) + 1 }
         held = stillHeld
+        if let event, declined.contains(event.id) { return nil }
         let candidates = apps
             .filter { (held[$0.bundleID] ?? 0) >= Self.heldChecksToOffer }
             .filter { !$0.isBrowser || event?.isCall == true }

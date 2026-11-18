@@ -483,6 +483,41 @@ struct CallDetectionTests {
         #expect(watch.offer(apps: [zoom], event: nil) == zoom)
     }
 
+    @Test("A calendar call is announced once as it starts; one declined, in a room alone, or all day is not")
+    func announcesCalendarCalls() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func event(_ id: String, in seconds: TimeInterval, link: Bool = true, people: Int = 1,
+                   declined: Bool = false, allDay: Bool = false) -> MeetingEvent {
+            MeetingEvent(id: id, title: id, start: now.addingTimeInterval(seconds),
+                         end: now.addingTimeInterval(seconds + 1_800), isAllDay: allDay,
+                         attendees: (0..<people).map { MeetingAttendee(name: "P\($0)") },
+                         joinURL: link ? URL(string: "https://example.com/\(id)") : nil,
+                         declinedByMe: declined)
+        }
+        var watch = CallWatch()
+        // Ten minutes off: not yet. Twenty seconds off: now. And only once.
+        #expect(watch.starting(events: [event("later", in: 600)], now: now) == nil)
+        let soon = event("standup", in: 20)
+        #expect(watch.starting(events: [soon], now: now)?.id == "standup")
+        #expect(watch.starting(events: [soon], now: now.addingTimeInterval(5)) == nil)
+        // The Mac opened a minute into it: still worth saying. Ten minutes in: not.
+        #expect(watch.starting(events: [event("late", in: -60)], now: now)?.id == "late")
+        #expect(watch.starting(events: [event("missed", in: -600)], now: now) == nil)
+        // Not calls, or not mine.
+        #expect(watch.starting(events: [event("focus", in: 0, link: false, people: 1),
+                                        event("declined", in: 0, declined: true),
+                                        event("holiday", in: 0, allDay: true)], now: now) == nil)
+        // People and no link is a meeting in a room: offered, to take notes.
+        #expect(watch.starting(events: [event("room", in: 0, link: false, people: 3)], now: now)?.id == "room")
+
+        // "Not Now" on the card: the call app opening its microphone for
+        // that event is not asked about again; another event is.
+        watch.decline(soon)
+        #expect(watch.offer(apps: [zoom], event: soon) == nil)
+        #expect(watch.offer(apps: [zoom], event: soon) == nil)
+        #expect(watch.offer(apps: [zoom], event: call) == zoom)
+    }
+
     @Test("A meeting stops after half a minute off the microphone, not at the first gap")
     func stopsWhenCallEnds() {
         var watch = CallWatch()

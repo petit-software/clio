@@ -231,6 +231,8 @@ extension AppCoordinator {
     /// Settings moved the notes folder.
     public func meetingsFolderChanged() {
         library?.setFolder(MeetingMarkdown.folder(customPath: settingsStore.settings.meetingsFolderPath))
+        // The server reads the folder it was started on.
+        updateMCPServer()
     }
 
     /// Dictations for the sidebar: whatever the history keeps — the last
@@ -271,17 +273,59 @@ extension AppCoordinator {
         if let meeting, meeting.isActive {
             if let app = meetingCallApp, callWatch.callEnded(app: app, apps: apps) {
                 meetingCallApp = nil
-                stopMeeting()
+                offerToKeepRecording(meeting)
             }
             return
         }
         guard settingsStore.settings.meetingDetection, activeModel != nil else { return }
-        let event = calendar.access == .granted ? calendar.current : nil
-        guard let app = callWatch.offer(apps: apps, event: event) else { return }
         if meetingOffer == nil { meetingOffer = MeetingOfferController() }
-        meetingOffer?.show(title: event?.title, app: app) { [weak self] in
-            self?.startMeeting(event: event, callApp: app)
+        let event = calendar.access == .granted ? calendar.current : nil
+        if let app = callWatch.offer(apps: apps, event: event) {
+            meetingOffer?.show(title: event?.title, app: app, accept: { [weak self] in
+                self?.startMeeting(event: event, callApp: app)
+            }, decline: { [weak self] in
+                self?.callWatch.decline(event)
+            })
+            return
         }
+        // No call app on the microphone yet — but the calendar says a call
+        // is starting: the same card, a moment before anything is joined.
+        guard calendar.access == .granted, meetingOffer?.isShowing != true,
+              let starting = callWatch.starting(events: dayEvents(on: Date())) else { return }
+        let joins = starting.joinURL != nil
+        meetingOffer?.show(
+            MeetingOffer(headline: "“\(starting.title)” is starting",
+                         detail: joins ? "Join the call and take notes? Both sides are transcribed on this Mac."
+                                       : "Take notes for it? Both sides are transcribed on this Mac.",
+                         acceptTitle: joins ? "Join & Take Notes" : "Take Notes",
+                         declineTitle: "Not Now"),
+            timeout: 45,
+            accept: { [weak self] in self?.startMeeting(event: starting, join: joins) },
+            decline: { [weak self] in self?.callWatch.decline(starting) })
+    }
+
+    /// The call a meeting was started for has let go of the microphone for
+    /// half a minute. The notes stop — in a few seconds, and not without
+    /// saying so: a call app also lets go for a long mute, or a change of
+    /// headphones, and a meeting ended behind the user's back is one they
+    /// find out about afterwards.
+    private func offerToKeepRecording(_ meeting: MeetingSession) {
+        if meetingOffer == nil { meetingOffer = MeetingOfferController() }
+        let seconds = CallWatch.stopCountdown
+        let stop: () -> Void = { [weak self, weak meeting] in
+            guard let self, let meeting, self.meeting === meeting, meeting.isActive else { return }
+            self.stopMeeting()
+        }
+        meetingOffer?.show(
+            MeetingOffer(headline: "The call seems to have ended",
+                         detail: "Notes for “\(meeting.record.title)” stop in %d s.",
+                         acceptTitle: "Stop Now", declineTitle: "Keep Recording",
+                         deadline: Date().addingTimeInterval(seconds)),
+            timeout: seconds,
+            accept: stop,
+            // Kept: the call is not watched any more, so it is not asked again.
+            decline: {},
+            onTimeout: stop)
     }
 
     /// Deletes kept audio that is past the time Settings gives it. Nothing

@@ -1151,6 +1151,41 @@ private struct MeetingsTab: View {
                 Text("Summaries")
             }
 
+            Section {
+                Toggle("Let other apps on this Mac read your meetings", isOn: Binding(
+                    get: { settings.mcpServer },
+                    set: {
+                        coordinator.settingsStore.settings.mcpServer = $0
+                        coordinator.updateMCPServer()
+                    }))
+                if settings.mcpServer {
+                    LabeledContent {
+                        Button("Copy") { TextInjector.copy(coordinator.mcpAddress) }
+                    } label: {
+                        Text(coordinator.mcpAddress)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                        if let problem = coordinator.mcpProblem {
+                            Text(problem).foregroundStyle(.orange)
+                        } else {
+                            Text("An MCP server: add this address to an app that speaks the Model "
+                                 + "Context Protocol — Claude, LM Studio — as a connector.")
+                        }
+                    }
+                }
+            } header: {
+                Text("Other apps")
+            } footer: {
+                Text("Off, nothing Clio wrote is read by anything but Clio. On, an app on this "
+                     + "Mac that you give the address to can search your meetings and read their "
+                     + "notes, summaries and transcripts — and nothing else: it cannot change, "
+                     + "delete or record. What that app then does with what it reads, including "
+                     + "sending it to a model in the cloud, is that app's doing. Only this Mac "
+                     + "can reach the address.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Access") {
                 LabeledContent("Calendar") {
                     switch coordinator.calendar.access {

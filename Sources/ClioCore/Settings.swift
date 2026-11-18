@@ -92,6 +92,11 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Keep the voices of meetings, to recognise them in later ones. Off,
     /// nothing is kept and nothing kept is consulted.
     public var rememberVoices: Bool = true
+    /// Answer other apps on this Mac that ask about the meetings, over
+    /// the Model Context Protocol. Off until asked for: it is the one way
+    /// anything Clio wrote is read by something that is not Clio.
+    public var mcpServer: Bool = false
+    public var mcpPort: Int = Int(MCPServer.defaultPort)
     /// Offer to take notes when a call starts during a calendar event.
     public var meetingDetection: Bool = true
 
@@ -185,6 +190,8 @@ public struct Settings: Codable, Equatable, Sendable {
         summaryPrompt = read(.summaryPrompt, defaults.summaryPrompt)
         rememberVoices = read(.rememberVoices, defaults.rememberVoices)
         meetingAudio = read(.meetingAudio, defaults.meetingAudio)
+        mcpServer = read(.mcpServer, defaults.mcpServer)
+        mcpPort = read(.mcpPort, defaults.mcpPort)
         summaryModelID = readOptional(.summaryModelID, String.self)
         meetingDetection = read(.meetingDetection, defaults.meetingDetection)
     }

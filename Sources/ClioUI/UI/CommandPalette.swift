@@ -126,6 +126,11 @@ struct CommandPalette: View {
         }
         .onAppear {
             query = ""
+            // Opened by a link that said what to look for.
+            if let asked = coordinator.requestedSearch {
+                query = asked
+                coordinator.requestedSearch = nil
+            }
             #if DEBUG
             if let typed = ProcessInfo.processInfo.environment["CLIO_PALETTE_SHOW"], typed != "1" {
                 query = typed

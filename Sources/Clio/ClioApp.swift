@@ -307,6 +307,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    /// A `clio://` link: a meeting, a search, or taking notes.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { coordinator.open(url) }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         coordinator.shutDown()
     }

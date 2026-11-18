@@ -36,6 +36,15 @@ Settings ▸ Model ▸ Speakers turns the remembering off and forgets them all.
 A recording made somewhere else becomes a meeting too: drop it on Clio's
 window, or choose Import a Recording… from the menu.
 
+Nothing Clio writes is read by anything but Clio — unless you turn on
+Settings ▸ Meetings ▸ Other apps. That starts a Model Context Protocol
+server on this Mac's loopback address, which an app you give the address to
+(Claude, LM Studio) can ask to search your meetings and read their notes,
+summaries and transcripts. It cannot change, delete or record anything, and
+nothing off this Mac can reach it; what that app does with what it reads is
+up to that app. `clio://meeting?id=…`, `clio://search?q=…` and
+`clio://notes` open a meeting, a search, or start taking notes.
+
 Requires macOS 14+. Design notes in
 [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-spec.md);
 [`AGENTS.md`](AGENTS.md) is the orientation for working on it — how the pieces

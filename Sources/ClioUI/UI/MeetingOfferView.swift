@@ -15,15 +15,32 @@ final class MeetingOfferController {
 
     static let size = CGSize(width: 340, height: 124)
 
-    func show(title: String?, app: CallApp, accept: @escaping () -> Void) {
+    /// A call app has opened its microphone: take notes for it?
+    func show(title: String?, app: CallApp, accept: @escaping () -> Void,
+              decline: @escaping () -> Void = {}) {
+        show(MeetingOffer(
+            headline: title.map { "Take notes for “\($0)”?" } ?? "Take notes for this call?",
+            detail: "\(app.name) is on a call. Both sides are transcribed on this Mac.",
+            acceptTitle: "Take Notes", declineTitle: "Not Now"),
+             accept: accept, decline: decline)
+    }
+
+    /// Shows a card. It goes after `timeout` seconds, with `onTimeout` if
+    /// nothing was pressed — saying nothing is an answer too.
+    func show(_ offer: MeetingOffer, timeout seconds: TimeInterval = 30,
+              accept: @escaping () -> Void, decline: @escaping () -> Void = {},
+              onTimeout: @escaping () -> Void = {}) {
         dismiss()
         let view = MeetingOfferView(
-            title: title, appName: app.name,
+            offer: offer,
             accept: { [weak self] in
                 self?.dismiss()
                 accept()
             },
-            decline: { [weak self] in self?.dismiss() })
+            decline: { [weak self] in
+                self?.dismiss()
+                decline()
+            })
 
         let panel = OfferPanel(
             contentRect: NSRect(origin: .zero, size: Self.size),
@@ -47,11 +64,14 @@ final class MeetingOfferController {
         self.panel = panel
 
         timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(30))
+            try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
             self?.dismiss()
+            onTimeout()
         }
     }
+
+    var isShowing: Bool { panel != nil }
 
     #if DEBUG
     /// Clicks the card the way the window server would — a mouse down and up
@@ -103,11 +123,21 @@ private struct OfferButtonStyle: ButtonStyle {
     }
 }
 
+/// What a card says: a question, a line under it, and its two answers.
+struct MeetingOffer {
+    var headline: String
+    var detail: String
+    var acceptTitle: String
+    var declineTitle: String
+    /// Set, the detail counts down to it: `detail` with "%d" for the
+    /// seconds left.
+    var deadline: Date?
+}
+
 struct MeetingOfferView: View {
     static let buttonHeight: CGFloat = 32
 
-    let title: String?
-    let appName: String
+    let offer: MeetingOffer
     let accept: () -> Void
     let decline: () -> Void
 
@@ -118,14 +148,25 @@ struct MeetingOfferView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title.map { "Take notes for “\($0)”?" } ?? "Take notes for this call?")
+                Text(offer.headline)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(palette.primaryText)
                     .lineLimit(1)
-                Text("\(appName) is on a call. Both sides are transcribed on this Mac.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(palette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                Group {
+                    if let deadline = offer.deadline {
+                        // Counting down, a second at a time.
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(String(format: offer.detail,
+                                        max(0, Int(deadline.timeIntervalSince(context.date).rounded(.up)))))
+                                .monospacedDigit()
+                        }
+                    } else {
+                        Text(offer.detail)
+                    }
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(palette.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
             }
             // Two buttons of one size: half the card each, one height. They
             // were two styles — the system's glass, which pads its label,
@@ -133,7 +174,7 @@ struct MeetingOfferView: View {
             // mattered came out the smaller.
             HStack(spacing: 8) {
                 Button(action: decline) {
-                    Text("Not Now")
+                    Text(offer.declineTitle)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(palette.primaryText)
                         .frame(maxWidth: .infinity)
@@ -143,7 +184,7 @@ struct MeetingOfferView: View {
                 .buttonStyle(OfferButtonStyle(fill: palette.primaryText.opacity(0.1)))
 
                 Button(action: accept) {
-                    Text("Take Notes")
+                    Text(offer.acceptTitle)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(palette.inkLabel)
                         .frame(maxWidth: .infinity)
@@ -183,7 +224,10 @@ private struct OfferSurface: View {
 
 #if DEBUG
 #Preview("Meeting offer") {
-    MeetingOfferView(title: "Weekly sync", appName: "Zoom", accept: {}, decline: {})
+    MeetingOfferView(offer: MeetingOffer(headline: "Take notes for “Weekly sync”?",
+                                         detail: "Zoom is on a call. Both sides are transcribed on this Mac.",
+                                         acceptTitle: "Take Notes", declineTitle: "Not Now"),
+                     accept: {}, decline: {})
         .padding(30)
         .background(Color(nsColor: .underPageBackgroundColor))
 }

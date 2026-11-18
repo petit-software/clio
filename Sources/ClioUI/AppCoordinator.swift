@@ -83,6 +83,14 @@ public final class AppCoordinator {
     public internal(set) var importStatus: ImportStatus?
     var importTask: Task<Void, Never>?
     var importingSession: MeetingSession?
+    /// What answers other apps about the meetings, while Settings has it
+    /// on: `AppCoordinator+Sharing`. And why it is not, when it could not
+    /// be started.
+    var mcpServer: MCPServer?
+    public internal(set) var mcpProblem: String?
+    /// A search asked for from outside — a `clio://search` link — for the
+    /// library window to open its palette on.
+    public var requestedSearch: String?
     /// The voices of past meetings: `AppCoordinator+Voices`.
     let voiceMemory = VoiceMemory()
     /// How many voices are kept, of how many people — for Settings.
@@ -184,6 +192,7 @@ public final class AppCoordinator {
         StreamRecording.removeLeftovers()
         refreshVoiceCount()
         sweepMeetingAudio()
+        updateMCPServer()
         watchForCalls()
 
         overlay = OverlayController()
