@@ -230,8 +230,26 @@ public struct MeetingRecord: Sendable, Equatable {
         if !confirmed, voices[voice]?.confirmed == true { return false }
         let new = name.isEmpty ? nil : MeetingVoice(name: name, confirmed: confirmed)
         guard voices[voice] != new else { return false }
+        let before = voices[voice]?.name ?? Self.placeholder(voice)
         voices[voice] = new
+        let after = new?.name ?? Self.placeholder(voice)
+        // The summary was written with the name the voice had then; it
+        // follows, so it does not go on calling Ana "Speaker 2".
+        if before != after, let summary {
+            self.summary = Self.replacingName(before, with: after, in: summary)
+        }
         return true
+    }
+
+    /// `text` with `old` — as a whole name, not as part of a longer word —
+    /// written as `new`.
+    static func replacingName(_ old: String, with new: String, in text: String) -> String {
+        let pattern = "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: old)
+            + "(?![\\p{L}\\p{N}])"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        return regex.stringByReplacingMatches(
+            in: text, range: NSRange(text.startIndex..., in: text),
+            withTemplate: NSRegularExpression.escapedTemplate(for: new))
     }
 
     /// A name as it can stand in the file: on one line, without the marks

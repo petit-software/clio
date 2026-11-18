@@ -1084,6 +1084,9 @@ private struct OutputTab: View {
 
 private struct MeetingsTab: View {
     @Bindable var coordinator: AppCoordinator
+    /// What the last check of the call-audio permission said.
+    @State private var probe: SystemAudioProbe.Result?
+    @State private var isProbing = false
 
     private var settings: ClioCore.Settings { coordinator.settingsStore.settings }
 
@@ -1159,8 +1162,30 @@ private struct MeetingsTab: View {
                         Button("Open Privacy Settings") { coordinator.calendar.openPrivacySettings() }
                     }
                 }
-                LabeledContent("Call audio") {
-                    Button("Open Privacy Settings") { MeetingView.openSystemAudioSettings() }
+                LabeledContent {
+                    HStack(spacing: 8) {
+                        // Found out, not assumed: an inaudible tone, and
+                        // whether a tap hears it. The same check a meeting
+                        // runs when it has heard nothing.
+                        Button(isProbing ? "Checking…" : "Check") {
+                            isProbing = true
+                            Task {
+                                probe = await SystemAudioProbe.run()
+                                isProbing = false
+                            }
+                        }
+                        .disabled(isProbing)
+                        Button("Open Privacy Settings") { MeetingView.openSystemAudioSettings() }
+                    }
+                } label: {
+                    Text("Call audio")
+                    switch probe {
+                    case .allowed: Text("Allowed: Clio can hear the other side of a call.")
+                    case .refused: Text("Refused: allow Clio under System Audio Recording.")
+                        .foregroundStyle(.orange)
+                    case .inconclusive(let reason): Text("Could not be checked: \(reason)")
+                    case nil: EmptyView()
+                    }
                 }
                 Text("The calendar names each meeting and lists who was invited. "
                      + "Call audio is what lets Clio hear the other side; macOS asks "

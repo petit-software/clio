@@ -71,6 +71,21 @@ struct SpeakerTests {
         #expect(record.transcriptText.contains("] Anna: Hello from the first voice."))
     }
 
+    @Test("A summary written before a voice had its name is brought up to date when it gets one")
+    func summaryFollowsTheName() {
+        var record = MeetingRecord(title: "Sync")
+        record.add(line(.others, 20, 25, "I will write the notes.", voice: 2))
+        record.add(line(.others, 40, 45, "And I the slides.", voice: 12))
+        record.summary = "### Next steps\n- [ ] Notes — Speaker 2\n- [ ] Slides — Speaker 12"
+        record.name(voice: 2, as: "Ana Ruiz", confirmed: true)
+        // Speaker 12 is not Speaker 2 with a 1 in front.
+        #expect(record.summary == "### Next steps\n- [ ] Notes — Ana Ruiz\n- [ ] Slides — Speaker 12")
+        record.name(voice: 2, as: "Ana", confirmed: true)
+        #expect(record.summary?.contains("Notes — Ana\n") == true)
+        record.name(voice: 2, as: "", confirmed: true)
+        #expect(record.summary?.contains("Notes — Speaker 2\n") == true)
+    }
+
     @Test("Voices and their names survive the file: who is who, and who said so")
     func roundTrip() throws {
         var record = MeetingRecord(title: "Sync", startDate: Date(timeIntervalSince1970: 1_800_000_000))
