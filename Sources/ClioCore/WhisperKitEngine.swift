@@ -76,7 +76,9 @@ public actor WhisperKitEngine: TranscriptionEngine {
         // rebuilt from the segments only when one was dropped; otherwise it
         // is WhisperKit's own, untouched.
         let duration = Double(samples.count) / AudioRecorder.sampleRate
-        let kept = TranscriptSanitizer.sanitize(decoded.segments, audioDuration: duration)
+        let kept = TranscriptSanitizer.sanitize(
+            decoded.segments, audioDuration: duration,
+            sound: TranscriptSanitizer.Sound(samples: samples, sampleRate: AudioRecorder.sampleRate))
         if kept.count < decoded.segments.count {
             text = TranscriptSanitizer.text(of: kept)
         }

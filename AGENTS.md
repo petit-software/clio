@@ -55,7 +55,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 267 tests live here.
+  without standing up an app. All 268 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -65,7 +65,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 267 tests, 36 suites, no network
+swift test                                  # 268 tests, 36 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -450,15 +450,18 @@ so; a probe that could not run leaves the old "if others are talking".
 Clio has no process object in the HAL until it has made a sound, so the
 tap is opened after `play`, with retries.
 
-**The sanitizer does not catch a sentence invented in real silence.**
+**A sentence over a stretch with no sound in it was not said.**
 `TranscriptSanitizer` drops a segment that starts past the end of the
-audio, cuts one that runs past it, and drops a last single word the model
-was unsure of. Given three seconds of silence after speech, large-v3 wrote
-"Thank you." at 0.80, starting where the speech stopped: none of the three
-rules. What stops that is upstream — `VoiceActivityTrimmer` for dictation,
-the segmenter's cut at a pause for meetings — and `SanitizerIntegration`
-shows both halves. The probabilities come from each segment's token
-log-probabilities, so word timestamps and their second pass stay off.
+audio, cuts one that runs past it, drops a last single word the model was
+unsure of — and, the rule that matters, drops a segment with next to no
+sound under it (`Sound`: 20 ms frames, a frame counting at a twenty-fifth
+of the loudest). The first three are Biscotti's and did not catch what
+Whisper actually does: given three seconds of silence after speech,
+large-v3 wrote "Thank you." at 0.80, starting where the speech stopped.
+The fourth does, and loses nothing said (`SanitizerIntegration`, the
+scripted calls, five minutes of `LongMeeting`). The probabilities come
+from each segment's token log-probabilities, so word timestamps and their
+second pass stay off.
 
 **The speaker models must never be given digital silence.** The recording
 of the call is exact zeros wherever the tap sent nothing: before its first

@@ -360,9 +360,12 @@ struct SanitizerIntegrationTests {
         let afterTrim = try await engine.transcribe(samples: trimmed.samples, options: options)
         await engine.unload()
         print("[sanitizer] trimmed to \(String(format: "%.1f", Double(trimmed.samples.count) / AudioRecorder.sampleRate)) s, text: \(afterTrim.text)")
-        // The sanitizer's rules do not catch a confident sentence invented
-        // in a silence the audio really has; taking the silence out does.
+        // Taking the silence out first leaves nothing to invent in…
         #expect(!afterTrim.text.lowercased().contains("thank you"))
+        // …and with it left in, the sentence written into it is dropped for
+        // having no sound under it, and nothing that was said goes with it.
+        #expect(!transcript.text.lowercased().contains("thank you"))
+        #expect(transcript.text.lowercased().contains("quarterly"))
 
         for segment in decoded.segments {
             print(String(format: "[sanitizer] %.2f–%.2f p=%.2f %@", segment.start, segment.end,

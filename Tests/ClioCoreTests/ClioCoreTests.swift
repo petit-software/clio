@@ -129,6 +129,38 @@ func sanitizerDropsWhatWasNotSaid() {
     #expect(TranscriptSanitizer.text(of: kept) == "Hello there. Still talking")
 }
 
+@Test("A sentence the model is sure of, over a stretch with no sound in it, was not said")
+func sanitizerDropsWhatHadNoSound() {
+    typealias Segment = TranscriptSanitizer.Segment
+    // 3.4 s of voice, then 3 s of nothing: 50 frames a second.
+    let sound = TranscriptSanitizer.Sound(frames: Array(repeating: true, count: 170)
+                                          + Array(repeating: false, count: 150))
+    let said = Segment(start: 0, end: 3.32, text: "We ship on Thursday.", probability: 0.93)
+    // Starts in the last of the speech, runs to the end: a tenth of a second of sound in three.
+    let invented = Segment(start: 3.32, end: 6.4, text: "Thank you.", probability: 0.8)
+    #expect(TranscriptSanitizer.sanitize([said, invented], audioDuration: 6.4, sound: sound) == [said])
+    // Without knowing where the sound was, it cannot be told.
+    #expect(TranscriptSanitizer.sanitize([said, invented], audioDuration: 6.4).count == 2)
+    // A short real word is all sound, however short; a long turn with pauses in it is mostly sound.
+    let yes = Segment(start: 3.0, end: 3.3, text: "Yes.", probability: 0.9)
+    #expect(TranscriptSanitizer.sanitize([yes], audioDuration: 6.4, sound: sound) == [yes])
+    let paused = TranscriptSanitizer.Sound(frames: Array(repeating: true, count: 40)
+                                           + Array(repeating: false, count: 200)
+                                           + Array(repeating: true, count: 40))
+    let turn = Segment(start: 0, end: 5.6, text: "Well… let me think.", probability: 0.7)
+    #expect(TranscriptSanitizer.sanitize([turn], audioDuration: 5.6, sound: paused) == [turn])
+
+    // From samples: a tone is sound, zeros are not, and a recording of
+    // nothing but faint noise is not taken for silence throughout.
+    let tone = (0..<16_000).map { Float(sin(Double($0) * 0.2)) * 0.3 }
+    let heard = TranscriptSanitizer.Sound(samples: tone + [Float](repeating: 0, count: 16_000), sampleRate: 16_000)
+    #expect(abs(heard.seconds(from: 0, to: 2) - 1) < 0.05)
+    #expect(heard.seconds(from: 1.1, to: 2) == 0)
+    let faint = TranscriptSanitizer.Sound(samples: (0..<16_000).map { _ in Float.random(in: -0.002...0.002) },
+                                          sampleRate: 16_000)
+    #expect(faint.seconds(from: 0, to: 1) > 0.9)
+}
+
 @Test("A last word the model was unsure of is dropped; a sure one, or a sentence, is kept")
 func sanitizerDropsATrailingGuess() {
     typealias Segment = TranscriptSanitizer.Segment
