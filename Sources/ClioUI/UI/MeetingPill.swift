@@ -7,19 +7,25 @@ import ClioCore
 /// finishes, a word on what it is doing with the activity ring round the
 /// rim, as a dictation has while it transcribes.
 ///
-/// Always the light pill, whatever the appearance: it is the one live thing
-/// on the page and should read as the recorder people already know.
+/// Always the black pill, whatever the appearance — the one a dictation
+/// shows in dark mode: it is the one live thing on the page and should read
+/// as the recorder people already know. It was the light one until the
+/// person who uses it asked for this.
 struct MeetingPill: View {
     @Bindable var meeting: MeetingSession
     let stop: () -> Void
 
-    /// The bar's height, the Notes pull-down's beside it: 35, not the
-    /// floating pill's 52. Its text is the pull-down's size, not a fraction
-    /// of this, so the two read as one row.
-    private let h: CGFloat = 35
+    /// Two points over the bar's 35 and the Notes pull-down beside it —
+    /// asked for — and well under the floating pill's 52. Its text is the
+    /// pull-down's size, not a fraction of this, so the two read as one row.
+    private let h: CGFloat = 37
     private let text = Font.system(size: 13, weight: OverlayView.textWeight)
-    private let ink = Color.black
-    private let surface = PillSurface()
+    /// The dark pill's ink, as `OverlayView` has it.
+    private let ink = Color(white: 0.96)
+    /// The floating pill's surface is half tint over clear glass, which
+    /// hangs over a desktop and reads black there. Over a white page the
+    /// same surface is charcoal; here the tint is whole, so it is black.
+    private let surface = PillSurface(opacity: 1)
 
     private var isWorking: Bool {
         meeting.phase == .finishing || meeting.phase == .identifying
@@ -42,21 +48,21 @@ struct MeetingPill: View {
         }
         .frame(height: h)
         .background {
-            PillBackground(tint: OverlayView.lightFill,
-                           glassTint: Color.white.opacity(surface.style.glassTintLight),
-                           outline: Color.black.opacity(surface.style.outlineLight),
+            PillBackground(tint: OverlayView.darkFill,
+                           glassTint: Color.black.opacity(surface.style.glassTintDark),
+                           outline: Color.white.opacity(surface.style.outlineDark),
                            surface: surface)
         }
         .overlay {
             if isWorking {
-                ActivityRing(lineWidth: h * 0.045, ramp: ActivityRing.light)
+                ActivityRing(lineWidth: h * 0.045, ramp: ActivityRing.dark)
                     .transition(.opacity)
             }
         }
         // No shadow: the floating pill casts one to stand off whatever it
         // hangs over; here it sits in a bar beside controls that cast none.
         .clipShape(Capsule())
-        .environment(\.colorScheme, .light)
+        .environment(\.colorScheme, .dark)
         .animation(.smooth(duration: 0.36), value: meeting.phase)
         .fixedSize()
     }
@@ -85,8 +91,9 @@ struct MeetingPill: View {
                     .resizable()
                     .scaledToFit()
                     .symbolRenderingMode(.monochrome)
-                    // The floating pill's ✕ grey: a stop, quiet until wanted.
-                    .foregroundStyle(Color(red: 158/255, green: 158/255, blue: 157/255))
+                    // The floating pill's ✕ grey, the dark one: a stop,
+                    // quiet until wanted.
+                    .foregroundStyle(Color(white: 0.62))
                     .frame(width: h * 0.46, height: h * 0.46)
                     .padding(.leading, h * 0.26)
                     .padding(.trailing, h * 0.3)

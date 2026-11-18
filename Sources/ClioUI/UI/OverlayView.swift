@@ -48,7 +48,7 @@ struct OverlayView: View {
     // Its own values were 220/220/219 and 58/56/53 — kept below for reference
     // if this turns out to be too stark for a HUD that appears unbidden.
     static let lightFill = Color(red: 0.98, green: 0.98, blue: 0.97)
-    private static let darkFill = Color(red: 0.03, green: 0.03, blue: 0.03)
+    static let darkFill = Color(red: 0.03, green: 0.03, blue: 0.03)
     /// The record dot stays orange in both appearances — it is the one thing
     /// that has to read as "live" at a glance, and a black dot does not.
     static let recordDot = Color(red: 241/255, green: 107/255, blue: 51/255)

@@ -383,7 +383,8 @@ Settings tabs. Menus keep their SF Symbols.
 
 **A live meeting's recorder is the pill, at the foot of its page.**
 `MeetingPill` is the dictation pill's surface, dot, meter and ring, always
-light, with the time and a stop (⌘.), centred over the `DocumentBar` —
+the black one (as a dictation's is in dark mode), 37 points high, with the
+time and a stop (⌘.), centred over the `DocumentBar` —
 laid over it, not inside its `GlassGroup`: inside, its surface and
 everything on it were blended into the group's glass and all but vanished.
 The meter reads `MeetingSession.micLevel`/`micBands`.
