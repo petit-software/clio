@@ -358,6 +358,9 @@ public final class MeetingSession {
         recording.close()
         guard recording.isComplete,
               let diarization = try? await diarizer.diarize(recording: recording.url) else { return }
+        // A line two people spoke in becomes a line each, before either
+        // is given a voice.
+        record.lines = SpeakerAssignment.split(lines: record.lines, diarization: diarization)
         let numbered = SpeakerAssignment.number(lines: record.lines, diarization: diarization)
         record.assignVoices(numbered.lines)
         guard !record.voiceNumbers.isEmpty else { return }
@@ -487,10 +490,13 @@ public final class MeetingSession {
         let queue = queue, model = currentModel?() ?? model, options = options
         transcriptions[id] = Task { [weak self] in
             let text: String
+            var segments: [Transcript.Segment] = []
             var failure: Error?
             do {
-                text = try await queue.transcribe(samples: chunk.samples, options: options,
-                                                  model: model, priority: .meeting).text
+                let transcript = try await queue.transcribe(samples: chunk.samples, options: options,
+                                                            model: model, priority: .meeting)
+                text = transcript.text
+                segments = transcript.segments
             } catch {
                 text = ""
                 failure = error
@@ -510,8 +516,16 @@ public final class MeetingSession {
             self.transcriptions[id] = nil
             let cleaned = Self.clean(text)
             if !cleaned.isEmpty {
+                // The pieces it was written in, on the meeting's clock, for
+                // dividing the line between voices when the meeting ends.
+                let pieces = segments.compactMap { segment -> MeetingLine.Piece? in
+                    let text = Self.clean(segment.text)
+                    return text.isEmpty ? nil : MeetingLine.Piece(
+                        start: chunk.start + segment.start, end: chunk.start + segment.end, text: text)
+                }
                 self.record.add(MeetingLine(speaker: speaker, start: chunk.start,
-                                            end: chunk.end, text: cleaned))
+                                            end: chunk.end, text: cleaned,
+                                            pieces: pieces.count > 1 ? pieces : nil))
                 self.save()
             }
         }

@@ -56,7 +56,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 276 tests live here.
+  without standing up an app. All 279 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -66,7 +66,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 276 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
+swift test                                  # 279 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -499,6 +499,17 @@ that is not given back until quit (the same after a second run, so kept,
 not leaked). One copy of the samples, changed in place; a second cost
 another 230 MB an hour.
 
+**A line two people share is divided where the speech model's pieces
+change hands.** A chunk is cut at pauses, so two people who do not pause
+between them are one chunk, one transcription, one line. Whisper writes a
+chunk in segments — a sentence or so, each timed — and those come for
+free: `Transcript.segments`, kept on the line as `pieces` while the
+meeting is in memory, never in the file. `SpeakerAssignment.split` gives
+each piece to whoever is heard in it and makes a line of each run; a run
+under a second stays with the turn before it. No word timestamps, so no
+second pass. A turn that changes hands mid-sentence still goes whole to
+one of them.
+
 **A voice is a number on the line, not a kind of speaker.** `MeetingLine.voice`
 beside `speaker`, so "Me"/"Others" and everything that tests them is as it
 was. The name is in the front matter (`speaker-2: Tom`, or
@@ -522,8 +533,11 @@ not. The mark is the embedder's name, version and variant
 (`SpeakerModels.embeddingSpace`): a later macOS that makes SpeakerKit pick
 another variant makes vectors that mean something else, and two spaces are
 never compared — those voices are simply not recognised until named again.
-The store is one JSON file in Application Support, never the meetings
-folder, which people sync. `VoiceMemory.defaultFile` is the real one even
+A voiceprint also carries the address the invitation had for its name,
+when it had exactly one: names seen with one address are one person
+("Ana R." and "Ana Ruiz"), and someone invited by an address is invited
+whatever the calendar calls them. The store is one JSON file in
+Application Support, never the meetings folder, which people sync. `VoiceMemory.defaultFile` is the real one even
 from `swift run` and the tests' own process: every test passes a file of
 its own.
 
@@ -768,6 +782,8 @@ Verified by something repeatable:
   of its own
 - the MCP server over real HTTP on the loopback address (`MCPTests`): a
   question answered, a page elsewhere refused, only `POST /mcp` heard
+- a question and its answer said without a pause, transcribed as one line,
+  come out as a line each on the right voices (`aSharedLine`)
 - a meeting's vocabulary as Whisper's prompt does not empty the transcript
   (`SanitizerIntegration`)
 - segmenting, echo removal, the queue's order, calendar matching, call
@@ -814,8 +830,8 @@ Not verified, and worth knowing:
 - **voices on a real call.** Everything above is synthetic voices, clean
   and far apart (0.85 and more between them). People on one call, on one
   codec, some of them on a speakerphone in one room, are the real test and
-  nobody has run it. Two people in one line of transcript go to whoever
-  spoke longer.
+  nobody has run it. A turn that changes hands inside one of Whisper's
+  own segments still goes whole to one of them.
 - **recognising a real person.** The thresholds are borrowed and the only
   voices tried are synthetic. Whether a colleague on AirPods one day and a
   laptop the next is one voice, and whether two colleagues are two, is

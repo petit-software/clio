@@ -24,6 +24,45 @@ struct SpeakerTests {
         #expect(lines.map { voices[$0.id] } == [nil, 1, 2, 1])
     }
 
+    @Test("A line two voices spoke in becomes a line each, cut where the model's own pieces change hands")
+    func splits() {
+        typealias Piece = MeetingLine.Piece
+        let shared = MeetingLine(
+            speaker: .others, start: 10, end: 22, text: "Shall we ship on Thursday? Yes. Thursday works for me. Good.",
+            pieces: [Piece(start: 10, end: 13, text: "Shall we ship on Thursday?"),
+                     Piece(start: 13.2, end: 13.6, text: "Yes."),            // too short to be heard in: goes with what is before it
+                     Piece(start: 14, end: 18, text: "Thursday works for me."),
+                     Piece(start: 18.2, end: 22, text: "Good. Then that is settled.")])
+        let whole = line(.others, 30, 40, "Nothing to divide here.")
+        let mine = MeetingLine(speaker: .me, start: 50, end: 60, text: "Mine.",
+                               pieces: [Piece(start: 50, end: 55, text: "Mine."), Piece(start: 55, end: 60, text: "Still mine.")])
+        let diarization = Diarization(spans: [
+            SpeakerSpan(speaker: 4, start: 10, end: 13.5),
+            SpeakerSpan(speaker: 9, start: 13.9, end: 18),
+            SpeakerSpan(speaker: 4, start: 18.1, end: 22),
+            SpeakerSpan(speaker: 4, start: 30, end: 40),
+            SpeakerSpan(speaker: 9, start: 50, end: 60),       // heard under "Me": an echo, not a reason to divide
+        ])
+        let lines = SpeakerAssignment.split(lines: [shared, whole, mine], diarization: diarization)
+        #expect(lines.map(\.text) == ["Shall we ship on Thursday? Yes.", "Thursday works for me.",
+                                      "Good. Then that is settled.", "Nothing to divide here.", "Mine."])
+        #expect(lines.map(\.start) == [10, 14, 18.2, 30, 50])
+        #expect(lines[0].id == shared.id && lines[1].id != shared.id)          // the first is still the line it was
+        let voices = SpeakerAssignment.assign(lines: lines, diarization: diarization)
+        #expect(lines.map { voices[$0.id] } == [1, 2, 1, 1, nil])
+
+        // One voice throughout, or nothing to go on: the line is not touched.
+        let alone = Diarization(spans: [SpeakerSpan(speaker: 4, start: 0, end: 60)])
+        #expect(SpeakerAssignment.split(lines: [shared], diarization: alone) == [shared])
+        #expect(SpeakerAssignment.split(lines: [shared], diarization: Diarization(spans: [])) == [shared])
+        // A second of someone else in the middle of a turn is not a turn.
+        let cough = Diarization(spans: [SpeakerSpan(speaker: 4, start: 10, end: 13.2),
+                                        SpeakerSpan(speaker: 9, start: 13.2, end: 13.6),
+                                        SpeakerSpan(speaker: 9, start: 100, end: 110),
+                                        SpeakerSpan(speaker: 4, start: 13.6, end: 22)])
+        #expect(SpeakerAssignment.split(lines: [shared], diarization: cough) == [shared])
+    }
+
     @Test("A line nobody is heard in stays unassigned, and a voice heard for a moment is not a person")
     func leavesOutWhatIsNotAVoice() {
         let lines = [line(.others, 0, 5), line(.others, 30, 35), line(.others, 50, 55)]

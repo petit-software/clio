@@ -27,16 +27,34 @@ public struct MeetingLine: Codable, Sendable, Equatable, Identifiable {
     /// apart: 1, 2, 3… in the order they first spoke. Nil for "Me", and for
     /// "Others" until — or unless — the call's audio has been diarized.
     public var voice: Int?
+    /// The line in the pieces it was transcribed in, each with its own
+    /// time: there while the meeting is in memory, so that a line two
+    /// people spoke in can be divided between them. Not in the file.
+    public var pieces: [Piece]?
+
+    public struct Piece: Codable, Sendable, Equatable {
+        /// Seconds from the start of the meeting.
+        public var start: TimeInterval
+        public var end: TimeInterval
+        public var text: String
+
+        public init(start: TimeInterval, end: TimeInterval, text: String) {
+            self.start = start
+            self.end = end
+            self.text = text
+        }
+    }
 
     public init(id: UUID = UUID(), speaker: MeetingSpeaker,
                 start: TimeInterval, end: TimeInterval, text: String,
-                voice: Int? = nil) {
+                voice: Int? = nil, pieces: [Piece]? = nil) {
         self.id = id
         self.speaker = speaker
         self.start = start
         self.end = end
         self.text = text
         self.voice = voice
+        self.pieces = pieces
     }
 
     /// "04:07", or "1:04:07" past the hour.

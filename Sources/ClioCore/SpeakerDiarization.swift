@@ -84,6 +84,86 @@ public enum SpeakerAssignment {
     /// that holds two goes to the longer share, which is wrong for the
     /// shorter and cannot be put right without knowing when each word was
     /// said.
+    /// A piece of a line goes to another voice only when that voice is
+    /// heard in it for this long; less is the edge of someone's turn.
+    static let leastPieceOverlap: TimeInterval = 0.4
+    /// A run of pieces shorter than this is not a turn of its own: it
+    /// stays with the turn before it.
+    static let leastTurnSeconds: TimeInterval = 1.0
+
+    /// `lines`, with any of the others' lines that two voices spoke in
+    /// divided into one line for each turn.
+    ///
+    /// A line is a chunk of speech cut at pauses, up to twenty-five
+    /// seconds, and two people who do not pause between them share one.
+    /// The speech model writes a chunk in pieces — a sentence or so, each
+    /// with its own time — so a line can be divided where one piece is one
+    /// voice's and the next another's, without knowing when each word was
+    /// said. A line with no pieces, or all of one voice, is left as it is.
+    public static func split(lines: [MeetingLine], diarization: Diarization) -> [MeetingLine] {
+        let speaking = diarization.speakingSeconds
+        let spans = diarization.spans.filter { (speaking[$0.speaker] ?? 0) >= leastSpeakingSeconds }
+        var result: [MeetingLine] = []
+        for line in lines {
+            guard line.speaker == .others, let pieces = line.pieces, pieces.count > 1 else {
+                result.append(line)
+                continue
+            }
+            // Whose each piece is; nil where nobody is heard in it enough.
+            var owners: [Int?] = pieces.map { piece in
+                var shares: [Int: TimeInterval] = [:]
+                for span in spans {
+                    let overlap = min(piece.end, span.end) - max(piece.start, span.start)
+                    if overlap > 0 { shares[span.speaker, default: 0] += overlap }
+                }
+                guard let best = shares.max(by: { ($0.value, -$0.key) < ($1.value, -$1.key) }),
+                      best.value >= leastPieceOverlap else { return nil }
+                return best.key
+            }
+            // A piece nobody is heard in goes with the piece before it,
+            // or — at the start — the one after.
+            for index in owners.indices where owners[index] == nil {
+                owners[index] = index > 0 ? owners[index - 1] : owners.first { $0 != nil } ?? nil
+            }
+            // Runs of one voice; a run too short to be a turn joins the
+            // one before it.
+            var runs: [(owner: Int?, pieces: [MeetingLine.Piece])] = []
+            for (owner, piece) in zip(owners, pieces) {
+                if let last = runs.last, last.owner == owner {
+                    runs[runs.count - 1].pieces.append(piece)
+                } else {
+                    runs.append((owner, [piece]))
+                }
+            }
+            var turns: [(owner: Int?, pieces: [MeetingLine.Piece])] = []
+            for run in runs {
+                let length = run.pieces.reduce(0) { $0 + max(0, $1.end - $1.start) }
+                if length < leastTurnSeconds, !turns.isEmpty {
+                    turns[turns.count - 1].pieces += run.pieces
+                } else if let last = turns.last, last.owner == run.owner {
+                    turns[turns.count - 1].pieces += run.pieces
+                } else {
+                    turns.append(run)
+                }
+            }
+            guard turns.count > 1 else {
+                result.append(line)
+                continue
+            }
+            for (index, turn) in turns.enumerated() {
+                result.append(MeetingLine(
+                    // The first keeps the line's own id; the rest are new lines.
+                    id: index == 0 ? line.id : UUID(),
+                    speaker: .others,
+                    start: turn.pieces.first?.start ?? line.start,
+                    end: turn.pieces.last?.end ?? line.end,
+                    text: turn.pieces.map(\.text).joined(separator: " "),
+                    pieces: turn.pieces))
+            }
+        }
+        return result.sorted { $0.start < $1.start }
+    }
+
     public static func assign(lines: [MeetingLine], diarization: Diarization) -> [UUID: Int] {
         number(lines: lines, diarization: diarization).lines
     }

@@ -4,11 +4,31 @@ public struct Transcript: Sendable, Equatable {
     public var text: String
     public var language: String?
     public var duration: TimeInterval
+    /// The text in the pieces the model wrote it in — a sentence or so
+    /// each — with when in the audio each was said. Empty where the engine
+    /// does not say. What lets a meeting's line be divided between two
+    /// people who spoke in it.
+    public var segments: [Segment]
 
-    public init(text: String, language: String? = nil, duration: TimeInterval = 0) {
+    public struct Segment: Sendable, Equatable {
+        /// Seconds from the start of the audio.
+        public var start: TimeInterval
+        public var end: TimeInterval
+        public var text: String
+
+        public init(start: TimeInterval, end: TimeInterval, text: String) {
+            self.start = start
+            self.end = end
+            self.text = text
+        }
+    }
+
+    public init(text: String, language: String? = nil, duration: TimeInterval = 0,
+                segments: [Segment] = []) {
         self.text = text
         self.language = language
         self.duration = duration
+        self.segments = segments
     }
 }
 

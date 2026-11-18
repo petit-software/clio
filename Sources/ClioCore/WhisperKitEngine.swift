@@ -85,7 +85,13 @@ public actor WhisperKitEngine: TranscriptionEngine {
 
         // Silence is a legitimate outcome, not an error — the coordinator turns
         // an empty transcript into "nothing was transcribed".
-        return Transcript(text: text, language: decoded.language, duration: duration)
+        return Transcript(
+            text: text, language: decoded.language, duration: duration,
+            segments: kept.compactMap { segment in
+                let text = TranscriptSanitizer.plain(segment.text)
+                return text.isEmpty ? nil
+                    : Transcript.Segment(start: segment.start, end: segment.end, text: text)
+            })
     }
 
     /// What the model said, before anything is taken out of it.

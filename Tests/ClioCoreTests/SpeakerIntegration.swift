@@ -496,4 +496,63 @@ struct SpeakerIntegrationTests {
         #expect(voice(saying: "slides") == karen)
         #expect(voice(saying: "hotel") == karen)
     }
+
+    /// Two people who do not pause between them are one chunk of speech,
+    /// one transcription, one line — and should still come out as two.
+    @Test("Two voices with no pause between them, transcribed as one line, are divided into a line each")
+    @MainActor
+    func aSharedLine() async throws {
+        let speakers = try await installModels()
+        let manager = ModelManager()
+        let speech = try #require(manager.installed(.speech).max { $0.sizeBytes < $1.sizeBytes },
+                                  "No speech model installed to test with")
+        // Enough of each voice before it, with pauses, for the voices to be known.
+        let turns: [(voice: String, text: String, gap: Double)] = [
+            ("Daniel", "Good morning everyone. The build is ready and I would like to send it to testers on Thursday.", 1.5),
+            ("Karen", "Thursday works for me. I will write the release notes by Wednesday.", 1.5),
+            // Back to back: a tenth of a second between them.
+            ("Daniel", "Can you also update the website before the weekend?", 0.1),
+            ("Karen", "Yes, I will do that on Friday morning, right after the final pass.", 1.5),
+        ]
+        let mic = Source(), system = Source(), clock = Clock()
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-shared-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let session = MeetingSession(
+            title: "Shared line", folder: folder,
+            queue: TranscriptionQueue(WhisperKitEngine()), model: speech,
+            options: TranscribeOptions(language: "en"), sensitivity: 0.5, micDeviceUID: nil,
+            microphone: mic, systemAudio: system, now: { clock.now() })
+        session.diarizer = SpeakerDiarizer(folder: speakers.url)
+        await session.start()
+        func push(_ samples: [Float]) {
+            var index = 0
+            while index < samples.count {
+                let end = min(samples.count, index + 1024)
+                clock.advance(Double(end - index) / AudioRecorder.sampleRate)
+                system.onSamples?(Array(samples[index..<end]))
+                index = end
+            }
+        }
+        for turn in turns {
+            push(try say(turn.text, voice: turn.voice))
+            push([Float](repeating: 0, count: Int(turn.gap * AudioRecorder.sampleRate)))
+        }
+        await session.stop()
+        let record = session.record
+        for line in record.lines {
+            print(String(format: "[speakers] %.1f–%.1f %@: %@", line.start, line.end,
+                         record.label(for: line), line.text))
+        }
+        func voice(saying word: String) -> Int? {
+            record.lines.first { $0.text.lowercased().contains(word) }?.voice
+        }
+        let daniel = try #require(voice(saying: "testers")), karen = try #require(voice(saying: "release notes"))
+        #expect(daniel != karen)
+        // The question and its answer, said without a pause: his and hers.
+        #expect(voice(saying: "website") == daniel)
+        #expect(voice(saying: "friday") == karen)
+        #expect(record.lines.first { $0.text.lowercased().contains("website") }?
+            .text.lowercased().contains("friday") == false)
+    }
 }
