@@ -197,8 +197,11 @@ struct EdgeFade: View {
         let from: UnitPoint = edge == .bottom ? .top : .bottom
         let to: UnitPoint = edge == .bottom ? .bottom : .top
         let surface = Color(nsColor: .windowBackgroundColor)
+        // Solid by 45% of the way: under a foot that is where its controls
+        // begin, and with no blur to help, anything fainter than solid
+        // behind a control is a row read through a button.
         LinearGradient(stops: [.init(color: surface.opacity(0), location: 0),
-                               .init(color: surface, location: 0.7)],
+                               .init(color: surface, location: 0.45)],
                        startPoint: from, endPoint: to)
             .allowsHitTesting(false)
     }

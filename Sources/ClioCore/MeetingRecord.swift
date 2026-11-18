@@ -120,6 +120,18 @@ public struct MeetingRecord: Sendable, Equatable {
         self.startDate = startDate
     }
 
+    /// Notes for a calendar event, before a word of them is written and
+    /// with nothing recorded: the event's name, time, people and link, and
+    /// its id, so the day's calendar opens them from the event.
+    public static func notes(for event: MeetingEvent) -> MeetingRecord {
+        var record = MeetingRecord(title: event.title, startDate: event.start)
+        record.endDate = event.end
+        record.attendees = event.attendees
+        record.joinURL = event.joinURL
+        record.eventID = event.id
+        return record
+    }
+
     /// Adds a line in time order, unless it is the other side's words heard
     /// a second time through the microphone.
     ///

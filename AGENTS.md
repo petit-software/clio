@@ -55,7 +55,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 265 tests live here.
+  without standing up an app. All 267 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -65,7 +65,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 265 tests, 36 suites, no network
+swift test                                  # 267 tests, 36 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -359,8 +359,12 @@ wide as its words with four points more at its sides than above and below
 (`TakeNotesButtonStyle`), and a document's controls along its own bottom
 (`DocumentBar`), floating over the page. An event's page — a call with no
 notes yet — has its name breaking at 320 points, the date under it, how
-long and who on the line after, and a Take Notes button padded like the
-sidebar's. The button was drawn by hand as an overlay for one
+long and who on the line after, and two buttons padded like the sidebar's:
+Write Notes, which makes the event a note with nothing recorded
+(`MeetingRecord.notes(for:)`), and Take Notes, grey beside the sidebar's
+ink one and ink itself when the sidebar is hidden. A note with no
+transcript has Record in the middle of its bar: the recording is started
+into those notes (`MeetingSession.adopt`), one file, not a second meeting. The button was drawn by hand as an overlay for one
 commit; laid out past the title bar's safe area it sat wrong and looked it.
 
 **`scrollIndicators(.hidden)` does nothing on it either.** A `List` on macOS

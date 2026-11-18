@@ -447,6 +447,24 @@ public final class MeetingSession {
         save()
     }
 
+    /// Carries on from notes that were already written — for an event, by
+    /// hand, with nothing recorded: their title, their text, who was
+    /// invited and the event they belong to, in the file they are in. The
+    /// recording becomes part of those notes instead of a second meeting
+    /// beside them. Before `start`.
+    public func adopt(_ existing: MeetingRecord, at url: URL) {
+        record.title = existing.title
+        titleIsPlaceholder = false
+        record.notes = existing.notes
+        record.attendees = existing.attendees
+        record.joinURL = existing.joinURL
+        record.eventID = existing.eventID
+        // The file is this meeting's from here on: written over, and
+        // renamed for the time the recording starts.
+        fileURL = url
+        save()
+    }
+
     /// Takes the title, attendees and link from a calendar event.
     public func apply(_ event: MeetingEvent) {
         record.title = event.title

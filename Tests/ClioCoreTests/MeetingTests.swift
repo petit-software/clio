@@ -948,6 +948,46 @@ struct MeetingSessionTests {
         }
     }
 
+    @Test("Notes written by hand for an event are carried on by a recording: one file, the notes kept, the transcript added")
+    func recordsIntoNotes() async throws {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        let event = MeetingEvent(id: "e1", title: "Pricing call", start: start,
+                                 end: start.addingTimeInterval(1_800),
+                                 attendees: [MeetingAttendee(name: "Ana Ruiz")],
+                                 joinURL: URL(string: "https://example.com/call"))
+        // Written by hand first: nothing recorded.
+        var notes = MeetingRecord.notes(for: event)
+        #expect(notes.title == "Pricing call" && notes.eventID == "e1" && notes.lines.isEmpty)
+        #expect(notes.startDate == start && notes.endDate == event.end)
+        notes.notes = "- ask about the starter tier"
+        let written = try MeetingMarkdown.write(notes, to: folder)
+
+        // Then recorded, from the notes' page.
+        let mic = FakeSource(), system = FakeSource(), clock = TestClock()
+        let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+        meeting.titleIsPlaceholder = true
+        meeting.adopt(try #require(MeetingMarkdown.parse(try String(contentsOf: written, encoding: .utf8))),
+                      at: written)
+        await meeting.start()
+        system.push(tone(2) + silence(2), clock: clock)
+        await meeting.stop()
+
+        let record = meeting.record
+        #expect(record.title == "Pricing call" && !meeting.titleIsPlaceholder)
+        #expect(record.notes == "- ask about the starter tier")
+        #expect(record.eventID == "e1" && record.attendees.map(\.name) == ["Ana Ruiz"])
+        #expect(record.joinURL == event.joinURL)
+        #expect(record.lines.count == 1)
+        // One file: the notes' own, renamed for when the recording began.
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(files.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: written.path))
+        let saved = try String(contentsOf: try #require(meeting.fileURL), encoding: .utf8)
+        #expect(saved.contains("- ask about the starter tier") && saved.contains("event: e1"))
+    }
+
     @Test("A meeting Clio named is renamed from its summary, and its file with it; one the user or the calendar named is not")
     func titleFromTheSummary() async throws {
         let folder = tempFolder()

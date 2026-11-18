@@ -11,8 +11,11 @@ extension AppCoordinator {
     ///
     /// - Parameter join: also opens the event's call link, for "Join and
     ///   Take Notes".
+    ///
+    /// `continuing` is the file of notes already written by hand — for an
+    /// event, with nothing recorded: the recording goes into them.
     public func startMeeting(event: MeetingEvent? = nil, join: Bool = false,
-                             callApp: CallApp? = nil) {
+                             callApp: CallApp? = nil, continuing: URL? = nil) {
         guard !isMeetingActive, !isStartingMeeting else {
             showMeetingWindow()
             return
@@ -34,10 +37,15 @@ extension AppCoordinator {
                 await calendar.requestAccess()
             }
             calendar.refresh()
-            let event = event ?? calendar.current
+            // Notes being carried on are named and peopled already; the
+            // calendar's current event is not asked.
+            let existing = continuing.flatMap { url in
+                (library ?? MeetingLibrary(folder: url.deletingLastPathComponent())).record(at: url)
+            }
+            let event = existing == nil ? (event ?? calendar.current) : event
 
             let session = MeetingSession(
-                title: event?.title ?? Self.defaultMeetingTitle(),
+                title: existing?.title ?? event?.title ?? Self.defaultMeetingTitle(),
                 folder: MeetingMarkdown.folder(customPath: settings.meetingsFolderPath),
                 queue: engine,
                 model: model,
@@ -47,15 +55,16 @@ extension AppCoordinator {
                     initialPrompt: TranscriptFormatter.initialPrompt(
                         from: TranscriptFormatter.meetingVocabulary(
                             user: settings.customVocabulary,
-                            title: event?.title,
-                            attendees: event?.attendees ?? []))),
+                            title: existing?.title ?? event?.title,
+                            attendees: existing?.attendees ?? event?.attendees ?? []))),
                 sensitivity: settings.vadSensitivity,
                 micDeviceUID: settings.inputDeviceUID)
-            session.titleIsPlaceholder = event == nil
+            session.titleIsPlaceholder = event == nil && existing == nil
             session.keepsAudio = settings.meetingAudio != .off
             equip(session)
             session.currentModel = { [weak self] in self?.activeModel }
             if let event { session.apply(event) }
+            if let existing, let continuing { session.adopt(existing, at: continuing) }
             if join, let url = event?.joinURL {
                 NSWorkspace.shared.open(url)
             }
@@ -104,6 +113,20 @@ extension AppCoordinator {
             session.suggestTitle = {
                 await MeetingSummarizer.title(forSummary: $0, with: model)
             }
+        }
+    }
+
+    /// Notes for a calendar event, written by hand: a file for it, with
+    /// nothing recorded, opened to be typed in. Recording can be started
+    /// from its page later, and goes into the same notes.
+    public func writeNotes(for event: MeetingEvent) {
+        let folder = MeetingMarkdown.folder(customPath: settingsStore.settings.meetingsFolderPath)
+        do {
+            let url = try MeetingMarkdown.write(MeetingRecord.notes(for: event), to: folder)
+            library?.reload()
+            showLibrary(selecting: .meeting(url))
+        } catch {
+            meetingProblem = "The notes could not be made: \(error.localizedDescription)"
         }
     }
 

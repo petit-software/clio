@@ -93,7 +93,19 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// One capsule for both of the card's buttons, in the fill it is given.
+private struct OfferButtonStyle: ButtonStyle {
+    let fill: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(fill.opacity(configuration.isPressed ? 0.8 : 1), in: Capsule())
+    }
+}
+
 struct MeetingOfferView: View {
+    static let buttonHeight: CGFloat = 32
+
     let title: String?
     let appName: String
     let accept: () -> Void
@@ -115,23 +127,32 @@ struct MeetingOfferView: View {
                     .foregroundStyle(palette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // Two buttons of one size: half the card each, one height. They
+            // were two styles — the system's glass, which pads its label,
+            // and the card's own ink, which does not — and the one that
+            // mattered came out the smaller.
             HStack(spacing: 8) {
                 Button(action: decline) {
                     Text("Not Now")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(palette.primaryText)
-                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: Self.buttonHeight)
+                        .contentShape(Capsule())
                 }
-                .introGlassButton(.utility, palette: palette)
+                .buttonStyle(OfferButtonStyle(fill: palette.primaryText.opacity(0.1)))
 
                 Button(action: accept) {
                     Text("Take Notes")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(palette.inkLabel)
-                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: Self.buttonHeight)
+                        .contentShape(Capsule())
                 }
-                .introGlassButton(.prominent, palette: palette)
+                .buttonStyle(OfferButtonStyle(fill: palette.ink))
             }
+            .focusEffectDisabled()
         }
         .padding(14)
         .frame(width: MeetingOfferController.size.width - 2,

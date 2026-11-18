@@ -538,7 +538,8 @@ struct LibraryView: View {
             }
         case .event(let id):
             if let event = dayEvents.first(where: { $0.id == id }) {
-                EventView(event: event, coordinator: coordinator)
+                EventView(event: event, coordinator: coordinator,
+                          sidebarShown: columns != .detailOnly)
             } else {
                 nothingSelected
             }
@@ -686,6 +687,10 @@ private struct EventRow: View {
 private struct EventView: View {
     let event: MeetingEvent
     let coordinator: AppCoordinator
+    /// With the sidebar open its Take Notes is the window's one ink
+    /// button, and the page's is grey beside it; with it hidden the
+    /// page's is the only one there is, and takes the ink.
+    let sidebarShown: Bool
 
     private var isOver: Bool { event.end < Date() }
 
@@ -714,17 +719,25 @@ private struct EventView: View {
                                      chevronSize: 9)
                         .font(.system(size: 13))
                         .padding(.top, 2)
-                    joinButton
-                        .padding(.top, 24)
+                    // Notes by hand, or notes taken from the call.
+                    HStack(spacing: 10) {
+                        writeButton
+                        joinButton
+                    }
+                    .padding(.top, 24)
                 }
                 .padding(.horizontal, 28)
                 // Nothing on the page asks for the keyboard: without this
                 // the window's focus ring lands on "2 participants".
                 .focusEffectDisabled()
             } else {
-                Text("No notes were taken for this meeting.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 16) {
+                    Text("No notes were taken for this meeting.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    writeButton
+                }
+                .focusEffectDisabled()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -754,35 +767,38 @@ private struct EventView: View {
         }
     }
 
-    /// One button: joining the call when there is one to join, just the
-    /// notes when there is not (a meeting in a room).
-    private var joinButton: some View {
+    /// Notes for the event written by hand, nothing recorded. Recording
+    /// can be started from the notes' own page afterwards.
+    private var writeButton: some View {
         Button {
+            coordinator.writeNotes(for: event)
+        } label: {
+            PageButtonLabel(title: "Write Notes", dot: false, ink: false)
+        }
+        .buttonStyle(PageButtonStyle(ink: false))
+        .fixedSize()
+        .help("Write notes for this event without recording it")
+    }
+
+    /// Notes taken from the call: joining it when there is one to join,
+    /// just the notes when there is not (a meeting in a room). The
+    /// sidebar's record dot, since it is the sidebar's button on a page.
+    private var joinButton: some View {
+        let ink = !sidebarShown
+        return Button {
             coordinator.startMeeting(event: event, join: event.joinURL != nil)
         } label: {
-            // As wide as what it says, with four points more room at its
-            // sides than above and below. The style draws only the ink
-            // capsule: the glass button style pads its label by an amount
-            // of its own, which nothing here can set.
-            Label(event.joinURL != nil ? "Join & Take Notes" : "Take Notes",
-                  systemImage: event.joinURL != nil ? "video.fill" : "record.circle")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                .lineLimit(1)
-                .padding(.vertical, Self.buttonPadding)
-                .padding(.horizontal, Self.buttonPadding + 4)
-                .contentShape(Capsule())
+            PageButtonLabel(title: event.joinURL != nil ? "Join & Take Notes" : "Take Notes",
+                            dot: true, ink: ink)
         }
-        .buttonStyle(TakeNotesButtonStyle())
+        .buttonStyle(PageButtonStyle(ink: ink))
         .fixedSize()
+        .help(event.joinURL != nil ? "Join the call and record notes for it" : "Record notes for this meeting")
     }
 
     static func when(_ event: MeetingEvent) -> String {
         whenLine(start: event.start, end: event.end)
     }
-
-    /// Room above and below the button's label.
-    static let buttonPadding: CGFloat = 10
 
     /// "Wednesday, 18 November 2026 at 09:45": the part of `when` before
     /// how long it runs.
@@ -971,7 +987,29 @@ struct MeetingDocumentView: View {
                     PaneMenu(panes: panes(record), pane: $pane)
                 }
             } center: {
-                if player.hasAudio { PlayerControl(player: player) }
+                if player.hasAudio {
+                    PlayerControl(player: player)
+                } else if record.lines.isEmpty, !coordinator.isMeetingActive {
+                    // Notes written by hand, nothing recorded yet: the
+                    // recording can be started here, and goes into them.
+                    Button {
+                        flush()
+                        coordinator.startMeeting(continuing: url)
+                    } label: {
+                        HStack(spacing: 7) {
+                            Circle().fill(Color(nsColor: .textColor)).frame(width: 9, height: 9)
+                            Text("Record")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Color(nsColor: .textColor))
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 35)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .background(BarFill.colour, in: Capsule())
+                    .help("Record this meeting; the transcript and summary join these notes")
+                }
             } trailing: {
                 CopyButton(help: pane.copyHelp) { TextInjector.copy(pane.text(of: record)) }
                 // Everything else about the file, beside Copy.
@@ -1302,6 +1340,49 @@ private struct VoiceNamePopover: View {
             name = current?.name ?? ""
             focused = true
         }
+    }
+}
+
+/// A button on a page — an event's Take Notes and Write Notes: as wide as
+/// what it says, with four points more room at its sides than above and
+/// below, the sidebar's record dot where it records. In ink where it is
+/// the window's main button; grey with an ink label where it is not.
+struct PageButtonLabel: View {
+    let title: String
+    let dot: Bool
+    let ink: Bool
+
+    /// Room above and below the label.
+    static let vertical: CGFloat = 10
+
+    private var colour: Color {
+        ink ? Color(nsColor: .windowBackgroundColor) : Color(nsColor: .textColor)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if dot {
+                Circle().fill(colour).frame(width: 10, height: 10)
+            }
+            Text(title)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(colour)
+                .lineLimit(1)
+        }
+        .padding(.vertical, Self.vertical)
+        .padding(.horizontal, Self.vertical + 4)
+        .contentShape(Capsule())
+    }
+}
+
+struct PageButtonStyle: ButtonStyle {
+    let ink: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(ink ? Color(nsColor: .textColor).opacity(configuration.isPressed ? 0.75 : 1)
+                            : Color.primary.opacity(configuration.isPressed ? 0.14 : 0.08),
+                        in: Capsule())
     }
 }
 
