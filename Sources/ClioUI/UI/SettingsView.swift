@@ -1401,6 +1401,10 @@ private struct AboutTab: View {
                         .foregroundStyle(.orange)
                 }
             }
+
+            if AppCoordinator.isDeveloperBuild {
+                DeveloperSection(coordinator: coordinator)
+            }
         }
         .formStyle(.grouped)
     }
@@ -1409,6 +1413,50 @@ private struct AboutTab: View {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
         return "\(short ?? "0.1") (\(build ?? "1"))"
+    }
+}
+
+/// Everything that pops up, on request: the onboarding card, the dictation
+/// pill in each of its endings, and the three meeting cards. Each is the
+/// real one, with nothing behind it — no call, no calendar, no microphone
+/// — so its look and its timing can be judged without arranging for the
+/// thing that causes it. Only in builds that are not releases.
+private struct DeveloperSection: View {
+    let coordinator: AppCoordinator
+
+    var body: some View {
+        Section {
+            LabeledContent("Onboarding") {
+                HStack(spacing: 8) {
+                    Button("Welcome") { coordinator.showIntro?(.welcome) }
+                    Button("Setup") { coordinator.showIntro?(.setup) }
+                }
+            }
+            LabeledContent("Dictation pill") {
+                HStack(spacing: 8) {
+                    Button("Dictation") { coordinator.previewDictation() }
+                    Button("Nothing Heard") { coordinator.previewNothingHeard() }
+                    Button("Error") { coordinator.previewDictationError() }
+                }
+            }
+            LabeledContent("Meeting cards") {
+                HStack(spacing: 8) {
+                    Button("Call Detected") { coordinator.previewOffer(.call) }
+                    Button("Call Starting") { coordinator.previewOffer(.calendar) }
+                    Button("Call Ended") { coordinator.previewOffer(.countdown) }
+                }
+            }
+        } header: {
+            Text("Developer")
+        } footer: {
+            Text("Shows each popup as it really appears, with nothing behind it: no call, "
+                 + "nothing recorded, and buttons that only close it. The onboarding card is "
+                 + "the real one — its buttons do ask for permissions. This section is in "
+                 + "builds made with build-app.sh and not in releases.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .controlSize(.small)
     }
 }
 

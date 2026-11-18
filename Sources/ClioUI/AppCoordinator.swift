@@ -533,6 +533,53 @@ public final class AppCoordinator {
         endSession(with: .failed(message))
     }
 
+    // MARK: Previews — Settings ▸ About ▸ Developer
+
+    /// Shows the onboarding card at a step. The app delegate owns the
+    /// card's window and sets this.
+    public var showIntro: ((IntroStep) -> Void)?
+    private var pillPreview: Task<Void, Never>?
+
+    /// Plays the dictation pill through `steps` where Settings puts it —
+    /// each state for its seconds, then gone — with nothing recorded,
+    /// transcribed or pasted. Not during a real dictation.
+    public func previewPill(_ steps: [(state: DictationState, seconds: Double)]) {
+        guard state == .idle, let overlay else { return }
+        pillPreview?.cancel()
+        let settings = settingsStore.settings
+        overlay.apply(surface: Self.pillSurface(settings), size: settings.pillSize)
+        // Hidden in Settings is still worth seeing here.
+        overlay.show(position: settings.overlayPosition == OverlayPosition.none
+                     ? .bottomCenter : settings.overlayPosition)
+        pillPreview = Task { @MainActor [weak self] in
+            for step in steps {
+                guard let self, !Task.isCancelled, self.state == .idle else { break }
+                overlay.model.captureIsLive = step.state == .recording
+                overlay.update(state: step.state)
+                guard step.state == .recording else {
+                    try? await Task.sleep(for: .seconds(step.seconds))
+                    continue
+                }
+                // A voice that is not there: the meter moving as it would.
+                let began = Date()
+                while !Task.isCancelled, Date().timeIntervalSince(began) < step.seconds {
+                    let time = Date().timeIntervalSince(began)
+                    let level = Float(0.35 + 0.3 * sin(time * 7) * sin(time * 2.3))
+                    overlay.model.level = max(0, level)
+                    overlay.model.bands = (0..<5).map { band in
+                        max(0, min(1, level + 0.25 * Float(sin(time * (5 + Double(band) * 1.7)))))
+                    }
+                    try? await Task.sleep(for: .milliseconds(33))
+                }
+            }
+            guard let self, self.state == .idle else { return }
+            overlay.model.level = 0
+            overlay.model.bands = []
+            overlay.model.captureIsLive = false
+            overlay.update(state: .idle)
+        }
+    }
+
     private func endSession(with outcome: DictationState) {
         sessionToken &+= 1
         transcriptionTask?.cancel()

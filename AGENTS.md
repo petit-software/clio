@@ -105,6 +105,7 @@ CLIO_METER_DUMP=/tmp/meter CLIO_METER_VOICE=voice.wav swift test --filter MeterD
 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio      # start/stop 40 times in a hurry on each built-in and USB input, then listen to it, then switch between them; from the bundle, not swift run
 CLIO_RECORDER_STRESS_ALL=1 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio   # the same, on Bluetooth headsets and iPhones too — ask whoever is wearing them first
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
+CLIO_PREVIEW=countdown swift run Clio                     # one of Settings ▸ About ▸ Developer's previews, without the click: dictation, nothing, error, call, calendar, countdown, welcome, setup
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
 CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a given tab
 CLIO_SETTINGS_HEIGHT=1000 CLIO_MEMORY_GB=8 CLIO_SETTINGS_TAB=model CLIO_SETTINGS_SHOW=1 swift run Clio   # …tall enough to show the whole tab (nothing there can scroll it), as an 8 GB Mac would list the models
@@ -572,6 +573,16 @@ between them is drawn small. Stamped on Return, with when the line was
 begun (`insertText` remembers), only while a meeting records. Taken out
 wherever notes are read as words: the summary's prompt, the sidebar's
 preview, Copy, the MCP tools.
+
+**Every popup can be shown on request.** Settings ▸ About ▸ Developer —
+the onboarding card at either step, the dictation pill through a whole
+dictation, nothing heard and an error, and the three meeting cards — each
+the real view, with nothing behind it (`AppCoordinator+Previews`,
+`previewPill`). The section is in debug builds and in builds whose
+`CFBundleVersion` is still 1, which is every `build-app.sh` build and no
+release: `release.sh` stamps the commit count. A new popup belongs there
+the day it is written; the ones that existed before it were only ever seen
+by arranging a call.
 
 **One WhisperKit pipeline, two callers.** The engine is an actor, but actors
 re-enter at every `await` and `transcribe` awaits throughout: a dictation

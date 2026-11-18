@@ -259,6 +259,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         menuBar = MenuBarController(coordinator: coordinator) { [weak self] in self?.showSetup() }
+        #if DEBUG
+        // One of the Developer section's previews, without the click:
+        // dictation, nothing, error, call, calendar, countdown, welcome, setup.
+        if let which = ProcessInfo.processInfo.environment["CLIO_PREVIEW"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                switch which {
+                case "dictation": self.coordinator.previewDictation()
+                case "nothing": self.coordinator.previewNothingHeard()
+                case "error": self.coordinator.previewDictationError()
+                case "welcome": self.coordinator.showIntro?(.welcome)
+                case "setup": self.coordinator.showIntro?(.setup)
+                default:
+                    if let kind = AppCoordinator.OfferPreview(rawValue: which) {
+                        self.coordinator.previewOffer(kind)
+                    }
+                }
+            }
+        }
+        #endif
+        // For Settings ▸ About ▸ Developer: the card at either step, without
+        // starting the model download a first launch would.
+        coordinator.showIntro = { [weak self] step in
+            guard let self else { return }
+            self.intro.show(coordinator: self.coordinator, startingAt: step, startsDownload: false)
+        }
 
         #if DEBUG
         // The status menu, opened, so it can be looked at without a mouse.
