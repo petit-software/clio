@@ -214,19 +214,24 @@ struct LibraryView: View {
                     // A record dot and what it does. As wide as its words:
                     // the room at its sides is four points more than the
                     // room above and below.
+                    // While a meeting is on it only shows it, and is grey
+                    // with an ink label: the ink button is the one that
+                    // starts something.
+                    let label = liveMeeting == nil
+                        ? Color(nsColor: .windowBackgroundColor) : Color(nsColor: .textColor)
                     HStack(spacing: 7) {
                         Circle()
-                            .fill(Color(nsColor: .windowBackgroundColor))
+                            .fill(label)
                             .frame(width: 9, height: 9)
                         Text(liveMeeting == nil ? "Take Notes" : "Show Meeting")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                            .foregroundStyle(label)
                     }
                     .padding(.vertical, TakeNotesButtonStyle.vertical)
                     .padding(.horizontal, TakeNotesButtonStyle.vertical + 4)
                     .contentShape(Capsule())
                 }
-                    .buttonStyle(TakeNotesButtonStyle())
+                    .buttonStyle(TakeNotesButtonStyle(ink: liveMeeting == nil))
                     .fixedSize()
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
                 Spacer(minLength: 0)
@@ -1392,12 +1397,16 @@ struct TakeNotesButtonStyle: ButtonStyle {
     /// Above and below the label: with 13-point type, the 35 points the
     /// bar's other controls stand.
     static let vertical: CGFloat = 9.5
+    /// Ink, for the button that starts something; the bar's grey for one
+    /// that only shows what is already going on.
+    var ink = true
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             // Ink itself — black, or white in the dark — not the label
             // colour, which is a charcoal a shade short of it.
-            .background(Color(nsColor: .textColor).opacity(configuration.isPressed ? 0.75 : 1),
+            .background(ink ? Color(nsColor: .textColor).opacity(configuration.isPressed ? 0.75 : 1)
+                            : Color.primary.opacity(configuration.isPressed ? 0.14 : 0.08),
                         in: Capsule())
     }
 }
