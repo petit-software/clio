@@ -70,7 +70,7 @@ swift test                                  # 276 tests, 37 suites, no network (
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
-./scripts/generate-cask.sh                  # the Homebrew cask for that DMG, into packaging/homebrew/
+./scripts/generate-cask.sh                  # the Homebrew cask for that DMG, into Casks/ — this repo is its own tap
 xcodegen generate && open Clio.xcodeproj    # Xcode: run, debug, profile, ⌘U
 ```
 
@@ -161,9 +161,10 @@ Scripted, but the order matters:
 4. `gh release create vX.Y dist/Clio-X.Y.dmg --repo petit-software/clio`
 5. **Then** `cp dist/appcast.xml docs/appcast.xml`, commit, push.
 
-6. `scripts/generate-cask.sh`, and the cask into the tap — if there is one
-   yet; see `packaging/homebrew/README.md`. After the release exists, for
-   the appcast's reason.
+6. `scripts/generate-cask.sh`, then commit and push `Casks/clio.rb` with
+   the appcast. This repository is its own Homebrew tap (`Casks/` at its
+   root), so the cask is live when it is on `main` — after the release
+   exists, for the appcast's reason.
 
 Step 5 last of those that are served, always. An appcast naming a download that does not exist yet turns
 every running copy's update check into a failure.
@@ -845,8 +846,10 @@ Not verified, and worth knowing:
   meeting stops itself.** Decided in tests (`CallWatch.starting`); neither
   has been seen, and the countdown changes what happened before: the
   meeting stopped at once.
-- **the Homebrew cask.** Written and syntax-checked; not run through
-  `brew audit`, and there is no tap to install it from.
+- **the Homebrew cask.** `Casks/clio.rb`, written and syntax-checked; not
+  run through `brew audit`, and nobody has run `brew tap petit-software/clio
+  https://github.com/petit-software/clio` against it — it is not on `main`
+  yet.
 - **a note's time, written in a real meeting.** The editing check stamps
   lines and finds a click; nobody has typed notes during a recording and
   then clicked a time to hear it.

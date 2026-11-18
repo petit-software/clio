@@ -62,6 +62,18 @@ Working end to end, signed, notarized and updating itself through Sparkle.
 | Meetings | mic + system audio (process tap), calendar (EventKit), live transcript, Markdown, on-device summary (Apple Intelligence or a downloaded GGUF via llama.cpp) |
 | Distribution | Developer ID signed, notarized, stapled DMG, Sparkle updates |
 
+## Install with Homebrew
+
+```sh
+brew tap petit-software/clio https://github.com/petit-software/clio
+brew install --cask clio
+```
+
+The cask is `Casks/clio.rb` in this repository, which is its own tap; the
+address is needed because the repository is not named `homebrew-…`. It
+installs the same notarized DMG as the release page, and Clio updates
+itself from then on.
+
 ## Build
 
 ```sh

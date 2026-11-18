@@ -1,13 +1,23 @@
 #!/bin/bash
-# Writes the Homebrew cask for a release: packaging/homebrew/clio.rb, from
-# the notarized DMG in dist/ — the same file that was uploaded to GitHub.
+# Writes the Homebrew cask for a release: Casks/clio.rb, from the notarized
+# DMG in dist/ — the same file that was uploaded to GitHub.
+#
+# The cask lives in this repository, which is its own tap: Homebrew reads
+# casks from a Casks/ folder at the root of any repository it is pointed at.
+#
+#   brew tap petit-software/clio https://github.com/petit-software/clio
+#   brew install --cask clio
+#
+# The address is given because the repository is not named homebrew-…, which
+# is the only kind Homebrew finds by name.
 #
 #   scripts/generate-cask.sh            # the version in Resources/Info.plist
 #   scripts/generate-cask.sh 1.6
 #
 # After release.sh and the GitHub release, like the appcast: a cask that
 # names a download that does not exist yet fails for everyone who installs.
-# The file it writes is then copied into the tap (see packaging/homebrew/README.md).
+# Commit and push what it writes with the appcast: the cask is live the
+# moment it is on the default branch.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,8 +26,8 @@ DMG="dist/Clio-${VERSION}.dmg"
 [ -f "$DMG" ] || { echo "No $DMG — run scripts/release.sh first." >&2; exit 1; }
 SHA="$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
 
-mkdir -p packaging/homebrew
-cat > packaging/homebrew/clio.rb <<CASK
+mkdir -p Casks
+cat > Casks/clio.rb <<CASK
 cask "clio" do
   version "${VERSION}"
   sha256 "${SHA}"
@@ -52,4 +62,4 @@ cask "clio" do
   EOS
 end
 CASK
-echo "Wrote packaging/homebrew/clio.rb for ${VERSION} (${SHA})"
+echo "Wrote Casks/clio.rb for ${VERSION} (${SHA})"
