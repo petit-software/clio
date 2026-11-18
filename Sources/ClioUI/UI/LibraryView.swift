@@ -218,11 +218,12 @@ struct LibraryView: View {
                     // A record dot and what it does. As wide as its words:
                     // the room at its sides is four points more than the
                     // room above and below.
+                    // The pill's ring lime, with a black dot and label in
+                    // either appearance: the lime is as light in the dark.
                     // While a meeting is on it only shows it, and is grey
-                    // with an ink label: the ink button is the one that
+                    // with an ink label: the lime button is the one that
                     // starts something.
-                    let label = liveMeeting == nil
-                        ? Color(nsColor: .windowBackgroundColor) : Color(nsColor: .textColor)
+                    let label = liveMeeting == nil ? Color.black : Color(nsColor: .textColor)
                     HStack(spacing: 7) {
                         Circle()
                             .fill(label)
@@ -1399,21 +1400,22 @@ struct PageButtonStyle: ButtonStyle {
     }
 }
 
-/// Take Notes: an ink capsule, as wide as what it says. The label brings
+/// Take Notes: a capsule in the pill's ring lime, as wide as what it says. The label brings
 /// its own padding — the sides four points more than top and bottom.
 struct TakeNotesButtonStyle: ButtonStyle {
     /// Above and below the label: with 13-point type, the 35 points the
     /// bar's other controls stand.
     static let vertical: CGFloat = 9.5
-    /// Ink, for the button that starts something; the bar's grey for one
+    /// Lime, for the button that starts something; the bar's grey for one
     /// that only shows what is already going on.
     var ink = true
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            // Ink itself — black, or white in the dark — not the label
-            // colour, which is a charcoal a shade short of it.
-            .background(ink ? Color(nsColor: .textColor).opacity(configuration.isPressed ? 0.75 : 1)
+            // The lime the activity ring sweeps through while a dictation
+            // is transcribed (`ActivityRing.lime`); the label on it is
+            // black, set where the label is made.
+            .background(ink ? ActivityRing.lime.opacity(configuration.isPressed ? 0.75 : 1)
                             : Color.primary.opacity(configuration.isPressed ? 0.14 : 0.08),
                         in: Capsule())
     }

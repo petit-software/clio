@@ -497,6 +497,9 @@ struct ActivityRing: View {
         Color(red: 0xF1/255, green: 0xF3/255, blue: 0xEA/255),   // the bars
         Color(red: 0xB3/255, green: 0xC5/255, blue: 0x7A/255),   // #B3C57A
     ]
+    /// The lime both ramps pass through: the ring's colour, where one
+    /// colour has to stand for it — the sidebar's Take Notes.
+    static let lime = Color(red: 0xDE/255, green: 0xF4/255, blue: 0x98/255)   // #DEF498
     /// One full turn. A transcription is about a second; this lets the ring
     /// be seen moving in that time without reading as a spin.
     static let period: TimeInterval = 1.8
