@@ -203,54 +203,31 @@ struct LibraryView: View {
         .focusEffectDisabled()
         .onKeyPress(.downArrow) { step(1) }
         .onKeyPress(.upArrow) { step(-1) }
-        // The foot of the sidebar: Take Notes and the day it shows.
+        // The head of the sidebar: the day it shows, and the way to another.
+        .safeAreaInset(edge: .top, spacing: 0) { dayHeader }
+        // The foot of the sidebar: Take Notes.
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
                 Button { coordinator.startMeeting() } label: {
-                    // The same disc as Copy across the split, filled with ink:
-                    // a record button, the one thing here that starts something.
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        // The window's colour on the ink, so it shows in either appearance.
-                        // Not `.background`: inside a tinted button that is the tint.
-                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                        .frame(width: 22, height: 22)
+                    // A record dot and what it does. As wide as its words:
+                    // the room at its sides is four points more than the
+                    // room above and below.
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(Color(nsColor: .windowBackgroundColor))
+                            .frame(width: 9, height: 9)
+                        Text(liveMeeting == nil ? "Take Notes" : "Show Meeting")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                    }
+                    .padding(.vertical, TakeNotesButtonStyle.vertical)
+                    .padding(.horizontal, TakeNotesButtonStyle.vertical + 4)
+                    .contentShape(Capsule())
                 }
-                    .accessibilityLabel("Take Notes")
-                    .buttonBorderShape(.circle)
-                    .controlSize(.large)
-                    .glassButton(prominent: true, tint: .primary)
+                    .buttonStyle(TakeNotesButtonStyle())
+                    .fixedSize()
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
                 Spacer(minLength: 0)
-                // Three buttons on one piece of glass, nothing drawn
-                // between them. Each arrow is clickable over the whole
-                // height of the glass and out to its end, not just the
-                // few points of the glyph.
-                HStack(spacing: 0) {
-                    Button { move(-1) } label: { dayArrow(.chevronBack) }
-                        .accessibilityLabel("Previous Day")
-                        .help("Previous day (⌘[)")
-                        .keyboardShortcut("[", modifiers: .command)
-                    Button(dayTitle) { coordinator.libraryDay = Self.today }
-                        .help(isToday ? "Today" : "Back to today")
-                        .font(.system(size: 13, weight: .medium))
-                        // Ink, not the borderless button's grey.
-                        .foregroundStyle(Color.primary)
-                        // Wide enough for "Yesterday", so the control keeps
-                        // its width whatever day it shows.
-                        .frame(width: 72)
-                    Button { move(1) } label: { dayArrow(.chevronForward) }
-                        .accessibilityLabel("Next Day")
-                        .help("Next day (⌘])")
-                        .keyboardShortcut("]", modifiers: .command)
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .controlSize(.large)
-                .fixedSize()
-                // The arrows' frames are the capsule's padding now.
-                .padding(.horizontal, -14)
-                .footCapsule()
             }
             // The same insets as a document's bar, so the two line up
             // across the split.
@@ -280,13 +257,68 @@ struct LibraryView: View {
     private static var today: Date { Calendar.current.startOfDay(for: Date()) }
     private var isToday: Bool { Calendar.current.isDateInToday(coordinator.libraryDay) }
 
+    /// "18 Nov": the day the sidebar shows, always as a date.
     private var dayTitle: String {
+        coordinator.libraryDay.formatted(.dateTime.day().month(.abbreviated))
+    }
+
+    /// "Today", "Yesterday" or "Tomorrow", for the days that have a name.
+    private var dayName: String? {
         let day = coordinator.libraryDay
         let calendar = Calendar.current
         if calendar.isDateInToday(day) { return "Today" }
         if calendar.isDateInYesterday(day) { return "Yesterday" }
         if calendar.isDateInTomorrow(day) { return "Tomorrow" }
-        return day.formatted(.dateTime.day().month(.abbreviated))
+        return nil
+    }
+
+    /// Over the list: the date on the left — with the day's name above it
+    /// when it has one, in a section title's type — and the arrows to the
+    /// days either side on the right. The name's line is always there,
+    /// empty or not, so the date does not move as the days go by.
+    private var dayHeader: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            Button { coordinator.libraryDay = Self.today } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(dayName ?? "Today")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .opacity(dayName == nil ? 0 : 1)
+                    Text(dayTitle)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Color.primary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isToday ? "Today" : "Back to today")
+            .accessibilityLabel([dayName, dayTitle].compactMap { $0 }.joined(separator: ", "))
+            Spacer(minLength: 0)
+            // Two arrows on one piece of glass, nothing drawn between
+            // them. Each is clickable over the whole height of the glass
+            // and out to its end, not just the few points of the glyph.
+            HStack(spacing: 0) {
+                Button { move(-1) } label: { dayArrow(.chevronBack) }
+                    .accessibilityLabel("Previous Day")
+                    .help("Previous day (⌘[)")
+                    .keyboardShortcut("[", modifiers: .command)
+                Button { move(1) } label: { dayArrow(.chevronForward) }
+                    .accessibilityLabel("Next Day")
+                    .help("Next day (⌘])")
+                    .keyboardShortcut("]", modifiers: .command)
+            }
+            .buttonStyle(.borderless)
+            .fixedSize()
+            // The arrows' frames are the capsule's padding now.
+            .padding(.horizontal, -14)
+            .footCapsule()
+        }
+        // In line with the section titles under it, and with the foot.
+        .padding(.leading, 26)
+        .padding(.trailing, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     /// A day arrow in a frame the height of the glass, wide enough to
@@ -294,7 +326,7 @@ struct LibraryView: View {
     /// put it before.
     private func dayArrow(_ icon: LibraryIcon) -> some View {
         Chevron(icon: icon)
-            .frame(width: 32, height: 35)
+            .frame(width: 34, height: 35)
             .contentShape(Rectangle())
     }
 
@@ -1210,6 +1242,19 @@ private struct VoiceNamePopover: View {
             name = current?.name ?? ""
             focused = true
         }
+    }
+}
+
+/// Take Notes: an ink capsule, as wide as what it says. The label brings
+/// its own padding — the sides four points more than top and bottom.
+struct TakeNotesButtonStyle: ButtonStyle {
+    /// Above and below the label: with 13-point type, the 35 points the
+    /// bar's other controls stand.
+    static let vertical: CGFloat = 9.5
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.primary.opacity(configuration.isPressed ? 0.75 : 1), in: Capsule())
     }
 }
 
