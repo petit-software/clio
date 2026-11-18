@@ -543,8 +543,17 @@ enum MarkdownStyle {
         return style
     }
 
+    /// What a page is written in — notes, summaries, dictations, the
+    /// transcript: #242424, a shade off the black its first heading keeps.
+    /// In the dark, where #242424 is the page, the label colour.
+    static let ink = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? .labelColor
+            : NSColor(srgbRed: 0x24 / 255, green: 0x24 / 255, blue: 0x24 / 255, alpha: 1)
+    }
+
     static var base: [NSAttributedString.Key: Any] {
-        [.font: body, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+        [.font: body, .foregroundColor: ink, .paragraphStyle: paragraph]
     }
 
     static func headingFont(_ level: Int) -> NSFont {
@@ -595,6 +604,10 @@ enum MarkdownStyle {
             switch span.kind {
             case .heading(let level):
                 storage.addAttribute(.font, value: headingFont(level), range: span.range)
+                // The page's name, and only it, in the label colour.
+                if level == 1 {
+                    storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: span.range)
+                }
             case .bold:
                 storage.applyFontTraits(.boldFontMask, range: span.range)
             case .italic:

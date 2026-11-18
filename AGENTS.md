@@ -354,7 +354,7 @@ Nothing else goes in it: the sidebar's day sits at its head — the date
 there whether or not the day has a name, so nothing moves (`dayHeader`),
 with the list fading out under it as it does over the foot — Take Notes at
 its foot, and beside it the arrows to the days either side, shown only
-while the pointer is over the sidebar or the keyboard is in it; Take Notes is a capsule as
+while the pointer is over the sidebar; nothing along either foot is glass. Take Notes is a capsule as
 wide as its words with four points more at its sides than above and below
 (`TakeNotesButtonStyle`), and a document's controls along its own bottom
 (`DocumentBar`), floating over the page. An event's page — a call with no

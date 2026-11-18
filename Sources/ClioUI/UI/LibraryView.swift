@@ -184,7 +184,6 @@ struct LibraryView: View {
     }
 
     @State private var isOverSidebar = false
-    @FocusState private var sidebarHasFocus: Bool
 
     private var sidebar: some View {
         // No `selection:` — the list would draw its own, in the accent
@@ -203,7 +202,6 @@ struct LibraryView: View {
         .scrollContentBackground(.hidden)
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .focusable()
-        .focused($sidebarHasFocus)
         .focusEffectDisabled()
         .onKeyPress(.downArrow) { step(1) }
         .onKeyPress(.upArrow) { step(-1) }
@@ -233,8 +231,8 @@ struct LibraryView: View {
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
                 Spacer(minLength: 0)
                 // The way to the days either side: there while the pointer
-                // is over the sidebar or the keyboard is in it, gone
-                // otherwise. ⌘[ and ⌘] work either way.
+                // is over the sidebar, gone otherwise. ⌘[ and ⌘] work
+                // either way.
                 dayArrows
                     .opacity(showsDayArrows ? 1 : 0)
                     .allowsHitTesting(showsDayArrows)
@@ -323,9 +321,10 @@ struct LibraryView: View {
         }
     }
 
-    /// Whether the day's arrows show: the pointer over the sidebar, or the
-    /// keyboard in it.
-    private var showsDayArrows: Bool { isOverSidebar || sidebarHasFocus }
+    /// Whether the day's arrows show: only while the pointer is over the
+    /// sidebar. Not while the keyboard is in it — the sidebar has the
+    /// keyboard from the moment the window opens, so they never went away.
+    private var showsDayArrows: Bool { isOverSidebar }
 
     /// Two arrows on one piece of glass, nothing drawn between them. Each
     /// is clickable over the whole height of the glass and out to its end,
@@ -343,9 +342,10 @@ struct LibraryView: View {
         }
         .buttonStyle(.borderless)
         .fixedSize()
-        // The arrows' frames are the capsule's padding now.
+        // The arrows' frames are the capsule's padding now. Flat, as
+        // everything along either foot is: no glass.
         .padding(.horizontal, -14)
-        .footCapsule()
+        .barCapsule()
     }
 
     /// A day arrow in a frame the height of the glass, wide enough to
@@ -1162,6 +1162,7 @@ struct TranscriptList: View {
                     heading(line)
                     Text(line.text)
                         .font(.system(size: 13))
+                        .foregroundStyle(Color(nsColor: MarkdownStyle.ink))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
