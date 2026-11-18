@@ -669,18 +669,31 @@ private struct EventView: View {
         Group {
             if !isOver {
                 VStack(spacing: 0) {
+                    // The name breaks onto another line at 320 points,
+                    // rather than running the width of the page.
                     Text(event.title)
                         .font(.system(size: 22, weight: .bold))
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
-                    DocumentSubtitle(subtitle: Self.when(event), attendees: event.attendees,
+                        .frame(maxWidth: 320)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // When, on a line; then how long and who, on the next.
+                    Text(Self.day(event))
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.top, 6)
+                    DocumentSubtitle(subtitle: Self.length(event), attendees: event.attendees,
                                      chevronSize: 9)
                         .font(.system(size: 13))
-                        .padding(.top, 6)
+                        .padding(.top, 2)
                     joinButton
                         .padding(.top, 24)
                 }
                 .padding(.horizontal, 28)
+                // Nothing on the page asks for the keyboard: without this
+                // the window's focus ring lands on "2 participants".
+                .focusEffectDisabled()
             } else {
                 Text("No notes were taken for this meeting.")
                     .font(.system(size: 13))
@@ -720,22 +733,41 @@ private struct EventView: View {
         Button {
             coordinator.startMeeting(event: event, join: event.joinURL != nil)
         } label: {
+            // As wide as what it says, with four points more room at its
+            // sides than above and below. The style draws only the ink
+            // capsule: the glass button style pads its label by an amount
+            // of its own, which nothing here can set.
             Label(event.joinURL != nil ? "Join & Take Notes" : "Take Notes",
                   systemImage: event.joinURL != nil ? "video.fill" : "record.circle")
                 .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
                 .lineLimit(1)
-                .padding(.horizontal, 22)
-                .frame(minHeight: 34)
+                .padding(.vertical, Self.buttonPadding)
+                .padding(.horizontal, Self.buttonPadding + 4)
+                .contentShape(Capsule())
         }
-        .inkButton()
-        .buttonBorderShape(.capsule)
-        // The page's only control: it would take the window's
-        // focus ring just for being there.
-        .focusEffectDisabled()
+        .buttonStyle(TakeNotesButtonStyle())
+        .fixedSize()
     }
 
     static func when(_ event: MeetingEvent) -> String {
         whenLine(start: event.start, end: event.end)
+    }
+
+    /// Room above and below the button's label.
+    static let buttonPadding: CGFloat = 10
+
+    /// "Wednesday, 18 November 2026 at 09:45": the part of `when` before
+    /// how long it runs.
+    static func day(_ event: MeetingEvent) -> String {
+        let line = when(event)
+        return line.range(of: " · ").map { String(line[..<$0.lowerBound]) } ?? line
+    }
+
+    /// "30 min": the part of `when` after the date; nil without one.
+    static func length(_ event: MeetingEvent) -> String? {
+        let line = when(event)
+        return line.range(of: " · ").map { String(line[$0.upperBound...]) }
     }
 }
 
@@ -1254,7 +1286,10 @@ struct TakeNotesButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(Color.primary.opacity(configuration.isPressed ? 0.75 : 1), in: Capsule())
+            // Ink itself — black, or white in the dark — not the label
+            // colour, which is a charcoal a shade short of it.
+            .background(Color(nsColor: .textColor).opacity(configuration.isPressed ? 0.75 : 1),
+                        in: Capsule())
     }
 }
 

@@ -2,40 +2,16 @@ import SwiftUI
 import ClioCore
 
 /// A document's name and date, where the window's title would be: the
-/// name edited in place, no wider than `nameWidth`; under it the date; and
-/// under that how long it ran and, as a dropdown of its own, who was
-/// invited. Drawn by hand because the window's own title cannot take a
-/// menu when it is bridged from a hosting view — `toolbarTitleMenu` showed
-/// nothing.
+/// name edited in place; under it the date and, as a dropdown of its own,
+/// who was invited. Drawn by hand because the window's own title cannot
+/// take a menu when it is bridged from a hosting view — `toolbarTitleMenu`
+/// showed nothing.
 struct DocumentTitle: View {
     @Binding var title: String
     var isEditable = true
-    /// "When · how long": the part before the first " · " is the date's
-    /// line, the rest goes on the line under it with who was invited.
     let subtitle: String
     /// Nil leaves the chevron out — a dictation has no one invited.
     var attendees: [MeetingAttendee]?
-
-    /// The most room a name takes. A longer one is cut off there, with
-    /// the rest a click and an arrow key away, rather than pushing the
-    /// search button off the toolbar.
-    static let nameWidth: CGFloat = 320
-    private static let nameFont = NSFont.systemFont(ofSize: 13, weight: .bold)
-
-    /// The name's own width, up to `nameWidth`.
-    private var width: CGFloat {
-        let measured = (title.isEmpty ? "Meeting" : title as NSString)
-            .size(withAttributes: [.font: Self.nameFont]).width
-        return min(Self.nameWidth, ceil(measured) + 4)
-    }
-
-    private var when: String {
-        subtitle.range(of: " · ").map { String(subtitle[..<$0.lowerBound]) } ?? subtitle
-    }
-
-    private var detail: String? {
-        subtitle.range(of: " · ").map { String(subtitle[$0.upperBound...]) }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -44,25 +20,16 @@ struct DocumentTitle: View {
                 if isEditable {
                     TextField("Meeting", text: $title)
                         .textFieldStyle(.plain)
-                        .frame(width: width)
+                        .fixedSize()
                 } else {
                     Text(title)
                         .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: Self.nameWidth, alignment: .leading)
                 }
             }
             .font(.system(size: 13, weight: .bold))
             .foregroundStyle(Color.primary)
-            Text(when)
-                .lineLimit(1)
+            DocumentSubtitle(subtitle: subtitle, attendees: attendees)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            // How long, and who: a line of their own, when there is either.
-            if detail != nil || !(attendees ?? []).isEmpty {
-                DocumentSubtitle(subtitle: detail, attendees: attendees)
-                    .font(.system(size: 11))
-            }
         }
         // Its whole width, or the toolbar clips the date; in from the
         // sidebar's edge by the margin the window's own title kept.

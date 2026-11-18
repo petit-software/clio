@@ -355,8 +355,10 @@ there whether or not the day has a name, so nothing moves, and the two
 arrows on the right (`dayHeader`) — Take Notes at its foot, a capsule as
 wide as its words with four points more at its sides than above and below
 (`TakeNotesButtonStyle`), and a document's controls along its own bottom
-(`DocumentBar`), floating over the page. The title is three lines: the
-name, cut off at 320 points; the date; then how long and who. The button was drawn by hand as an overlay for one
+(`DocumentBar`), floating over the page. An event's page — a call with no
+notes yet — has its name breaking at 320 points, the date under it, how
+long and who on the line after, and a Take Notes button padded like the
+sidebar's. The button was drawn by hand as an overlay for one
 commit; laid out past the title bar's safe area it sat wrong and looked it.
 
 **`scrollIndicators(.hidden)` does nothing on it either.** A `List` on macOS
