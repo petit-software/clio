@@ -99,7 +99,7 @@ struct PlayerControl: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .background(Color.primary.opacity(0.08), in: Capsule())
+        .background(BarFill.colour, in: Capsule())
         .help(player.isPlaying ? "Pause" : "Play the meeting's audio. Click a time in the transcript to play from there.")
     }
 }

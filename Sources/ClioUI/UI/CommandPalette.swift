@@ -112,8 +112,10 @@ struct CommandPalette: View {
             // sidebar show faintly through.
             .background(Color(nsColor: .textBackgroundColor),
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            // A hairline round it, a little darker than the shadow it
+            // casts, so its edge is drawn and not only implied.
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.1)))
+                .strokeBorder(Color.primary.opacity(0.34), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.18), radius: 30, y: 12)
             .padding(.top, 72)
             .padding(.horizontal, 20)

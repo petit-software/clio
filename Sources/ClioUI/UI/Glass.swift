@@ -34,6 +34,19 @@ extension View {
         }
     }
 
+    /// A flat disc, for a control along a document's foot: no glass, the
+    /// fill the playback control beside it has.
+    func barDisc() -> some View {
+        background(BarFill.colour, in: Circle())
+    }
+
+    /// The same in a capsule, the height of the discs beside it.
+    func barCapsule() -> some View {
+        padding(.horizontal, 14)
+            .frame(height: 35)
+            .background(BarFill.colour, in: Capsule())
+    }
+
     /// The same in a capsule.
     @ViewBuilder
     func glassCapsule() -> some View {
@@ -107,6 +120,24 @@ struct GlassGroup<Content: View>: View {
     }
 }
 
+/// What the controls along a document's foot stand on — the pane
+/// pull-down, playback, Copy, the ⋯: one flat fill for all of them, and no
+/// glass.
+enum BarFill {
+    static let colour = Color.primary.opacity(0.08)
+}
+
+/// The ink of the two glyphs in the window's toolbar, the sidebar button
+/// and search: #333 — and, where the window is dark and #333 would be
+/// lost, the same distance from white.
+enum ToolbarInk {
+    static let colour = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.8, alpha: 1)
+            : NSColor(srgbRed: 0x33 / 255, green: 0x33 / 255, blue: 0x33 / 255, alpha: 1)
+    })
+}
+
 /// Search, top right of the window, on every page. A flexible space
 /// pushes it there: on macOS a placement alone puts it at the leading
 /// edge, beside the title. A document's ⋯ is along its foot, beside Copy.
@@ -137,7 +168,7 @@ struct SearchButton: View {
         if let openSearch {
             Button(action: openSearch) {
                 Glyph(icon: .search, size: 20)
-                    .foregroundStyle(Chevron.colour)
+                    .foregroundStyle(ToolbarInk.colour)
                     .frame(width: 35, height: 35)
                     .contentShape(Circle())
             }
@@ -236,7 +267,7 @@ struct PaneMenu: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .padding(.horizontal, -14)
-        .footCapsule()
+        .barCapsule()
     }
 }
 
@@ -290,7 +321,7 @@ struct MoreMenu<Content: View>: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .glassDisc()
+        .barDisc()
         .help("More")
         .accessibilityLabel("More")
     }
@@ -333,7 +364,7 @@ struct CopyButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .glassDisc()
+        .barDisc()
         .help(help)
         .accessibilityLabel(help)
     }

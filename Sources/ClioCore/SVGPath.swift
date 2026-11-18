@@ -4,7 +4,8 @@ import Foundation
 /// The `d` attribute of an SVG `<path>`, as a CGPath.
 ///
 /// Enough of the grammar for what an icon editor exports: moves, lines,
-/// horizontals, verticals, cubic curves and closes, absolute or relative,
+/// horizontals, verticals, cubic and quadratic curves and closes, absolute
+/// or relative,
 /// with the implicit line-to after a move. Anything else is a programmer
 /// error — the data is ours, embedded in the source and checked by the tests
 /// — so it stops rather than drawing something subtly wrong.
@@ -76,6 +77,11 @@ public enum SVGPath {
                 let control2 = point(number(), number())
                 let to = point(number(), number())
                 path.addCurve(to: to, control1: control1, control2: control2)
+                current = to
+            case "Q":
+                let control = point(number(), number())
+                let to = point(number(), number())
+                path.addQuadCurve(to: to, control: control)
                 current = to
             default:
                 preconditionFailure("SVG path: unsupported command \(letter)")

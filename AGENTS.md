@@ -351,8 +351,10 @@ Search is pushed to the trailing edge by a flexible space
 (`SearchToolbarItem`); a placement alone lands beside the title.
 Nothing else goes in it: the sidebar's day sits at its head — the date
 ("18 Nov"), "Today" / "Yesterday" / "Tomorrow" over it in a line that is
-there whether or not the day has a name, so nothing moves, and the two
-arrows on the right (`dayHeader`) — Take Notes at its foot, a capsule as
+there whether or not the day has a name, so nothing moves (`dayHeader`),
+with the list fading out under it as it does over the foot — Take Notes at
+its foot, and beside it the arrows to the days either side, shown only
+while the pointer is over the sidebar or the keyboard is in it; Take Notes is a capsule as
 wide as its words with four points more at its sides than above and below
 (`TakeNotesButtonStyle`), and a document's controls along its own bottom
 (`DocumentBar`), floating over the page. An event's page — a call with no

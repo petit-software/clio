@@ -169,7 +169,7 @@ struct LibraryView: View {
         } label: {
             // The chevrons' grey, as Copy is.
             Glyph(icon: .sidebar, size: 20)
-                .foregroundStyle(Chevron.colour)
+                .foregroundStyle(ToolbarInk.colour)
         }
         // The system's button took no focus ring; nor does this one, which
         // is otherwise the first thing in the window to take focus.
@@ -182,6 +182,9 @@ struct LibraryView: View {
         guard let meeting = coordinator.meeting, meeting.phase != .finished else { return nil }
         return meeting
     }
+
+    @State private var isOverSidebar = false
+    @FocusState private var sidebarHasFocus: Bool
 
     private var sidebar: some View {
         // No `selection:` — the list would draw its own, in the accent
@@ -200,6 +203,7 @@ struct LibraryView: View {
         .scrollContentBackground(.hidden)
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .focusable()
+        .focused($sidebarHasFocus)
         .focusEffectDisabled()
         .onKeyPress(.downArrow) { step(1) }
         .onKeyPress(.upArrow) { step(-1) }
@@ -228,6 +232,13 @@ struct LibraryView: View {
                     .fixedSize()
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
                 Spacer(minLength: 0)
+                // The way to the days either side: there while the pointer
+                // is over the sidebar or the keyboard is in it, gone
+                // otherwise. ⌘[ and ⌘] work either way.
+                dayArrows
+                    .opacity(showsDayArrows ? 1 : 0)
+                    .allowsHitTesting(showsDayArrows)
+                    .animation(.easeOut(duration: 0.18), value: showsDayArrows)
             }
             // The same insets as a document's bar, so the two line up
             // across the split.
@@ -241,6 +252,7 @@ struct LibraryView: View {
                     .padding(.top, -28)
             }
         }
+        .onHover { isOverSidebar = $0 }
         // The day's events, read again when the day or the calendar changes.
         .task(id: DayKey(day: coordinator.libraryDay, revision: coordinator.calendar.revision)) {
             dayEvents = coordinator.dayEvents(on: coordinator.libraryDay)
@@ -272,10 +284,10 @@ struct LibraryView: View {
         return nil
     }
 
-    /// Over the list: the date on the left — with the day's name above it
-    /// when it has one, in a section title's type — and the arrows to the
-    /// days either side on the right. The name's line is always there,
-    /// empty or not, so the date does not move as the days go by.
+    /// Over the list: the date — with the day's name above it when it has
+    /// one, in a section title's type. The name's line is always there,
+    /// empty or not, so the date does not move as the days go by. The
+    /// arrows to the days either side are at the sidebar's foot.
     private var dayHeader: some View {
         HStack(alignment: .bottom, spacing: 8) {
             Button { coordinator.libraryDay = Self.today } label: {
@@ -291,34 +303,49 @@ struct LibraryView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // A click target, not a stop for the keyboard: focused, it drew
+            // the window's blue ring round the date.
+            .focusable(false)
             .help(isToday ? "Today" : "Back to today")
             .accessibilityLabel([dayName, dayTitle].compactMap { $0 }.joined(separator: ", "))
             Spacer(minLength: 0)
-            // Two arrows on one piece of glass, nothing drawn between
-            // them. Each is clickable over the whole height of the glass
-            // and out to its end, not just the few points of the glyph.
-            HStack(spacing: 0) {
-                Button { move(-1) } label: { dayArrow(.chevronBack) }
-                    .accessibilityLabel("Previous Day")
-                    .help("Previous day (⌘[)")
-                    .keyboardShortcut("[", modifiers: .command)
-                Button { move(1) } label: { dayArrow(.chevronForward) }
-                    .accessibilityLabel("Next Day")
-                    .help("Next day (⌘])")
-                    .keyboardShortcut("]", modifiers: .command)
-            }
-            .buttonStyle(.borderless)
-            .fixedSize()
-            // The arrows' frames are the capsule's padding now.
-            .padding(.horizontal, -14)
-            .footCapsule()
         }
-        // In line with the section titles under it, and with the foot.
+        // In line with the section titles under it.
         .padding(.leading, 26)
         .padding(.trailing, 16)
         .padding(.top, 4)
         .padding(.bottom, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
+        // What scrolls under the date fades into the sidebar before it
+        // reaches it, as under the foot.
+        .background {
+            EdgeFade(edge: .top)
+                .padding(.bottom, -28)
+        }
+    }
+
+    /// Whether the day's arrows show: the pointer over the sidebar, or the
+    /// keyboard in it.
+    private var showsDayArrows: Bool { isOverSidebar || sidebarHasFocus }
+
+    /// Two arrows on one piece of glass, nothing drawn between them. Each
+    /// is clickable over the whole height of the glass and out to its end,
+    /// not just the few points of the glyph.
+    private var dayArrows: some View {
+        HStack(spacing: 0) {
+            Button { move(-1) } label: { dayArrow(.chevronBack) }
+                .accessibilityLabel("Previous Day")
+                .help("Previous day (⌘[)")
+                .keyboardShortcut("[", modifiers: .command)
+            Button { move(1) } label: { dayArrow(.chevronForward) }
+                .accessibilityLabel("Next Day")
+                .help("Next day (⌘])")
+                .keyboardShortcut("]", modifiers: .command)
+        }
+        .buttonStyle(.borderless)
+        .fixedSize()
+        // The arrows' frames are the capsule's padding now.
+        .padding(.horizontal, -14)
+        .footCapsule()
     }
 
     /// A day arrow in a frame the height of the glass, wide enough to

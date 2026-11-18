@@ -42,4 +42,14 @@ struct SVGPathTests {
         #expect(!path.contains(CGPoint(x: 12, y: 14), using: .winding))
         #expect(!path.contains(CGPoint(x: 12, y: 8), using: .winding))
     }
+
+    @Test("Quadratic curves are read, absolute and relative")
+    func quadratics() {
+        // A curve from (0,0) to (10,0) pulled up to (5,10): half as high.
+        #expect(box("M0 0Q5 10 10 0") == CGRect(x: 0, y: 0, width: 10, height: 5))
+        #expect(box("M2 2q5 10 10 0") == CGRect(x: 2, y: 2, width: 10, height: 5))
+        // Two subpaths with no space between the close and the move.
+        let path = SVGPath.cgPath("M0 0Q5 10 10 0ZM20 0L30 0L30 5Z")
+        #expect(path.boundingBoxOfPath.maxX == 30)
+    }
 }
