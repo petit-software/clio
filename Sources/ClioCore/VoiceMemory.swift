@@ -27,6 +27,10 @@ public struct Voiceprint: Codable, Sendable, Equatable {
     public var vector: Data
     public var seconds: TimeInterval
     public var name: String?
+    /// The address the calendar had for whoever the name is, when the
+    /// meeting's invitation had one. What makes "Ana", "Ana R." and
+    /// "Ana Ruiz" one person for certain, and tells two Anas apart.
+    public var email: String?
     /// Whether the user gave the name, or accepted it.
     public var confirmed: Bool
     /// Which model made the vector. Two models' vectors mean different
@@ -34,7 +38,8 @@ public struct Voiceprint: Codable, Sendable, Equatable {
     public var space: String
 
     public init(meeting: String, voice: Int, date: Date, vector: [Float], seconds: TimeInterval,
-                name: String?, confirmed: Bool, space: String) {
+                name: String?, email: String? = nil, confirmed: Bool, space: String) {
+        self.email = email
         self.meeting = meeting
         self.voice = voice
         self.date = date
@@ -125,11 +130,35 @@ public struct VoiceprintMatcher: Sendable {
     /// The match for one voice, or nil when nothing heard before is near.
     /// `corpus` is other meetings' voiceprints; those of another model, or
     /// with no name, say nothing about who this is.
+    ///
+    /// `invitedEmails` are the addresses on this meeting's invitation: a
+    /// person known by one of them is invited, whatever name the calendar
+    /// shows for them this time.
     public func match(_ sample: VoiceSample, space: String, corpus: [Voiceprint],
-                      invited: [String] = []) -> VoiceMatch? {
+                      invited: [String] = [], invitedEmails: [String] = []) -> VoiceMatch? {
         let invited = Set(invited.map(Self.key))
+        let invitedEmails = Set(invitedEmails.map { $0.lowercased() })
         let named = corpus.filter { $0.space == space && !($0.name ?? "").isEmpty }
-        let people = Self.people(named.compactMap(\.name))
+        var people = Self.people(named.compactMap(\.name))
+        // An address settles who someone is: every name it has been seen
+        // with is the person its fullest name is.
+        var owner: [String: String] = [:]
+        for print in named {
+            guard let email = print.email?.lowercased(), !email.isEmpty,
+                  let name = print.name, let person = people[Self.key(name)] else { continue }
+            if let known = owner[email] {
+                if person.count > known.count { owner[email] = person }
+            } else {
+                owner[email] = person
+            }
+        }
+        var emails: [String: Set<String>] = [:]
+        for print in named {
+            guard let email = print.email?.lowercased(), let person = owner[email],
+                  let name = print.name else { continue }
+            people[Self.key(name)] = person
+            emails[person, default: []].insert(email)
+        }
 
         // What each named voiceprint within reach contributes, by person
         // and meeting — the best of a meeting if a person is in it twice.
@@ -150,7 +179,10 @@ public struct VoiceprintMatcher: Sendable {
         var candidates: [Candidate] = contributions.map { person, meetings in
             let best = meetings.values.sorted { $0.score > $1.score }.prefix(bestMeetings)
             var score = best.reduce(0) { $0 + $1.score }
-            if invited.contains(Self.key(person)) || invited.contains(where: { Self.isShortFor($0, person) || Self.isShortFor(person, $0) }) {
+            let key = Self.key(person)
+            if invited.contains(key)
+                || invited.contains(where: { Self.isShortFor($0, key) || Self.isShortFor(key, $0) })
+                || !(emails[person] ?? []).isDisjoint(with: invitedEmails) {
                 score *= invitedBoost
             }
             return Candidate(name: person, score: score,
@@ -270,13 +302,28 @@ public actor VoiceMemory {
 
     /// What earlier meetings say about each voice of this one.
     public func matches(for samples: [Int: VoiceSample], space: String, meeting: String,
-                        invited: [String]) -> [Int: VoiceMatch] {
+                        invited: [String], invitedEmails: [String] = []) -> [Int: VoiceMatch] {
         let corpus = load().filter { $0.meeting != meeting }
         var result: [Int: VoiceMatch] = [:]
         for (voice, sample) in samples {
-            result[voice] = matcher.match(sample, space: space, corpus: corpus, invited: invited)
+            result[voice] = matcher.match(sample, space: space, corpus: corpus,
+                                          invited: invited, invitedEmails: invitedEmails)
         }
         return result
+    }
+
+    /// The address the meeting's invitation has for someone called `name`:
+    /// theirs if the names are the same, or one is the other's first name.
+    /// Nil when nobody invited is called that — or two are.
+    nonisolated static func email(for name: String, in attendees: [MeetingAttendee]) -> String? {
+        let key = VoiceprintMatcher.key(name)
+        let found = attendees.filter { attendee in
+            guard attendee.email != nil else { return false }
+            let other = VoiceprintMatcher.key(attendee.name)
+            return other == key || VoiceprintMatcher.isShortFor(key, other)
+                || VoiceprintMatcher.isShortFor(other, key)
+        }
+        return found.count == 1 ? found[0].email : nil
     }
 
     /// Keeps a meeting's voices, with the names they have now, in place of
@@ -288,7 +335,9 @@ public actor VoiceMemory {
             let named = record.voices[voice]
             all.append(Voiceprint(meeting: meeting, voice: voice, date: record.startDate,
                                   vector: sample.vector, seconds: sample.seconds,
-                                  name: named?.name, confirmed: named?.confirmed ?? false,
+                                  name: named?.name,
+                                  email: named.flatMap { Self.email(for: $0.name, in: record.attendees) },
+                                  confirmed: named?.confirmed ?? false,
                                   space: space))
         }
         store(all)
@@ -302,8 +351,11 @@ public actor VoiceMemory {
         var changed = false
         for index in all.indices where all[index].meeting == meeting {
             let named = record.voices[all[index].voice]
-            if all[index].name != named?.name || all[index].confirmed != (named?.confirmed ?? false) {
+            let email = named.flatMap { Self.email(for: $0.name, in: record.attendees) }
+            if all[index].name != named?.name || all[index].confirmed != (named?.confirmed ?? false)
+                || all[index].email != email {
                 all[index].name = named?.name
+                all[index].email = email
                 all[index].confirmed = named?.confirmed ?? false
                 changed = true
             }

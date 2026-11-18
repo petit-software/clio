@@ -19,10 +19,11 @@ extension AppCoordinator {
         var names: [Int: String] = [:]
         var hints: [Int: VoiceMatch] = [:]
         if settingsStore.settings.rememberVoices {
-            let invited = record.attendees.filter { !$0.declined }.map(\.name)
+            let present = record.attendees.filter { !$0.declined }
             let matches = await voiceMemory.matches(
                 for: voices.samples, space: voices.space,
-                meeting: VoiceMemory.key(for: record), invited: invited)
+                meeting: VoiceMemory.key(for: record),
+                invited: present.map(\.name), invitedEmails: present.compactMap(\.email))
             for (voice, match) in matches {
                 if match.level == .high { names[voice] = match.name } else { hints[voice] = match }
             }

@@ -362,6 +362,58 @@ struct VoiceMemoryTests {
         #expect(match?.level == .high && match?.name == "Ana Ruiz")
     }
 
+    @Test("An address settles who someone is: names it was seen with are one person, and two people of one name are two")
+    func emails() async throws {
+        func kept(_ name: String, _ email: String?, meeting: String, at distance: Float) -> Voiceprint {
+            Voiceprint(meeting: meeting, voice: 1, date: Date(timeIntervalSince1970: 0),
+                       vector: vector(at: distance), seconds: 120, name: name, email: email,
+                       confirmed: true, space: "s")
+        }
+        // "Ana R." and "Ana Ruiz" are no first-name-and-full-name pair; the address says they are one.
+        let one = [kept("Ana R.", "ana@example.com", meeting: "a", at: 0.10),
+                   kept("Ana Ruiz", "ANA@example.com", meeting: "b", at: 0.12),
+                   kept("Ana Ruiz", "ana@example.com", meeting: "c", at: 0.11)]
+        let match = matcher.match(sample, space: "s", corpus: one)
+        #expect(match?.level == .high && match?.name == "Ana Ruiz" && match?.meetings == 3)
+        // Without addresses the same three are two people: two meetings of
+        // one, one of the other — probable, and no longer sure.
+        let anonymous = one.map { print -> Voiceprint in var copy = print; copy.email = nil; return copy }
+        let unsure = matcher.match(sample, space: "s", corpus: anonymous)
+        #expect(unsure?.level == .medium && unsure?.meetings == 2)
+
+        // Invited under an address, whatever the invitation calls them this time.
+        let two = [kept("Ana Ruiz", "ana@example.com", meeting: "a", at: 0.15),
+                   kept("Tom Berg", "tom@example.com", meeting: "b", at: 0.14)]
+        #expect(matcher.match(sample, space: "s", corpus: two)?.level == .ambiguous)
+        let invited = matcher.match(sample, space: "s", corpus: two, invitedEmails: ["ANA@example.com"])
+        #expect(invited?.names.first == "Ana Ruiz")
+
+        // The store takes the address from the invitation, by name — and not when two invited share it.
+        let attendees = [MeetingAttendee(name: "Ana Ruiz", email: "ana@example.com"),
+                         MeetingAttendee(name: "Tom Berg", email: "tom@example.com"),
+                         MeetingAttendee(name: "Tom Hale", email: "hale@example.com")]
+        #expect(VoiceMemory.email(for: "ana", in: attendees) == "ana@example.com")
+        #expect(VoiceMemory.email(for: "Ana Ruiz", in: attendees) == "ana@example.com")
+        #expect(VoiceMemory.email(for: "Tom", in: attendees) == nil)
+        #expect(VoiceMemory.email(for: "Zoe", in: attendees) == nil)
+
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-voices-\(UUID().uuidString)/voiceprints.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        var record = MeetingRecord(title: "Sync", startDate: Date(timeIntervalSince1970: 1_000))
+        record.attendees = attendees
+        record.name(voice: 1, as: "Ana", confirmed: true)
+        let memory = VoiceMemory(file: file)
+        await memory.remember(record, samples: [1: VoiceSample(vector: [1, 0], seconds: 60)], space: "s")
+        let saved = try String(contentsOf: file, encoding: .utf8)
+        #expect(saved.contains("ana@example.com"))
+        // A store written before there were addresses still reads.
+        let old = saved.replacingOccurrences(of: "\"email\":\"ana@example.com\",", with: "")
+        #expect(!old.contains("email"))
+        try Data(old.utf8).write(to: file)
+        #expect(await VoiceMemory(file: file).count == 1)
+    }
+
     @Test("Voices are kept with their meeting, follow its names, and go when it does — or all at once")
     func store() async throws {
         let file = FileManager.default.temporaryDirectory
