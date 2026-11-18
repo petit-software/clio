@@ -31,6 +31,9 @@ struct MarkdownEditor: NSViewRepresentable {
     /// Called with a line's time when its mark is clicked — to play the
     /// meeting from there. Nil where there is nothing to play.
     var onTime: ((TimeInterval) -> Void)?
+    /// Counted up when the line being written should be marked with its
+    /// time though Return was never pressed on it: the meeting stopped.
+    var finishLine = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, startsWithHeading: startsWithHeading)
@@ -83,6 +86,12 @@ struct MarkdownEditor: NSViewRepresentable {
 
     func updateNSView(_ textView: MarkdownTextView, context: Context) {
         context.coordinator.text = $text
+        // The meeting stopped with a line half-written: it gets its time
+        // now, while the editor still knows when it was begun.
+        if finishLine != context.coordinator.finishedLines {
+            context.coordinator.finishedLines = finishLine
+            textView.stampLine(keepingCaret: true)
+        }
         textView.meetingTime = meetingTime
         if (textView.onTime == nil) != (onTime == nil) {
             // The marks become buttons, or stop being: the pointer follows.
@@ -114,6 +123,8 @@ struct MarkdownEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         let startsWithHeading: Bool
+        /// The last `finishLine` acted on.
+        var finishedLines = 0
 
         init(text: Binding<String>, startsWithHeading: Bool) {
             self.text = text
@@ -384,12 +395,14 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
     override func insertText(_ string: Any, replacementRange: NSRange) {
         // The first thing typed on a line, during a meeting: this is when
         // the line was written.
-        if let meetingTime, lineBegan == nil,
-           MarkdownSyntax.stamped(currentLine().text, at: 0) == nil {
+        let typed = (string as? String) ?? (string as? NSAttributedString)?.string
+        // Whatever was begun before, a line with nothing on it is begun
+        // now. Not by a line break — Return arrives here too.
+        if let meetingTime, let typed, typed.rangeOfCharacter(from: .newlines) == nil,
+           MarkdownSyntax.isUnwritten(currentLine().text) {
             lineBegan = meetingTime()
         }
         super.insertText(string, replacementRange: replacementRange)
-        let typed = (string as? String) ?? (string as? NSAttributedString)?.string
         guard typed == "]", selectedRange().length == 0 else { return }
         let ns = self.string as NSString
         let caret = selectedRange().location
@@ -405,14 +418,17 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
 
     /// Marks the line the caret is at the end of with when it was written,
     /// if a meeting is being recorded and the line has something on it.
-    private func stampLine() {
+    func stampLine(keepingCaret: Bool = false) {
         defer { lineBegan = nil }
         guard let time = lineBegan ?? meetingTime?() else { return }
         let (line, lineRange) = currentLine()
         guard let stamped = MarkdownSyntax.stamped(line, at: time) else { return }
         let content = NSRange(location: lineRange.location,
                               length: lineRange.length - trailingNewlineLength(lineRange))
-        replace(content, with: stamped)
+        // Stopped mid-line, the caret stays where it was; after Return it
+        // goes to the end, where the next line is made from.
+        let caret = selectedRange()
+        replace(content, with: stamped, select: keepingCaret ? caret : nil)
     }
 
     override func insertNewline(_ sender: Any?) {
@@ -917,6 +933,14 @@ extension MarkdownTextView {
         set("# Title")
         view.insertNewline(nil)
         expect("A heading is not a moment in the meeting", view.string, "# Title\n")
+        clock = 900
+        set("- ")
+        type("half a thou")
+        clock = 930
+        view.stampLine(keepingCaret: true)            // the meeting stops mid-line
+        expect("A line left unfinished when the meeting stops is marked too",
+               view.string, "- half a thou <!--15:00-->")
+        expect("…with the caret where it was", String(view.selectedRange().location), "13")
         view.meetingTime = nil
         set("- later")
         view.insertNewline(nil)

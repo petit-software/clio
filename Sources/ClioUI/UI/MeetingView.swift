@@ -20,6 +20,8 @@ struct MeetingView: View {
     @State private var title = ""
     @State private var notes = ""
     @State private var notesSave: Task<Void, Never>?
+    /// Counted up when the meeting stops, for the editor: see `finishLine`.
+    @State private var finishedLines = 0
     @State private var titleSave: Task<Void, Never>?
     private static let end = "end"
 
@@ -178,6 +180,7 @@ struct MeetingView: View {
                        focusOnAppear: meeting.isActive,
                        // Each line written while it records is marked with when.
                        meetingTime: { [meeting] in meeting.phase == .recording ? meeting.elapsed : nil },
+                       finishLine: finishedLines,
                        minHeight: 320)
             .padding(.horizontal, 8)
             // Saved a beat after typing stops, not on every key.
@@ -198,6 +201,10 @@ struct MeetingView: View {
                 guard phase != .starting, phase != .recording else { return }
                 notesSave?.cancel()
                 meeting.setNotes(notes)
+                // And the line being written, never ended with Return, is
+                // marked with when it was begun; the editor saves it a
+                // beat later, as any edit.
+                finishedLines += 1
             }
     }
 

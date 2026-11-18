@@ -156,6 +156,23 @@ public enum MarkdownSyntax {
         return line + timeMark(seconds)
     }
 
+    /// Whether a line has nothing written on it yet — empty, or only a
+    /// list marker or an empty box: what the next character typed begins.
+    /// A heading is not one: it is never marked with a time.
+    public static func isUnwritten(_ line: String) -> Bool {
+        let ns = line as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        guard heading.firstMatch(in: line, range: whole) == nil,
+              !line.trimmingCharacters(in: .whitespaces).hasPrefix("#") else { return false }
+        var content = line
+        if let match = checkbox.firstMatch(in: line, range: whole) ?? listItem.firstMatch(in: line, range: whole) {
+            content = ns.substring(from: NSMaxRange(match.range))
+        } else if ["-", "*", "+"].contains(line.trimmingCharacters(in: .whitespaces)) {
+            content = ""
+        }
+        return content.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     /// The notes without the times in them: for a summary's prompt, a
     /// preview, the clipboard — anywhere the notes are read as words.
     public static func withoutTimeMarks(_ text: String) -> String {

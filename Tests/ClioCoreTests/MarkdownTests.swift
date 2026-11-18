@@ -149,6 +149,9 @@ struct MarkdownTests {
 
         #expect(MarkdownSyntax.withoutTimeMarks(source)
                 == "# Title\n- ask about **pricing**\nplain\nnot <!--12:40--> at the end\n<!-- a comment -->")
+        // What the next character typed would begin.
+        for line in ["", "  ", "- ", "- [ ] ", "1. ", "-"] { #expect(MarkdownSyntax.isUnwritten(line)) }
+        for line in ["- a", "word", "# ", "## Title", "- [x] done"] { #expect(!MarkdownSyntax.isUnwritten(line)) }
         // A marked item still continues its list.
         #expect(MarkdownSyntax.continuation(after: "- ask <!--12:40-->") == .continueWith("- "))
     }
