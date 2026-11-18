@@ -406,8 +406,8 @@ calendar and transcript, the notes' to-dos — as `SettingsIcon` does for the
 Settings tabs. Menus keep their SF Symbols.
 
 **A live meeting's recorder is the pill, at the foot of its page.**
-`MeetingPill` is the dictation pill's surface, dot, meter and ring, always
-the black one (as a dictation's is in dark mode), 37 points high, with the
+`MeetingPill` is the dictation pill's surface, dot, meter and ring, light
+in light mode and black in the dark as a dictation's is, 37 points high, with the
 time and a stop (⌘.), centred over the `DocumentBar` —
 laid over it, not inside its `GlassGroup`: inside, its surface and
 everything on it were blended into the group's glass and all but vanished.

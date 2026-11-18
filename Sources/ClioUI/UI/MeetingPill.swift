@@ -7,10 +7,9 @@ import ClioCore
 /// finishes, a word on what it is doing with the activity ring round the
 /// rim, as a dictation has while it transcribes.
 ///
-/// Always the black pill, whatever the appearance — the one a dictation
-/// shows in dark mode: it is the one live thing on the page and should read
-/// as the recorder people already know. It was the light one until the
-/// person who uses it asked for this.
+/// The pill of the appearance the window is in, as a dictation's is: light
+/// in light mode, black in the dark. It has been always light, then always
+/// black; it follows the window now.
 struct MeetingPill: View {
     @Bindable var meeting: MeetingSession
     let stop: () -> Void
@@ -20,11 +19,14 @@ struct MeetingPill: View {
     /// pull-down's size, not a fraction of this, so the two read as one row.
     private let h: CGFloat = 37
     private let text = Font.system(size: 13, weight: OverlayView.textWeight)
-    /// The dark pill's ink, as `OverlayView` has it.
-    private let ink = Color(white: 0.96)
+    @Environment(\.colorScheme) private var scheme
+    private var isDark: Bool { scheme == .dark }
+    /// The pill's ink for the appearance, as `OverlayView` has it.
+    private var ink: Color { isDark ? Color(white: 0.96) : .black }
     /// The floating pill's surface is half tint over clear glass, which
-    /// hangs over a desktop and reads black there. Over a white page the
-    /// same surface is charcoal; here the tint is whole, so it is black.
+    /// hangs over a desktop. On a page that is the page's own colour: the
+    /// tint is whole here, so the dark pill is black on a dark page and
+    /// not charcoal, and the light one is its own off-white.
     private let surface = PillSurface(opacity: 1)
 
     private var isWorking: Bool {
@@ -48,21 +50,22 @@ struct MeetingPill: View {
         }
         .frame(height: h)
         .background {
-            PillBackground(tint: OverlayView.darkFill,
-                           glassTint: Color.black.opacity(surface.style.glassTintDark),
-                           outline: Color.white.opacity(surface.style.outlineDark),
+            PillBackground(tint: isDark ? OverlayView.darkFill : OverlayView.lightFill,
+                           glassTint: isDark ? Color.black.opacity(surface.style.glassTintDark)
+                                             : Color.white.opacity(surface.style.glassTintLight),
+                           outline: isDark ? Color.white.opacity(surface.style.outlineDark)
+                                           : Color.black.opacity(surface.style.outlineLight),
                            surface: surface)
         }
         .overlay {
             if isWorking {
-                ActivityRing(lineWidth: h * 0.045, ramp: ActivityRing.dark)
+                ActivityRing(lineWidth: h * 0.045, ramp: isDark ? ActivityRing.dark : ActivityRing.light)
                     .transition(.opacity)
             }
         }
         // No shadow: the floating pill casts one to stand off whatever it
         // hangs over; here it sits in a bar beside controls that cast none.
         .clipShape(Capsule())
-        .environment(\.colorScheme, .dark)
         .animation(.smooth(duration: 0.36), value: meeting.phase)
         .fixedSize()
     }
@@ -91,9 +94,10 @@ struct MeetingPill: View {
                     .resizable()
                     .scaledToFit()
                     .symbolRenderingMode(.monochrome)
-                    // The floating pill's ✕ grey, the dark one: a stop,
-                    // quiet until wanted.
-                    .foregroundStyle(Color(white: 0.62))
+                    // The floating pill's ✕ grey, for the appearance: a
+                    // stop, quiet until wanted.
+                    .foregroundStyle(isDark ? Color(white: 0.62)
+                                            : Color(red: 158/255, green: 158/255, blue: 157/255))
                     .frame(width: h * 0.46, height: h * 0.46)
                     .padding(.leading, h * 0.26)
                     .padding(.trailing, h * 0.3)
