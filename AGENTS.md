@@ -680,7 +680,9 @@ from it part-way: a smaller, greyer copy of the card stuck off one corner,
 its edge a second outline inside the real one. `IntroSurface` draws the
 shadow under the card and cut out of it, so it moves with the card, and
 the window is `shadowMargin` larger all round to hold it. The same reason
-the pill's panel has no shadow, met a second time.
+the pill's panel has no shadow, met a second time. The meeting cards —
+call detected, call starting, call ended — are done the same way
+(`OfferSurface`), so every card has one hairline and one shadow.
 
 **The intro's main button is not `.glassProminent`.** Given a label that
 sets its own height, that style drew a rounded rectangle whatever border shape

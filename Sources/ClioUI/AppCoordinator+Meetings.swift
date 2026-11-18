@@ -603,8 +603,8 @@ extension AppCoordinator {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.5))
             // "Take Notes": the right half of the button row, near the bottom.
-            let size = MeetingOfferController.size
-            meetingOffer?.click(at: NSPoint(x: size.width * 0.75, y: 30))
+            let size = MeetingOfferController.cardSize, margin = MeetingOfferController.shadowMargin
+            meetingOffer?.click(at: NSPoint(x: margin + size.width * 0.75, y: margin + 30))
             try? await Task.sleep(for: .seconds(0.5))
             FileHandle.standardError.write(Data("[offer] click sent\n".utf8))
             exit(0)

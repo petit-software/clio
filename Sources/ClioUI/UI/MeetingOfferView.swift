@@ -13,7 +13,14 @@ final class MeetingOfferController {
     private var panel: NSPanel?
     private var timeout: Task<Void, Never>?
 
-    static let size = CGSize(width: 340, height: 124)
+    /// The card, with the point either side of it its hairline is drawn in.
+    static let cardSize = CGSize(width: 340, height: 124)
+    /// Room round the card for the shadow it casts: the card draws its
+    /// own, as the onboarding card does, and the panel casts none.
+    static let shadowMargin: CGFloat = 36
+    /// The panel: the card and its shadow's room.
+    static let size = CGSize(width: cardSize.width + 2 * shadowMargin,
+                             height: cardSize.height + 2 * shadowMargin)
 
     /// A call app has opened its microphone: take notes for it?
     func show(title: String?, app: CallApp, accept: @escaping () -> Void,
@@ -48,7 +55,9 @@ final class MeetingOfferController {
             backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // The card's own shadow (`OfferSurface`), which is where the card
+        // is; the window's is wherever the card was when it was taken.
+        panel.hasShadow = false
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
@@ -57,8 +66,11 @@ final class MeetingOfferController {
 
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
-            panel.setFrameOrigin(NSPoint(x: frame.maxX - Self.size.width - 16,
-                                         y: frame.maxY - Self.size.height - 12))
+            // The card where it always was — 16 in from the right, 12 down
+            // from the top — with its shadow's room hanging outside that.
+            panel.setFrameOrigin(NSPoint(
+                x: frame.maxX - Self.cardSize.width - 16 - Self.shadowMargin,
+                y: frame.maxY - Self.cardSize.height - 12 - Self.shadowMargin))
         }
         panel.orderFrontRegardless()
         self.panel = panel
@@ -196,10 +208,11 @@ struct MeetingOfferView: View {
             .focusEffectDisabled()
         }
         .padding(14)
-        .frame(width: MeetingOfferController.size.width - 2,
-               height: MeetingOfferController.size.height - 2)
+        .frame(width: MeetingOfferController.cardSize.width - 2,
+               height: MeetingOfferController.cardSize.height - 2)
         .background(OfferSurface(palette: palette))
         .padding(1)
+        .padding(MeetingOfferController.shadowMargin)
     }
 }
 
@@ -218,6 +231,21 @@ private struct OfferSurface: View {
                 shape.fill(palette.surface)
             }
         }
+        // The card's own shadow, under it and cut out of it, as the
+        // onboarding card's is (`IntroSurface`).
+        .background {
+            shape
+                .fill(Color.black)
+                .shadow(color: .black.opacity(0.22), radius: 18, y: 9)
+                .mask {
+                    Rectangle()
+                        .padding(-MeetingOfferController.shadowMargin)
+                        .overlay { shape.blendMode(.destinationOut) }
+                        .compositingGroup()
+                }
+        }
+        // One hairline, a point outside the card's edge, as the onboarding
+        // card has.
         .overlay(shape.inset(by: -1).strokeBorder(palette.outline, lineWidth: 0.5))
     }
 }
