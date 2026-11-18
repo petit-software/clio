@@ -144,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 let report = await coordinator.runMeetingCheck(seconds: seconds)
                 FileHandle.standardError.write(Data((report + "\n").utf8))
+                // As quitting does: a model left loaded aborts at exit.
+                await coordinator.unloadSummaryModelsBeforeQuitting(within: 5)
                 exit(report.contains("FAILED") ? 1 : 0)
             }
             return
@@ -156,6 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let report = await coordinator.runSummaryCheck(
                     file: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
                 FileHandle.standardError.write(Data((report + "\n").utf8))
+                // As quitting does: a model left loaded aborts at exit.
+                await coordinator.unloadSummaryModelsBeforeQuitting(within: 5)
                 exit(report.contains("FAILED") ? 1 : 0)
             }
             return
@@ -289,10 +293,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Quitting during a meeting finishes its transcript first — a few
     /// seconds, at most ten — rather than dropping the last thing said.
+    /// And a summary model that has been used is freed before the process
+    /// exits: left loaded, llama.cpp aborts on the way out.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard coordinator.isMeetingActive else { return .terminateNow }
+        guard coordinator.isMeetingActive || coordinator.hasSummaryModelsLoaded else {
+            return .terminateNow
+        }
         Task { @MainActor in
             await coordinator.finishMeetingBeforeQuitting(within: 10)
+            await coordinator.unloadSummaryModelsBeforeQuitting(within: 5)
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

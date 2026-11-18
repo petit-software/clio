@@ -78,6 +78,11 @@ public final class AppCoordinator {
     /// so a run of summaries loads the weights once — see
     /// `LocalSummaryModel.idleTime`.
     var localSummaryModels: [URL: LocalSummaryModel] = [:]
+    /// A recording being turned into a meeting, and how far it has got:
+    /// `AppCoordinator+Import`. Nil when none is.
+    public internal(set) var importStatus: ImportStatus?
+    var importTask: Task<Void, Never>?
+    var importingSession: MeetingSession?
     /// The voices of past meetings: `AppCoordinator+Voices`.
     let voiceMemory = VoiceMemory()
     /// How many voices are kept, of how many people — for Settings.
@@ -178,6 +183,7 @@ public final class AppCoordinator {
         // forced quit — is not kept either.
         StreamRecording.removeLeftovers()
         refreshVoiceCount()
+        sweepMeetingAudio()
         watchForCalls()
 
         overlay = OverlayController()

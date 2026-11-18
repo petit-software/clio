@@ -1105,6 +1105,24 @@ private struct MeetingsTab: View {
                         coordinator.meetingsFolderChanged()
                     }
                 }
+                Picker("Keep meeting audio", selection: Binding(
+                    get: { settings.meetingAudio },
+                    set: {
+                        coordinator.settingsStore.settings.meetingAudio = $0
+                        coordinator.sweepMeetingAudio()
+                    })) {
+                    ForEach(MeetingAudioRetention.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Text(settings.meetingAudio == .off
+                     ? "A meeting's audio is deleted when it ends. Audio already kept stays "
+                       + "until you delete it."
+                     : "Both sides of a meeting are kept beside its notes as two audio files — "
+                       + "about 14 MB an hour each — and play from the meeting's page: click a "
+                       + "time in the transcript. Dictations made during a meeting are left out."
+                       + (settings.meetingAudio == .month
+                          ? " Deleted after 30 days; the notes and transcript stay." : ""))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 Toggle("Offer to take notes when a call starts", isOn: Binding(
                     get: { settings.meetingDetection },
                     set: { coordinator.settingsStore.settings.meetingDetection = $0 }))

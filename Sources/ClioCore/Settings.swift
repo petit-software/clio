@@ -86,6 +86,9 @@ public struct Settings: Codable, Equatable, Sendable {
     /// so a better default in a later version reaches everyone who never
     /// changed it.
     public var summaryPrompt: String = ""
+    /// Whether a meeting's audio is kept beside its notes once it is over,
+    /// and for how long. Off: it is deleted the moment the meeting ends.
+    public var meetingAudio: MeetingAudioRetention = .off
     /// Keep the voices of meetings, to recognise them in later ones. Off,
     /// nothing is kept and nothing kept is consulted.
     public var rememberVoices: Bool = true
@@ -181,6 +184,7 @@ public struct Settings: Codable, Equatable, Sendable {
         meetingSummaries = read(.meetingSummaries, defaults.meetingSummaries)
         summaryPrompt = read(.summaryPrompt, defaults.summaryPrompt)
         rememberVoices = read(.rememberVoices, defaults.rememberVoices)
+        meetingAudio = read(.meetingAudio, defaults.meetingAudio)
         summaryModelID = readOptional(.summaryModelID, String.self)
         meetingDetection = read(.meetingDetection, defaults.meetingDetection)
     }

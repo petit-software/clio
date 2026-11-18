@@ -1,5 +1,6 @@
 import CoreGraphics
 import Testing
+import AVFoundation
 import Foundation
 @testable import ClioCore
 
@@ -820,12 +821,131 @@ struct MeetingSessionTests {
         let second = session(mic: FakeSource(), system: system, clock: clock, folder: folder)
         second.diarizer = broken
         await second.start()
+        let recordings = second.recordingURLs
+        #expect(recordings.count == 1)                           // the call's side only
         system.push(tone(3) + silence(3), clock: clock)
         await second.stop()
         #expect(second.phase == .finished)
         #expect(second.record.lines.map(second.record.label(for:)) == ["Others"])
-        let left = (try? FileManager.default.contentsOfDirectory(atPath: StreamRecording.directory.path)) ?? []
-        #expect(left.isEmpty)
+        #expect(recordings.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    @Test("With audio kept, both sides are beside the notes on the meeting's clock, follow a rename, and nothing else is left")
+    func keepsAudio() async throws {
+        let folder = tempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let mic = FakeSource(), system = FakeSource(), clock = TestClock()
+        let meeting = session(mic: mic, system: system, clock: clock, folder: folder)
+        meeting.keepsAudio = true
+        await meeting.start()
+        let recordings = meeting.recordingURLs
+        #expect(recordings.count == 2)
+        clock.advance(5)
+        system.push(tone(3) + silence(2), clock: clock)
+        mic.push(tone(2) + silence(1), clock: clock)
+        await meeting.stop()
+
+        let file = try #require(meeting.fileURL)
+        let audio = MeetingAudio.files(for: file)
+        #expect(Set(audio.keys) == [.me, .others])
+        #expect(audio[.others]?.lastPathComponent == file.deletingPathExtension().lastPathComponent + ".others.m4a")
+        // Each as long as the meeting had run when its side last spoke:
+        // 5 s of waiting and 5 of the call; then 3 more of the microphone.
+        func seconds(_ url: URL) throws -> Double {
+            let file = try AVAudioFile(forReading: url)
+            return Double(file.length) / file.fileFormat.sampleRate
+        }
+        #expect(abs(try seconds(try #require(audio[.others])) - 10) < 0.6)
+        #expect(abs(try seconds(try #require(audio[.me])) - 13) < 0.6)
+        // The recordings they were made from are gone.
+        #expect(recordings.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+
+        // Renamed: the audio takes the new name; trashed: it goes too.
+        meeting.setTitle("Renamed")
+        let renamed = try #require(meeting.fileURL)
+        #expect(renamed != file)
+        #expect(MeetingAudio.files(for: file).isEmpty)
+        #expect(MeetingAudio.files(for: renamed).count == 2)
+        let library = MeetingLibrary(folder: folder)
+        try library.trash(renamed)
+        #expect(MeetingAudio.files(for: renamed).isEmpty)
+
+        // And without the setting, there is never any.
+        let plain = session(mic: FakeSource(), system: system, clock: clock, folder: folder)
+        await plain.start()
+        system.push(tone(3) + silence(2), clock: clock)
+        await plain.stop()
+        #expect(MeetingAudio.files(for: try #require(plain.fileURL)).isEmpty)
+    }
+
+    @Test("Kept audio past its days is deleted; newer audio, and files that are not Clio's, are not")
+    func audioExpires() throws {
+        let folder = tempFolder()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let now = Date()
+        func make(_ name: String, daysAgo: Double) throws {
+            let url = folder.appendingPathComponent(name)
+            try Data([1]).write(to: url)
+            try FileManager.default.setAttributes(
+                [.creationDate: now.addingTimeInterval(-daysAgo * 86_400)], ofItemAtPath: url.path)
+        }
+        try make("Old.me.m4a", daysAgo: 40)
+        try make("Old.others.m4a", daysAgo: 40)
+        try make("Old.md", daysAgo: 40)
+        try make("New.others.m4a", daysAgo: 3)
+        try make("My own song.m4a", daysAgo: 400)
+        #expect(MeetingAudio.removeExpired(in: folder, olderThan: 30, now: now) == 2)
+        let left = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+        #expect(left == ["My own song.m4a", "New.others.m4a", "Old.md"])
+        #expect(MeetingAudioRetention.month.days == 30)
+        #expect(MeetingAudioRetention.off.days == nil && MeetingAudioRetention.forever.days == nil)
+    }
+
+    @Test("A recording made elsewhere becomes a meeting: dated as the file, every line someone on it, saved and finished")
+    func importsARecording() async throws {
+        let folder = tempFolder()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Board call.wav")
+        try AudioWAV.data(silence(2) + tone(3) + silence(3) + tone(4) + silence(2)).write(to: file)
+        let made = Date(timeIntervalSince1970: 1_750_000_000)
+        try FileManager.default.setAttributes([.creationDate: made], ofItemAtPath: file.path)
+
+        final class Progress: @unchecked Sendable { var values: [Double] = [] }
+        let progress = Progress()
+        let meeting = try await MeetingImport.run(
+            file: file, folder: folder, queue: TranscriptionQueue(LengthEngine()),
+            model: InstalledModel(id: "m", displayName: "M", sizeBytes: 0, url: URL(fileURLWithPath: "/nonexistent")),
+            options: TranscribeOptions(), sensitivity: 0.5,
+            configure: { session in
+                session.keepsAudio = true                       // not for an import: the file is the audio
+                session.summarize = { record in "### Lines\n- \(record.lines.count)" }
+            },
+            progress: { progress.values.append($0) })
+
+        #expect(meeting.phase == .finished)
+        #expect(meeting.record.title == "Board call")
+        #expect(abs(meeting.record.startDate.timeIntervalSince(made)) < 1)
+        #expect(meeting.record.lines.count == 2)
+        #expect(meeting.record.lines.allSatisfy { $0.speaker == .others })
+        // Stamped where they are in the file.
+        #expect(abs(meeting.record.lines[0].start - 2) < 1 && abs(meeting.record.lines[1].start - 8) < 1)
+        #expect(meeting.record.summary == "### Lines\n- 2")
+        #expect(progress.values.last == 1)
+        let saved = try #require(meeting.fileURL)
+        #expect(FileManager.default.fileExists(atPath: saved.path))
+        #expect(MeetingAudio.files(for: saved).isEmpty)
+
+        // Not a recording at all, and one with nothing in it.
+        let text = folder.appendingPathComponent("notes.wav")
+        try Data("not audio".utf8).write(to: text)
+        await #expect(throws: MeetingImport.ImportError.self) {
+            _ = try await MeetingImport.run(
+                file: text, folder: folder, queue: TranscriptionQueue(LengthEngine()),
+                model: InstalledModel(id: "m", displayName: "M", sizeBytes: 0, url: URL(fileURLWithPath: "/nonexistent")),
+                options: TranscribeOptions(), sensitivity: 0.5, configure: { _ in }, progress: { _ in })
+        }
     }
 
     @Test("A meeting Clio named is renamed from its summary, and its file with it; one the user or the calendar named is not")

@@ -52,32 +52,8 @@ extension AppCoordinator {
                 sensitivity: settings.vadSensitivity,
                 micDeviceUID: settings.inputDeviceUID)
             session.titleIsPlaceholder = event == nil
-            // With the speaker models installed, the voices on the call are
-            // told apart when it ends; with a summary model too, named.
-            if let speakers = models.installed(.speaker).first {
-                session.diarizer = SpeakerDiarizer(folder: speakers.url)
-                let model = summaryModel
-                session.nameVoices = { [weak self, weak session] record, voices in
-                    guard let self else { return [:] }
-                    return await self.nameVoices(of: record, voices, with: model, ending: session)
-                }
-                session.voicesIdentified = { [weak self] record, voices in
-                    guard let self, self.settingsStore.settings.rememberVoices else { return }
-                    await self.voiceMemory.remember(record, samples: voices.samples, space: voices.space)
-                    self.refreshVoiceCount()
-                }
-            }
-            if settings.meetingSummaries, let model = summaryModel {
-                session.summarize = { [weak self, weak session] record in
-                    await self?.makeRoomForSummary(by: model, ending: session)
-                    return await MeetingSummarizer.summarize(
-                        record, with: model,
-                        instructions: self?.settingsStore.settings.summaryPrompt)
-                }
-                session.suggestTitle = {
-                    await MeetingSummarizer.title(forSummary: $0, with: model)
-                }
-            }
+            session.keepsAudio = settings.meetingAudio != .off
+            equip(session)
             session.currentModel = { [weak self] in self?.activeModel }
             if let event { session.apply(event) }
             if join, let url = event?.joinURL {
@@ -94,6 +70,39 @@ extension AppCoordinator {
             await session.start()
             if case .failed(let reason) = session.phase {
                 meetingProblem = reason
+            }
+        }
+    }
+
+    /// What a session does when it ends, from what is installed and what
+    /// Settings says: the voices told apart and named, the summary, the
+    /// title. The same for a meeting recorded and a recording imported.
+    func equip(_ session: MeetingSession) {
+        let settings = settingsStore.settings
+        // With the speaker models installed, the voices on the call are
+        // told apart when it ends; with a summary model too, named.
+        if let speakers = models.installed(.speaker).first {
+            session.diarizer = SpeakerDiarizer(folder: speakers.url)
+            let model = summaryModel
+            session.nameVoices = { [weak self, weak session] record, voices in
+                guard let self else { return [:] }
+                return await self.nameVoices(of: record, voices, with: model, ending: session)
+            }
+            session.voicesIdentified = { [weak self] record, voices in
+                guard let self, self.settingsStore.settings.rememberVoices else { return }
+                await self.voiceMemory.remember(record, samples: voices.samples, space: voices.space)
+                self.refreshVoiceCount()
+            }
+        }
+        if settings.meetingSummaries, let model = summaryModel {
+            session.summarize = { [weak self, weak session] record in
+                await self?.makeRoomForSummary(by: model, ending: session)
+                return await MeetingSummarizer.summarize(
+                    record, with: model,
+                    instructions: self?.settingsStore.settings.summaryPrompt)
+            }
+            session.suggestTitle = {
+                await MeetingSummarizer.title(forSummary: $0, with: model)
             }
         }
     }
@@ -226,6 +235,8 @@ extension AppCoordinator {
                 checks += 1
                 // Today's events change slowly; read them once a minute.
                 if checks % 12 == 0 { self.calendar.refresh() }
+                // Audio past its thirty days: looked for once an hour.
+                if checks % 720 == 0 { self.sweepMeetingAudio() }
                 self.checkForCalls()
             }
         }
@@ -247,6 +258,18 @@ extension AppCoordinator {
         if meetingOffer == nil { meetingOffer = MeetingOfferController() }
         meetingOffer?.show(title: event?.title, app: app) { [weak self] in
             self?.startMeeting(event: event, callApp: app)
+        }
+    }
+
+    /// Deletes kept audio that is past the time Settings gives it. Nothing
+    /// when audio is kept for good — or not kept at all: what was kept
+    /// under an earlier setting is the user's to delete.
+    public func sweepMeetingAudio() {
+        let settings = settingsStore.settings
+        guard let days = settings.meetingAudio.days else { return }
+        let folder = MeetingMarkdown.folder(customPath: settings.meetingsFolderPath)
+        Task.detached(priority: .utility) {
+            MeetingAudio.removeExpired(in: folder, olderThan: days)
         }
     }
 
@@ -395,7 +418,19 @@ extension AppCoordinator {
                                        text: line.1, voice: voice))
             }
             if voices { record.name(voice: 1, as: "Ana Ruiz", confirmed: false) }
-            try? MeetingMarkdown.write(record, to: folder)
+            let written = try? MeetingMarkdown.write(record, to: folder)
+            // The meeting with voices has its audio kept too: a tone, so
+            // the page shows what a meeting with audio shows.
+            if voices, let written, let recording = try? StreamRecording() {
+                let second = (0..<16_000).map { 0.05 * sin(2 * .pi * 220 * Float($0) / 16_000) }
+                for _ in 0..<150 { recording.append(second) }
+                recording.close()
+                for side in MeetingAudio.Side.allCases {
+                    try? MeetingAudio.encode(recording: recording.url,
+                                             to: MeetingAudio.url(for: written, side: side))
+                }
+                recording.discard()
+            }
         }
         sample("Weekly product sync", hoursAgo: 2, minutes: 32, people: ["Ana Ruiz", "Bo Chen"],
                 notes: "## Before the call\n- iOS beta **date**?\n- pricing page *copy*\n  - the `starter` tier\n\n## Follow-ups\n- [x] send the build to Ana\n- [ ] write the release notes\n\n## Order\n1. beta to testers\n2. pricing table\n\n> Bo: ship it when the table is final\n\nSee [the spec](https://example.com/spec) and ~~the old plan~~.",

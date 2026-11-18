@@ -146,6 +146,46 @@ extension AppCoordinator {
             """
     }
 
+    /// Whether anything of llama.cpp's may be in memory: a summary model
+    /// that has been used this run.
+    public var hasSummaryModelsLoaded: Bool { !localSummaryModels.isEmpty }
+
+    /// Frees every summary model before the process exits, giving up after
+    /// `seconds`.
+    ///
+    /// Not tidiness. llama.cpp frees its Metal device from a static
+    /// destructor, at `exit`, and aborts if a model's buffers are still
+    /// alive: quitting within two minutes of a summary ended in SIGABRT in
+    /// `ggml_metal_rsets_free` and a crash report, every time (seen
+    /// 18 Nov 2026, with Gemma 3 12B loaded). Anything being written is
+    /// stopped first — it checks for cancellation between tokens — so the
+    /// unload does not wait a whole summary out.
+    public func unloadSummaryModelsBeforeQuitting(within seconds: Double) async {
+        for task in summaryTasks.values { task.cancel() }
+        importTask?.cancel()
+        let loaded = Array(localSummaryModels.values)
+        guard !loaded.isEmpty else { return }
+        // A race, not a task group, as for the meeting: the unload that
+        // lost must not hold the quit up.
+        final class Once { var done = false }
+        let once = Once()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            func finish() {
+                guard !once.done else { return }
+                once.done = true
+                continuation.resume()
+            }
+            Task { @MainActor in
+                for model in loaded { await model.unload() }
+                finish()
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(seconds))
+                finish()
+            }
+        }
+    }
+
     /// Stops a summary being written for `url` — the meeting was trashed.
     public func cancelSummary(_ url: URL) {
         summaryTasks[url]?.cancel()

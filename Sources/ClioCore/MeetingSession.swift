@@ -135,6 +135,15 @@ public final class MeetingSession {
     /// they are kept for the meetings to come.
     public var voicesIdentified: ((MeetingRecord, IdentifiedVoices) async -> Void)?
     private var recording: StreamRecording?
+    /// Keep both sides of the meeting as audio beside its notes. Set
+    /// before `start`. Off, nothing of the microphone is written at all,
+    /// and the call's side only for as long as telling its voices apart
+    /// takes.
+    public var keepsAudio = false
+    private var micRecording: StreamRecording?
+    /// Where the meeting's audio is being written while it runs, for the
+    /// tests to see that it is gone afterwards.
+    var recordingURLs: [URL] { [recording?.url, micRecording?.url].compactMap { $0 } }
 
     /// Run after the last chunk is in, to write the summary. Nil skips it.
     public var summarize: ((MeetingRecord) async -> String?)?
@@ -236,10 +245,14 @@ public final class MeetingSession {
         }
         micFeed.onChunks = { deliver(.me, $0) }
         systemFeed.onChunks = { deliver(.others, $0) }
-        if diarizer != nil {
+        if diarizer != nil || keepsAudio {
             // No file, no voices: the meeting is still Me and Others.
             recording = try? StreamRecording()
             systemFeed.recording = recording
+        }
+        if keepsAudio {
+            micRecording = try? StreamRecording()
+            micFeed.recording = micRecording
         }
         microphone.onSamples = { [micFeed] in micFeed.append($0) }
         (microphone as? MeetingMicrophone)?.recorder.onFailure = { [weak self] error in
@@ -317,6 +330,8 @@ public final class MeetingSession {
         }
 
         await identifyVoices()
+        await keepAudio()
+        discardRecording()
 
         if summarizing, let summarize, !record.lines.isEmpty {
             phase = .summarizing
@@ -337,7 +352,6 @@ public final class MeetingSession {
     /// deletes the recording, whatever came of it. A meeting where this
     /// fails at any step is what it was before: Me and Others.
     private func identifyVoices() async {
-        defer { discardRecording() }
         guard let recording, let diarizer,
               record.lines.contains(where: { $0.speaker == .others }) else { return }
         phase = .identifying
@@ -366,10 +380,35 @@ public final class MeetingSession {
         await voicesIdentified?(record, voices)
     }
 
+    /// Both sides, as audio beside the notes, when Settings asks for it.
+    /// A side that could not be written is left out; the other is kept.
+    private func keepAudio() async {
+        guard keepsAudio, let meeting = fileURL else { return }
+        let sides: [(MeetingAudio.Side, StreamRecording?)] = [(.me, micRecording), (.others, recording)]
+        for (side, recording) in sides {
+            guard let recording else { continue }
+            recording.close()
+            guard recording.isComplete else { continue }
+            let source = recording.url, destination = MeetingAudio.url(for: meeting, side: side)
+            let failure: String? = await Task.detached(priority: .userInitiated) {
+                do {
+                    try MeetingAudio.encode(recording: source, to: destination)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }.value
+            if let failure { saveProblem = "The audio could not be kept: \(failure)" }
+        }
+    }
+
     private func discardRecording() {
         systemFeed.recording = nil
+        micFeed.recording = nil
         recording?.discard()
         recording = nil
+        micRecording?.discard()
+        micRecording = nil
     }
 
     /// Stops without transcribing what is left, for quitting.

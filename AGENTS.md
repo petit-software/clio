@@ -40,9 +40,11 @@ One meeting, end to end.
 | 6 | added in time order, echo of the call in the mic dropped, Markdown rewritten | `ClioCore/MeetingRecord` |
 | 6½ | stop, with the speaker models installed: the call's side, written to a temporary file as it arrived, is diarized; each of the others' lines goes to the voice that spoke most of it ("Speaker 1", "Speaker 2"); a summary model names the voices the conversation names; the file is deleted | `ClioCore/SpeakerDiarization` (`StreamRecording`, `SpeakerAssignment`), `SpeakerDiarizer`, `SpeakerNamer`, `MeetingSession.identifyVoices` |
 | 6¾ | each voice's print is compared with those of earlier meetings: one they are sure of is named from them alone, the rest go to the model as evidence; then the prints are kept, under the names they ended with | `ClioCore/VoiceMemory` (`VoiceprintMatcher`), `ClioUI/AppCoordinator+Voices` |
+| 6⅞ | where Settings ▸ Meetings keeps audio: both sides encoded to AAC beside the notes (`Name.me.m4a`, `Name.others.m4a`), on the meeting's clock, renamed and trashed with the Markdown; played from the meeting's page | `ClioCore/MeetingAudio`, `ClioUI/UI/MeetingPlayer` |
 | 7 | stop: drain, then a summary — by Apple's on-device model (macOS 26), or by a downloaded GGUF run by llama.cpp, whichever Settings ▸ Model names; any saved meeting can be summarized again from its ⋯ menu | `MeetingSession.stop`, `ClioCore/MeetingSummarizer`, `LocalSummaryModel`, `ClioUI/AppCoordinator+Summaries` |
 | 8 | the call app lets go of the mic for 30 s → the meeting stops itself | `CallWatch` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
+| 9½ | a recording made elsewhere, dropped on the window or chosen from the menu, is put through a session of its own — the file as the call's side, a clock that runs as fast as it is read — and comes out a meeting like any other | `ClioCore/MeetingImport`, `ClioUI/AppCoordinator+Import` |
 | 10 | the sidebar is a day: its calendar events with their notes, then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)` |
 
 The library window is Clio's one real window: meetings down the side (the
@@ -53,7 +55,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 261 tests live here.
+  without standing up an app. All 265 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -63,7 +65,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 261 tests, 36 suites, no network
+swift test                                  # 265 tests, 36 suites, no network
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -500,6 +502,34 @@ folder, which people sync. `VoiceMemory.defaultFile` is the real one even
 from `swift run` and the tests' own process: every test passes a file of
 its own.
 
+**A summary model left loaded aborts the process at exit.** llama.cpp frees
+its Metal device from a static destructor and asserts that nothing is
+still allocated on it (`ggml_metal_rsets_free`, `[rsets->data count] == 0`):
+quitting within two minutes of a summary was a SIGABRT and a crash report,
+and so was every run of `CLIO_SUMMARIZE`, which calls `exit` with the model
+it just used. `unloadSummaryModelsBeforeQuitting` frees them first — from
+`applicationShouldTerminate`, and before `exit` in the tools. Reproduced
+and fixed on the tool (exit 134, then 0, twice); the quit itself goes
+through the same function and has not been watched. A plain unload is
+enough: an autorelease pool and a pause were tried and were not needed.
+
+**Kept audio belongs to the Markdown file.** Named after it, so
+`MeetingMarkdown.write` moves it when a title changes the file's name and
+`MeetingLibrary.trash` takes it to the Trash too. Only files named
+`*.me.m4a` / `*.others.m4a` are ever deleted by the thirty-day sweep — a
+recording of the user's own in the same folder is not Clio's to remove.
+With the setting off nothing of the microphone is written anywhere, and
+the microphone's side is silence while a dictation is being made, as it is
+in the transcript. A meeting abandoned at quit keeps no audio.
+
+**An import is a meeting with a fast clock.** `MeetingImport` drives a real
+`MeetingSession` — the file as its system audio, a source that never
+speaks as its microphone, `now` advanced by exactly the audio pushed — so
+there is one path from audio to Markdown, not two. It pushes ten seconds
+at a time and waits while more than two chunks are untranscribed: the
+chunks waiting are audio in memory. The whole file is decoded into memory
+first, as the diarizer will want it anyway.
+
 **One WhisperKit pipeline, two callers.** The engine is an actor, but actors
 re-enter at every `await` and `transcribe` awaits throughout: a dictation
 during a meeting would have run on the pipeline alongside a chunk. Everything
@@ -657,6 +687,13 @@ Verified by something repeatable:
 - a voice named in three meetings is recognised in a fourth, from other
   words, and the other voice is not taken for it (`SpeakerIntegration`,
   `voicesAcrossMeetings`) — on the real models, with synthetic voices
+- a recording of two voices, imported through Whisper, the speaker models
+  and Gemma 3 12B: 34 s in 8 s, both named from how they greet each other,
+  summarized (`SpeakerIntegration`, `anImportedRecording`)
+- Gemma 3 12B writes summaries (`SummaryModelIntegration`): 2.7 s for a
+  short meeting, a title, the user's instructions followed, and a point
+  that is only in the notes ("where do we park monday?") given a heading
+  of its own
 - a meeting's vocabulary as Whisper's prompt does not empty the transcript
   (`SanitizerIntegration`)
 - segmenting, echo removal, the queue's order, calendar matching, call
@@ -721,9 +758,19 @@ Not verified, and worth knowing:
   click on a name opens has not: nothing here can click it.
 - **a summary after a voice is renamed.** It still says the old name;
   Summarize Again fixes it, and nothing does it for you.
-- **Gemma 3 12B.** Checked for existence and size on Hugging Face, never
-  downloaded: its summaries, its speed, and what its context really costs —
-  the ceiling for it is an estimate scaled from Qwen3 4B.
+- **Gemma 3 12B's memory.** It writes summaries (above); what its context
+  really costs has not been measured — the ceiling for it is an estimate
+  scaled from Qwen3 4B, which is no longer installed on the Mac this is
+  developed on.
+- **playing kept audio.** The control and the clickable times are on the
+  page (`CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1`); nobody has
+  pressed Play, heard both sides in step, or clicked a time. The files
+  are written and are the right length (`MeetingTests`, keepsAudio).
+- **an import from the app.** The importer is proven underneath; the menu
+  item, the drop on the window, the progress row in the sidebar and
+  Stop Importing have not been used.
+- **the thirty-day sweep on real files**, and audio kept across a real
+  meeting with a real microphone.
 - **an 8 GB Mac.** The speech model is freed before a downloaded summary
   model loads there (`makeRoomForSummary`), and the ceiling is 8k; both are
   decisions tested on numbers, on a 64 GB machine.
@@ -733,9 +780,6 @@ Not verified, and worth knowing:
 - **a meeting renamed by the model, in the app.** The session renames the
   record and its file (`MeetingTests`); the library window following a file
   that changes name under it at the end of a meeting has not been watched.
-- **quitting with a summary model loaded.** A test process that exited with
-  one still loaded died of signal 6, once. Quitting does not unload it, so
-  a quit within two minutes of a summary may do the same.
 - **the UI has no tests.** `ClioUI` is a library the test target could import,
   but nothing does yet. Previews cover the states; no assertions do.
 

@@ -338,9 +338,11 @@ public enum MeetingMarkdown {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = availableURL(in: folder, for: fileName(for: record), keeping: previous)
         try Data(render(record).utf8).write(to: url, options: .atomic)
-        // Renamed: the title changed since the last write.
+        // Renamed: the title changed since the last write. Any audio kept
+        // for the meeting is named after its file, and follows.
         if let previous, previous.standardizedFileURL != url.standardizedFileURL {
             try? FileManager.default.removeItem(at: previous)
+            MeetingAudio.move(from: previous, to: url)
         }
         return url
     }

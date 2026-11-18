@@ -25,11 +25,16 @@ others on a call are told apart — "Speaker 1", "Speaker 2" — and named where
 the conversation or an earlier meeting says who they are; click a name in a
 transcript to set it yourself. Two things are kept for that, and both stay
 on this Mac. The call's audio is written to a temporary file and deleted the
-moment the meeting ends. A voiceprint of each speaker — a list of numbers
+moment the meeting ends — unless Settings ▸ Meetings ▸ Keep meeting audio
+says otherwise, in which case both sides are kept beside the notes as two
+audio files, for good or for thirty days, and play from the meeting's page. A voiceprint of each speaker — a list of numbers
 that describes a voice, which is biometric data — is kept in Clio's own
 folder in Application Support, never beside the notes, so that a voice named
 once is recognised next time. Trashing a meeting removes its voiceprints;
 Settings ▸ Model ▸ Speakers turns the remembering off and forgets them all.
+
+A recording made somewhere else becomes a meeting too: drop it on Clio's
+window, or choose Import a Recording… from the menu.
 
 Requires macOS 14+. Design notes in
 [`docs/native-mac-dictation-spec.md`](docs/native-mac-dictation-spec.md);

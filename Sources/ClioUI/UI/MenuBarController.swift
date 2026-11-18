@@ -207,6 +207,12 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(item("Open Clio…", key: "o") { coordinator.showLibrary() })
+        if let importing = coordinator.importStatus {
+            menu.addItem(Self.disabled(importing.line))
+            menu.addItem(item("Stop Importing") { coordinator.cancelImport() })
+        } else {
+            menu.addItem(item("Import a Recording…") { coordinator.chooseRecordingToImport() })
+        }
         if let problem = coordinator.meetingProblem {
             menu.addItem(Self.disabled(problem))
         }

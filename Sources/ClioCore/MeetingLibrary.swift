@@ -103,6 +103,7 @@ public final class MeetingLibrary {
     /// To the Trash, not gone: Finder can put it back.
     public func trash(_ url: URL) throws {
         try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        MeetingAudio.trash(for: url)
         files.removeAll { $0.url == url }
         scheduleReload()
     }

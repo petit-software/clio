@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import ClioCore
 
 /// What the library window is showing.
@@ -114,6 +115,17 @@ struct LibraryView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 380)
         } detail: {
             detail
+        }
+        // A recording dropped anywhere on the window becomes a meeting.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            guard let provider = providers.first else { return false }
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url,
+                      let type = UTType(filenameExtension: url.pathExtension),
+                      AppCoordinator.importableTypes.contains(where: type.conforms(to:)) else { return }
+                Task { @MainActor in coordinator.importRecording(url) }
+            }
+            return true
         }
         // Search is the palette, over the window: the magnifier beside each
         // page's ⋯ (`SearchButton`) and ⌘F, from anywhere in the window.
@@ -304,6 +316,18 @@ struct LibraryView: View {
     @ViewBuilder
     private var daySections: some View {
         let agenda = agenda
+        // A recording on its way in: what it is called and how far it is.
+        if let importing = coordinator.importStatus {
+            Section {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(importing.line)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            } header: { header("Importing") }
+        }
         if let meeting = liveMeeting, isToday {
             Section { selectable(.live) { LiveRow(meeting: meeting) } } header: { header("Now") }
         }
@@ -722,6 +746,8 @@ struct MeetingDocumentView: View {
     /// file written: viewing a meeting must not rewrite it, and leaving one
     /// that was just trashed must not bring it back.
     @State private var isDirty = false
+    /// The meeting's audio, where Settings had it kept.
+    @State private var player = MeetingPlayer()
 
     init(url: URL, library: MeetingLibrary, coordinator: AppCoordinator,
          selection: Binding<LibrarySelection?>) {
@@ -744,7 +770,10 @@ struct MeetingDocumentView: View {
         }
         .onAppear(perform: load)
         // Leaving the document saves what is pending at once.
-        .onDisappear { flush() }
+        .onDisappear {
+            player.stop()
+            flush()
+        }
         // A new summary landed in the file: take it, and only it — the
         // notes here may be newer than the file's.
         .onChange(of: isSummarizing) { was, now in
@@ -770,6 +799,7 @@ struct MeetingDocumentView: View {
 
     private func load() {
         record = library.record(at: url)
+        player.load(meeting: url)
         // The summary when there is one; otherwise the notes.
         if record?.summary == nil, !isSummarizing { pane = .notes }
         #if DEBUG
@@ -819,6 +849,7 @@ struct MeetingDocumentView: View {
                         flush()
                         if let renamed = self.record { coordinator.voicesRenamed(in: renamed) }
                     }
+                    .playing(player.hasAudio ? { player.play(from: $0) } : nil)
                 }
             }
             .padding(.bottom, 80)
@@ -848,6 +879,8 @@ struct MeetingDocumentView: View {
                 if panes(record).count > 1 {
                     PaneMenu(panes: panes(record), pane: $pane)
                 }
+            } center: {
+                if player.hasAudio { PlayerControl(player: player) }
             } trailing: {
                 CopyButton(help: pane.copyHelp) { TextInjector.copy(pane.text(of: record)) }
                 // Everything else about the file, beside Copy.
@@ -1012,6 +1045,15 @@ struct TranscriptList: View {
     let isLive: Bool
     /// Names a voice; nil where names cannot be changed.
     var rename: ((Int, String) -> Void)?
+    /// Plays the meeting's audio from a time; nil where there is none.
+    var play: ((TimeInterval) -> Void)?
+
+    /// The same list, with its times playing the audio from there.
+    func playing(_ play: ((TimeInterval) -> Void)?) -> TranscriptList {
+        var copy = self
+        copy.play = play
+        return copy
+    }
 
     @State private var naming: MeetingLine.ID?
 
@@ -1066,15 +1108,32 @@ struct TranscriptList: View {
                             if let name { rename(voice, name) }
                         })
                 }
-                Text(" · \(line.timestamp)")
-                    .font(font)
-                    .foregroundStyle(.secondary)
+                Text(" · ").font(font).foregroundStyle(.secondary)
+                time(line, colour: .secondary)
             }
         } else {
-            Text("\(record.label(for: line)) · \(line.timestamp)")
-                .font(font)
-                .foregroundStyle(line.speaker == .me ? Color.accentColor
-                                 : line.voice.map(VoiceColor.of) ?? .secondary)
+            let colour = line.speaker == .me ? Color.accentColor
+                : line.voice.map(VoiceColor.of) ?? .secondary
+            HStack(spacing: 0) {
+                Text("\(record.label(for: line)) · ").font(font).foregroundStyle(colour)
+                time(line, colour: colour)
+            }
+        }
+    }
+
+    /// When the line was said — and, where the meeting's audio was kept,
+    /// a button that plays it from there.
+    @ViewBuilder
+    private func time(_ line: MeetingLine, colour: Color) -> some View {
+        let label = Text(line.timestamp)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(colour)
+        if let play {
+            Button { play(line.start) } label: { label.underline().contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .help("Play from here")
+        } else {
+            label
         }
     }
 

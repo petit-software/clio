@@ -433,4 +433,67 @@ struct SpeakerIntegrationTests {
             print("[speakers] names: \(record.voices.mapValues(\.name))")
         }
     }
+
+    /// A recording made elsewhere, through everything real: Whisper, the
+    /// speaker models and — where one is installed — a summary model.
+    @Test("A recording of two people, imported, is a meeting with their turns told apart")
+    @MainActor
+    func anImportedRecording() async throws {
+        let speakers = try await installModels()
+        let manager = ModelManager()
+        let speech = try #require(manager.installed(.speech).max { $0.sizeBytes < $1.sizeBytes },
+                                  "No speech model installed to test with")
+        let language = manager.installed(.language).first?.weightsFile.map { LocalSummaryModel(file: $0) }
+
+        let script: [(String, String)] = [
+            ("Daniel", "Hello Karen, thanks for calling. I wanted to talk about the conference in March."),
+            ("Karen", "Hi Daniel. Yes, we have two speaking slots and a small booth near the entrance."),
+            ("Daniel", "I can cover the first day if you take the workshop on the second."),
+            ("Karen", "I would be happy to run the workshop. I still have the slides from the spring."),
+            ("Daniel", "Great. Could you book the travel by the end of the month, so the prices stay reasonable?"),
+            ("Karen", "I will do that on Friday, and I will send you the hotel options as well."),
+        ]
+        var samples: [Float] = []
+        for (voice, text) in script {
+            samples += try say(text, voice: voice)
+            samples += [Float](repeating: 0, count: 16_000)
+        }
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clio-import-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Conference call.wav")
+        try AudioWAV.data(samples).write(to: file)
+
+        let began = Date()
+        let meeting = try await MeetingImport.run(
+            file: file, folder: folder, queue: TranscriptionQueue(WhisperKitEngine()),
+            model: speech, options: TranscribeOptions(language: "en"), sensitivity: 0.5,
+            configure: { session in
+                session.diarizer = SpeakerDiarizer(folder: speakers.url)
+                if let language {
+                    session.nameVoices = { record, _ in await SpeakerNamer.names(for: record, with: language) }
+                    session.summarize = { await MeetingSummarizer.summarize($0, with: language) }
+                }
+            },
+            progress: { _ in })
+        if let language { await language.unload() }
+        print(String(format: "[speakers] %.0f s of recording imported in %.1f s",
+                     Double(samples.count) / 16_000, Date().timeIntervalSince(began)))
+        print("[speakers] imported:\n" + (try String(contentsOf: try #require(meeting.fileURL), encoding: .utf8)))
+
+        let record = meeting.record
+        #expect(record.title == "Conference call")
+        #expect(record.lines.allSatisfy { $0.speaker == .others })
+        #expect(record.voiceNumbers.count == 2)
+        func voice(saying word: String) -> Int? {
+            record.lines.first { $0.text.lowercased().contains(word) }?.voice
+        }
+        let daniel = try #require(voice(saying: "conference"))
+        let karen = try #require(voice(saying: "booth"))
+        #expect(daniel != karen)
+        #expect(voice(saying: "first day") == daniel)
+        #expect(voice(saying: "slides") == karen)
+        #expect(voice(saying: "hotel") == karen)
+    }
 }
