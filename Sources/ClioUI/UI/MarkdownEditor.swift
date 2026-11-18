@@ -641,6 +641,16 @@ enum MarkdownStyle {
                 let marker = string.substring(with: span.range)
                 let box = boxes.first { $0.location > span.range.location
                     && string.lineRange(for: $0) == string.lineRange(for: span.range) }
+                // A bullet stands where a to-do's circle does, and its text
+                // starts where a to-do's does: the "-" is given the room of
+                // the to-do's "[ ]" — the same font, three characters wide —
+                // and the dash is drawn in the middle of it. Shown or
+                // hidden alike, so the line does not shift under the caret.
+                if box == nil, ["-", "*", "+"].contains(marker) {
+                    let mono = NSFont.monospacedSystemFont(ofSize: size, weight: .medium)
+                    let character = ("0" as NSString).size(withAttributes: [.font: mono]).width
+                    storage.addAttributes([.font: mono, .kern: character * 2], range: span.range)
+                }
                 if shown {
                     storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
                                          range: span.range)

@@ -719,10 +719,10 @@ private struct EventView: View {
                                      chevronSize: 9)
                         .font(.system(size: 13))
                         .padding(.top, 2)
-                    // Notes by hand, or notes taken from the call.
+                    // Notes taken from the call, first; or notes by hand.
                     HStack(spacing: 10) {
-                        writeButton
                         joinButton
+                        writeButton
                     }
                     .padding(.top, 24)
                 }
