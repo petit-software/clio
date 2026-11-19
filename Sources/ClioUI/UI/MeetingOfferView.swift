@@ -14,6 +14,10 @@ final class MeetingOfferController {
     private var timeout: Task<Void, Never>?
 
     /// The card, with the point either side of it its hairline is drawn in.
+    /// The width is the card's; the height is only the most it has been —
+    /// each card is as tall as what it says (`show` measures it), so the
+    /// two lines of "the call has ended" do not sit in the room an event
+    /// and a wrapped line need.
     static let cardSize = CGSize(width: 340, height: 124)
     /// Room round the card for the shadow it casts: the card draws its
     /// own, as the onboarding card does, and the panel casts none.
@@ -23,12 +27,13 @@ final class MeetingOfferController {
                              height: cardSize.height + 2 * shadowMargin)
 
     /// A call app has opened its microphone: take notes for it?
-    func show(title: String?, app: CallApp, accept: @escaping () -> Void,
-              decline: @escaping () -> Void = {}) {
+    func show(title: String?, app: CallApp, event: MeetingEvent? = nil,
+              accept: @escaping () -> Void, decline: @escaping () -> Void = {}) {
         show(MeetingOffer(
             headline: title.map { "Take notes for “\($0)”?" } ?? "Take notes for this call?",
             detail: "\(app.name) is on a call. Both sides are transcribed on this Mac.",
-            acceptTitle: "Take Notes", declineTitle: "Not Now"),
+            acceptTitle: "Take Notes", declineTitle: "Not Now",
+            event: event),
              accept: accept, decline: decline)
     }
 
@@ -49,8 +54,13 @@ final class MeetingOfferController {
                 decline()
             })
 
+        // As tall as this card's own content, measured before it is shown.
+        let host = FirstClickHostingView(rootView: view)
+        let fitted = host.fittingSize
+        let size = CGSize(width: Self.size.width,
+                          height: fitted.height > 0 ? fitted.height : Self.size.height)
         let panel = OfferPanel(
-            contentRect: NSRect(origin: .zero, size: Self.size),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -62,7 +72,7 @@ final class MeetingOfferController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = true
-        panel.contentView = FirstClickHostingView(rootView: view)
+        panel.contentView = host
 
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
@@ -70,7 +80,7 @@ final class MeetingOfferController {
             // from the top — with its shadow's room hanging outside that.
             panel.setFrameOrigin(NSPoint(
                 x: frame.maxX - Self.cardSize.width - 16 - Self.shadowMargin,
-                y: frame.maxY - Self.cardSize.height - 12 - Self.shadowMargin))
+                y: frame.maxY - 12 + Self.shadowMargin - size.height))
         }
         panel.orderFrontRegardless()
         self.panel = panel
@@ -144,6 +154,13 @@ struct MeetingOffer {
     /// Set, the detail counts down to it: `detail` with "%d" for the
     /// seconds left.
     var deadline: Date?
+    /// The calendar event the card is about. With one, the card shows it
+    /// as the calendar would — its calendar's colour, its name, when and
+    /// where — in place of the headline and the line under it.
+    var event: MeetingEvent?
+    /// Whether the event's link is offered on its own, beside it: before
+    /// the call is joined, not once a call app is already on it.
+    var offersLink = false
 }
 
 struct MeetingOfferView: View {
@@ -152,13 +169,65 @@ struct MeetingOfferView: View {
     let offer: MeetingOffer
     let accept: () -> Void
     let decline: () -> Void
+    var openLink: (URL) -> Void = { _ in }
 
     @Environment(\.colorScheme) private var colorScheme
 
     private var palette: IntroPalette { IntroPalette(colorScheme: colorScheme) }
 
+    /// The event as a calendar shows it: a bar in its calendar's colour,
+    /// its name, then when and where on one line — and, before the call
+    /// is joined, its link on a button of the same colour.
+    private func eventBlock(_ event: MeetingEvent) -> some View {
+        let color = event.calendarColor.map {
+            Color(red: $0.red, green: $0.green, blue: $0.blue)
+        } ?? palette.secondaryText
+        let time = Date.FormatStyle(date: .omitted, time: .shortened)
+        let when = "\(event.start.formatted(time)) – \(event.end.formatted(time))"
+        return HStack(spacing: 10) {
+            Capsule()
+                .fill(color)
+                .frame(width: 4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
+                    .lineLimit(1)
+                Text(event.joinURL.map { "\(when) · \($0.absoluteString)" } ?? when)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 4)
+            if offer.offersLink, let url = event.joinURL {
+                Button { openLink(url) } label: {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(color, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Join the call without taking notes")
+            }
+        }
+        .frame(height: 34)
+        .padding(.vertical, 6)
+        .padding(.leading, 6)
+        .padding(.trailing, 8)
+        // The row is the event as its calendar draws it: a wash of the
+        // calendar's colour behind it, the bar the same colour at full.
+        .background(color.opacity(colorScheme == .dark ? 0.22 : 0.14),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if let event = offer.event {
+                eventBlock(event)
+            } else {
             VStack(alignment: .leading, spacing: 3) {
                 Text(offer.headline)
                     .font(.system(size: 14, weight: .semibold))
@@ -179,6 +248,7 @@ struct MeetingOfferView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(palette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+            }
             }
             // Two buttons of one size: half the card each, one height. They
             // were two styles — the system's glass, which pads its label,
@@ -208,8 +278,9 @@ struct MeetingOfferView: View {
             .focusEffectDisabled()
         }
         .padding(14)
-        .frame(width: MeetingOfferController.cardSize.width - 2,
-               height: MeetingOfferController.cardSize.height - 2)
+        // The card's width, and whatever height that comes to.
+        .frame(width: MeetingOfferController.cardSize.width - 2)
+        .fixedSize(horizontal: false, vertical: true)
         .background(OfferSurface(palette: palette))
         .padding(1)
         .padding(MeetingOfferController.shadowMargin)

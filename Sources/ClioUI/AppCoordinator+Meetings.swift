@@ -281,7 +281,7 @@ extension AppCoordinator {
         if meetingOffer == nil { meetingOffer = MeetingOfferController() }
         let event = calendar.access == .granted ? calendar.current : nil
         if let app = callWatch.offer(apps: apps, event: event) {
-            meetingOffer?.show(title: event?.title, app: app, accept: { [weak self] in
+            meetingOffer?.show(title: event?.title, app: app, event: event, accept: { [weak self] in
                 self?.startMeeting(event: event, callApp: app)
             }, decline: { [weak self] in
                 self?.callWatch.decline(event)
@@ -298,7 +298,8 @@ extension AppCoordinator {
                          detail: joins ? "Join the call and take notes? Both sides are transcribed on this Mac."
                                        : "Take notes for it? Both sides are transcribed on this Mac.",
                          acceptTitle: joins ? "Join & Take Notes" : "Take Notes",
-                         declineTitle: "Not Now"),
+                         declineTitle: "Not Now",
+                         event: starting, offersLink: true),
             timeout: 45,
             accept: { [weak self] in self?.startMeeting(event: starting, join: joins) },
             decline: { [weak self] in self?.callWatch.decline(starting) })

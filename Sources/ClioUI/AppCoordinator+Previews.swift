@@ -30,16 +30,22 @@ extension AppCoordinator {
     /// buttons close it and do nothing else.
     public func previewOffer(_ kind: OfferPreview) {
         if meetingOffer == nil { meetingOffer = MeetingOfferController() }
+        let event = MeetingEvent(
+            id: "preview", title: "Weekly product sync",
+            start: Date(), end: Date().addingTimeInterval(45 * 60),
+            joinURL: URL(string: "https://us06web.zoom.us/j/88044921862?pwd=preview"),
+            calendarColor: CalendarColor(red: 0.96, green: 0.58, blue: 0.25))
         switch kind {
         case .call:
-            meetingOffer?.show(title: "Weekly product sync",
+            meetingOffer?.show(title: event.title,
                                app: CallApp(bundleID: "us.zoom.xos", name: "Zoom", isBrowser: false),
-                               accept: {})
+                               event: event, accept: {})
         case .calendar:
             meetingOffer?.show(
                 MeetingOffer(headline: "“Weekly product sync” is starting",
                              detail: "Join the call and take notes? Both sides are transcribed on this Mac.",
-                             acceptTitle: "Join & Take Notes", declineTitle: "Not Now"),
+                             acceptTitle: "Join & Take Notes", declineTitle: "Not Now",
+                             event: event, offersLink: true),
                 timeout: 45, accept: {})
         case .countdown:
             let seconds = CallWatch.stopCountdown
