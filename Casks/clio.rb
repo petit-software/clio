@@ -1,6 +1,6 @@
 cask "clio" do
-  version "1.8"
-  sha256 "7f43b304a3a396f942c53fd50e3278a0fd96f0c41f6813fb32a126f5e8a027ea"
+  version "1.9"
+  sha256 "c2f960b0f32915f4e6f31d13bd12bc5f503b577aa1f22f5b6986e0a1b2c5e1f7"
 
   url "https://github.com/petit-software/clio/releases/download/v#{version}/Clio-#{version}.dmg"
   name "Clio"
