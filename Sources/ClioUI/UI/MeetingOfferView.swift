@@ -221,6 +221,12 @@ struct MeetingOfferView: View {
         // calendar's colour behind it, the bar the same colour at full.
         .background(color.opacity(colorScheme == .dark ? 0.22 : 0.14),
                     in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        // White under the wash, so the colour is the calendar's own on
+        // paper and not whatever the glass is sampling behind the card.
+        // In the dark a lift of the surface instead: white there would
+        // take the white name with it.
+        .background(colorScheme == .dark ? Color.white.opacity(0.08) : Color.white,
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
     var body: some View {
