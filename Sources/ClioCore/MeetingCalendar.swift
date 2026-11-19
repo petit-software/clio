@@ -219,6 +219,38 @@ public final class MeetingCalendar {
         revision += 1
     }
 
+    /// Today's events as EventKit gives them and as the call watch reads
+    /// them, for `CLIO_CALENDAR_REPORT`: a card that never came is either
+    /// an event Clio never saw or one it read as something else, and
+    /// nothing else says which. Reads; changes nothing.
+    public func report() -> String {
+        guard let store else { return "[calendar] simulated" }
+        var lines = ["[calendar] access: \(Self.currentAccess())"]
+        guard Self.currentAccess() == .granted else { return lines[0] }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: Date())
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? Date()
+        let found = store.events(matching: store.predicateForEvents(withStart: start, end: end,
+                                                                    calendars: nil))
+            .sorted { $0.startDate < $1.startDate }
+        let time = DateFormatter()
+        time.dateFormat = "HH:mm"
+        for raw in found {
+            let event = Self.meetingEvent(raw)
+            let mine = (raw.attendees ?? []).first(where: \.isCurrentUser)
+            lines.append("[calendar] \(time.string(from: event.start))–\(time.string(from: event.end))"
+                + " “\(event.title)” on “\(raw.calendar?.title ?? "?")”"
+                + " (\(raw.calendar?.source?.title ?? "?"))"
+                + " attendees: \(event.attendees.count)"
+                + " me: \(mine.map { "status \($0.participantStatus.rawValue)" } ?? "not among them")"
+                + " link: \(event.joinURL?.host ?? "none")"
+                + " allDay: \(event.isAllDay) declinedByMe: \(event.declinedByMe)"
+                + " → \(event.isCall && !event.isAllDay && !event.declinedByMe ? "announced" : "not announced")")
+        }
+        if found.isEmpty { lines.append("[calendar] no events today") }
+        return lines.joined(separator: "\n")
+    }
+
     private func startObserving() {
         guard observer == nil, let store else { return }
         observer = NotificationCenter.default.addObserver(

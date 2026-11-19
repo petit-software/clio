@@ -127,6 +127,7 @@ CLIO_SYSTEM_AUDIO_FLIP_RATE=1 CLIO_SYSTEM_AUDIO_TEST=8 Clio.app/Contents/MacOS/C
 CLIO_SYSTEM_AUDIO_TEST=7 CLIO_SYSTEM_AUDIO_OUT=/tmp/t.wav Clio.app/Contents/MacOS/Clio   # the tap, while something plays; from the bundle
 CLIO_SYSTEM_AUDIO_PROBE=1 Clio.app/Contents/MacOS/Clio    # is a tap allowed to hear? plays the inaudible tone and listens for it; exits 0 when allowed
 CLIO_VOICEPRINT_REPORT=1 Clio.app/Contents/MacOS/Clio     # the distances between the voices kept: same person, different people — what the matcher's thresholds should sit between; reads the store, changes nothing
+open -n -W --env CLIO_CALENDAR_REPORT=1 --stderr /tmp/cal.txt "$PWD/Clio.app"; cat /tmp/cal.txt   # today's calendar as the call watch reads it: each event, your answer to it, its link, and whether a card would announce it; through `open`, because run from a shell the calendar permission asked about is the terminal's
 CLIO_MEETING_TEST=24 Clio.app/Contents/MacOS/Clio         # a real meeting, into a temp folder, Markdown printed; play `say` meanwhile
 CLIO_SUMMARIZE="$HOME/Documents/Clio Meetings/<file>.md" Clio.app/Contents/MacOS/Clio   # Summarize Again on that file with the model Settings names; writes into it, prints the summary
 ```

@@ -108,6 +108,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Today's calendar as the call watch reads it: which events it would
+        // announce, and why not the others. From the bundle — the calendar
+        // permission is the bundle's.
+        if ProcessInfo.processInfo.environment["CLIO_CALENDAR_REPORT"] != nil {
+            Task { @MainActor in
+                let report = MeetingCalendar().report()
+                FileHandle.standardError.write(Data((report + "\n").utf8))
+                exit(0)
+            }
+            return
+        }
+
         // Ask whether a tap is allowed to hear: the probe a silent meeting
         // runs, alone. From the bundle — the permission is the bundle's.
         if ProcessInfo.processInfo.environment["CLIO_SYSTEM_AUDIO_PROBE"] != nil {
