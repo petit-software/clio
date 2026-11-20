@@ -36,6 +36,10 @@ public final class AudioRecorder: @unchecked Sendable {
 
     /// Called ~30×/s on the main actor with a 0…1 level for the meter.
     @MainActor public var onLevel: ((Float) -> Void)?
+    /// Called alongside `onLevel` with the loudness itself — the RMS of the
+    /// last block, unscaled — which is what the speech threshold is
+    /// compared with; `onLevel`'s window moves with the loudest thing heard.
+    @MainActor public var onLoudness: ((Float) -> Void)?
     /// Called alongside `onLevel` with the five bars of the meter — see
     /// MeterAnalyzer. Empty once the recording ends.
     @MainActor public var onBands: (([Float]) -> Void)?
@@ -665,6 +669,7 @@ public final class AudioRecorder: @unchecked Sendable {
             let level = state.scaler.level(rms: rms, dt: Float(interval))
             Task { @MainActor [weak self] in
                 self?.onLevel?(level)
+                self?.onLoudness?(rms)
                 self?.onBands?(bands)
             }
         }
@@ -714,6 +719,7 @@ public final class AudioRecorder: @unchecked Sendable {
         }
         Task { @MainActor [weak self] in
             self?.onLevel?(0)
+            self?.onLoudness?(0)
             self?.onBands?([])
         }
     }

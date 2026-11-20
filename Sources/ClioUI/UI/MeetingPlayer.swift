@@ -90,16 +90,24 @@ struct PlayerControl: View {
         Button {
             player.toggle()
         } label: {
-            Text((player.isPlaying ? "Pause" : "Play")
-                 + " · \(MeetingLine.timestamp(player.time)) / \(MeetingLine.timestamp(player.duration))")
-                .monospacedDigit()
-                .font(.system(size: 13, weight: .medium))
+            HStack(spacing: 7) {
+                // The symbols every player has, as the recorder's stop is
+                // one; in a box of one width, so the time beside them does
+                // not move when one becomes the other.
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 12)
+                Text("\(MeetingLine.timestamp(player.time)) / \(MeetingLine.timestamp(player.duration))")
+                    .monospacedDigit()
+                    .font(.system(size: 13, weight: .medium))
+            }
                 .padding(.horizontal, 14)
                 .frame(height: 35)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .background(BarFill.colour, in: Capsule())
+        .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
         .help(player.isPlaying ? "Pause" : "Play the meeting's audio. Click a time in the transcript to play from there.")
     }
 }

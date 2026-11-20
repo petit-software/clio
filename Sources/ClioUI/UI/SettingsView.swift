@@ -837,7 +837,8 @@ private struct AudioTab: View {
                     }
                     Text("Silence at either end is cut before transcribing, "
                          + "which is faster. Raise the sensitivity if quiet "
-                         + "speech is being clipped.")
+                         + "speech is being clipped. The taller mark on the "
+                         + "level above is where speech begins.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -882,15 +883,28 @@ private struct InputLevelBar: View {
     private static let ticks = 15
 
     var body: some View {
-        let level = Double(coordinator.displayedInputLevel)
+        let level = Double(coordinator.inputMeter)
         let lit = Int((level * Double(Self.ticks)).rounded())
+        // Where speech begins, by the Sensitivity slider below: sound
+        // short of the mark is heard and trimmed as silence, so it lights
+        // grey; past it, it is kept, and lights in the accent. With
+        // trimming off there is no mark and everything counts.
+        let settings = coordinator.settingsStore.settings
+        let mark: Int? = settings.voiceActivityDetection
+            ? Int((Double(VoiceActivityTrimmer.meterPosition(
+                ofLoudness: VoiceActivityTrimmer.energyThreshold(for: settings.vadSensitivity)))
+                   * Double(Self.ticks)).rounded())
+            : nil
         HStack(spacing: 3) {
             ForEach(0..<Self.ticks, id: \.self) { tick in
+                let counts = mark.map { tick >= $0 } ?? true
                 Capsule()
-                    .fill(tick < lit ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary))
-                    .frame(width: 7, height: 12)
+                    .fill(tick >= lit ? AnyShapeStyle(.quaternary)
+                          : counts ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .frame(width: 7, height: tick == mark ? 18 : 12)
             }
         }
+        .frame(height: 18)
         .accessibilityElement()
         .accessibilityLabel("Microphone level")
         .accessibilityValue("\(Int(level * 100)) percent")

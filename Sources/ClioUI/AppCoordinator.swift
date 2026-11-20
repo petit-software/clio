@@ -214,6 +214,17 @@ public final class AppCoordinator {
             self?.fail(error.localizedDescription)
         }
 
+        // The level in Settings, on the scale the speech threshold is drawn
+        // on: from the monitor, or from a dictation while it has the
+        // microphone.
+        levelMonitor?.onLoudness = { [weak self] rms in
+            guard let self, self.state != .recording else { return }
+            self.showLoudness(rms)
+        }
+        recorder.onLoudness = { [weak self] rms in
+            guard let self, self.state == .recording else { return }
+            self.showLoudness(rms)
+        }
         levelMonitor?.onLevel = { [weak self] level in
             guard let self else { return }
             // Up at once, down over half a second: a bar that falls as fast
@@ -225,7 +236,10 @@ public final class AppCoordinator {
         audioDevices.onChange = { [weak self] in self?.updateLevelMonitor() }
         levelMonitor?.onStatus = { [weak self] status in
             self?.levelMonitorStatus = status
-            if status != .listening { self?.monitoredLevel = 0 }
+            if status != .listening {
+                self?.monitoredLevel = 0
+                self?.inputMeter = 0
+            }
         }
 
         // So Esc abandons a dictation started from the menu too, not only one
@@ -677,6 +691,15 @@ public final class AppCoordinator {
 
     /// What the bar in Settings draws: the dictation's own level while there
     /// is one, since it has the microphone, and the monitor's otherwise.
+    /// The level Settings draws, 0…1 on `VoiceActivityTrimmer.meterPosition`'s
+    /// fixed scale, so the mark for the speech threshold can sit on it.
+    public private(set) var inputMeter: Float = 0
+
+    private func showLoudness(_ rms: Float) {
+        // Up at once, down over half a second, as `monitoredLevel` is.
+        inputMeter = max(VoiceActivityTrimmer.meterPosition(ofLoudness: rms), inputMeter - 0.06)
+    }
+
     public var displayedInputLevel: Float {
         state == .recording ? inputLevel : monitoredLevel
     }

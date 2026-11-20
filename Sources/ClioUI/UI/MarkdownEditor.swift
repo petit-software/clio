@@ -478,9 +478,26 @@ final class MarkdownTextView: NSTextView, @preconcurrency NSLayoutManagerDelegat
         }
     }
 
-    // MARK: ⌘B, ⌘I, ⌘K
+    // MARK: ⌘B, ⌘I, ⌘K, ⌘Z
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // ⌘Z and ⇧⌘Z, taken here while the editor has the keyboard. The
+        // Edit menu's Undo is SwiftUI's and asks the window's undo manager,
+        // which knows nothing of this one: the key did nothing at all, with
+        // every edit sitting in `ownUndoManager` (`CLIO_UNDO` shows both).
+        if event.type == .keyDown, window?.firstResponder === self,
+           event.charactersIgnoringModifiers?.lowercased() == "z",
+           let undo = undoManager {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags == .command {
+                if undo.canUndo { undo.undo() }
+                return true
+            }
+            if flags == [.command, .shift] {
+                if undo.canRedo { undo.redo() }
+                return true
+            }
+        }
         guard window?.firstResponder === self,
               event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
               let key = event.charactersIgnoringModifiers?.lowercased()
@@ -1033,9 +1050,30 @@ extension MarkdownTextView {
             }
         }
         report(view, "typed")
+        // CLIO_UNDO=now|late: ⌘Z as the keyboard sends it — a key event to
+        // the application, through the menus — at once, or after the save
+        // that follows a pause in typing. Says what the text was each side.
+        let undo = ProcessInfo.processInfo.environment["CLIO_UNDO"]
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
+            // A real ⌘Z is a later event than the typing: its undo group
+            // has closed by then.
+            try? await Task.sleep(for: .seconds(undo == "now" ? 0.2 : 2))
             report(view, "after save")
+            guard undo != nil else { return }
+            let before = view.string
+            if let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: view.window?.windowNumber ?? 0, context: nil,
+                characters: "z", charactersIgnoringModifiers: "z",
+                isARepeat: false, keyCode: 6) {
+                NSApp.sendEvent(event)
+            }
+            try? await Task.sleep(for: .seconds(0.3))
+            let line = "[type] ⌘Z: \(before.count) characters before, \(view.string.count) after; "
+                + "the editor's own undo \(view.undoManager?.canUndo == true ? "has" : "has no") more, "
+                + "the window's \(view.window?.undoManager?.canUndo == true ? "has some" : "has none")\n"
+            FileHandle.standardError.write(Data(line.utf8))
         }
     }
 

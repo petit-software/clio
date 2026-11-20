@@ -23,6 +23,9 @@ struct MeetingView: View {
     /// Counted up when the meeting stops, for the editor: see `finishLine`.
     @State private var finishedLines = 0
     @State private var titleSave: Task<Void, Never>?
+    /// The audio kept of this meeting, once it has stopped: the page that
+    /// recorded it is the first place anyone looks for it.
+    @State private var player = MeetingPlayer()
     private static let end = "end"
 
     var body: some View {
@@ -98,10 +101,15 @@ struct MeetingView: View {
                 meeting.setTitle(new)
             }
         }
-        .onDisappear { meeting.setTitle(title) }
+        .onDisappear {
+            player.stop()
+            meeting.setTitle(title)
+        }
         .onChange(of: meeting.phase) { _, phase in
             if phase == .finished, meeting.record.summary != nil { pane = .summary }
+            loadAudio()
         }
+        .onAppear(perform: loadAudio)
     }
 
     private var panes: [Pane] {
@@ -238,16 +246,29 @@ struct MeetingView: View {
         PaneMenu(panes: panes, pane: $pane)
     }
 
+    /// Opens the meeting's kept audio once there is some: it is written
+    /// when the meeting stops, and the file may be renamed after that (a
+    /// title from the summary), so only a finished meeting is asked.
+    private func loadAudio() {
+        guard meeting.phase == .finished, !player.hasAudio, let url = meeting.fileURL else { return }
+        player.load(meeting: url)
+    }
+
     /// Along the foot: the pane on the left, the recorder — and Stop — in
     /// the middle, what to do with the file on the right.
     private var actionBar: some View {
         DocumentBar {
             panePicker
         } center: {
-            MeetingPill(meeting: meeting) {
-                meeting.setTitle(title)
-                meeting.setNotes(notes)
-                coordinator.stopMeeting()
+            if meeting.phase == .finished, player.hasAudio {
+                // Where the recorder was, as on the saved meeting's page.
+                PlayerControl(player: player)
+            } else {
+                MeetingPill(meeting: meeting) {
+                    meeting.setTitle(title)
+                    meeting.setNotes(notes)
+                    coordinator.stopMeeting()
+                }
             }
         } trailing: {
                 CopyButton(help: pane.copyHelp) {

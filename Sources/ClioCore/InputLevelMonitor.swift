@@ -25,6 +25,8 @@ public final class InputLevelMonitor: @unchecked Sendable {
     /// Called ~30×/s on the main actor while listening, and once with zero
     /// when it stops.
     @MainActor public var onLevel: ((Float) -> Void)?
+    /// The loudness behind each level: see `AudioRecorder.onLoudness`.
+    @MainActor public var onLoudness: ((Float) -> Void)?
     @MainActor public var onStatus: ((Status) -> Void)?
 
     private enum Target: Equatable {
@@ -52,6 +54,7 @@ public final class InputLevelMonitor: @unchecked Sendable {
         if !isWired {
             isWired = true
             recorder.onLevel = { [weak self] level in self?.onLevel?(level) }
+            recorder.onLoudness = { [weak self] rms in self?.onLoudness?(rms) }
             recorder.onFailure = { [weak self] error in
                 self?.captureFailed(error.localizedDescription)
             }

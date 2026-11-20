@@ -63,8 +63,17 @@ public enum VoiceActivityTrimmer {
     /// Inverted: a *more* sensitive setting must detect quieter speech, which
     /// means a *lower* threshold. Midpoint lands near WhisperKit's own 0.02
     /// default so the middle of the slider is the tuned value.
-    static func energyThreshold(for sensitivity: Double) -> Float {
+    public static func energyThreshold(for sensitivity: Double) -> Float {
         let clamped = min(1, max(0, sensitivity))
         return Float(0.05 - clamped * 0.048)
+    }
+
+    /// Where a loudness sits on the level in Settings, 0…1: decibels from
+    /// -60 to -10, a window that does not move. The threshold is drawn on
+    /// the same scale (-54 dB at the most sensitive, -26 at the least), so
+    /// a sound past the mark is one the trimmer keeps.
+    public static func meterPosition(ofLoudness rms: Float) -> Float {
+        let db = 20 * log10(max(rms, 1e-7))
+        return min(1, max(0, (db + 60) / 50))
     }
 }

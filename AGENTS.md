@@ -115,6 +115,8 @@ CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, 
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
 CLIO_TYPE=$'## Agenda\n- [ ] item' CLIO_LIBRARY_SHOW=live .build/debug/Clio   # types into the notes editor in the real window and reports how it laid out
+CLIO_UNDO=late CLIO_TYPE="hello" CLIO_MEETING_PANE=notes CLIO_LIBRARY_SHOW=1 .build/debug/Clio   # …then ⌘Z as the keyboard sends it, after the save (=now: at once); says how long the text was each side
+CLIO_PLAY=5 CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1 .build/debug/Clio   # presses Play on the sample meeting that has audio and says each second where it has got to
 CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing rule through a real text view; exits non-zero on a failure
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =event the call to come, =empty nothing
@@ -362,9 +364,10 @@ Search is pushed to the trailing edge by a flexible space
 Nothing else goes in it: the sidebar's day sits at its head — the date
 ("18 Nov"), "Today" / "Yesterday" / "Tomorrow" over it in a line that is
 there whether or not the day has a name, so nothing moves (`dayHeader`),
-with the list fading out under it as it does over the foot — Take Notes at
-its foot, and beside it the arrows to the days either side, shown only
-while the pointer is over the sidebar; nothing along either foot is glass. Take Notes is a capsule as
+and on the date's line, at the sidebar's right edge, the arrows to the days either side, bare chevrons
+shown only while the pointer is over the sidebar, with the list fading out
+under it as it does over the foot — Take Notes at its foot; nothing along
+either foot is glass. Take Notes is a capsule as
 wide as its words with four points more at its sides than above and below
 (`TakeNotesButtonStyle`), and a document's controls along its own bottom
 (`DocumentBar`), floating over the page. An event's page — a call with no
@@ -645,6 +648,15 @@ so it can be edited; a read-only editor — summaries, dictations — shows none
 `layoutManager` is touched, so this is TextKit 1; a TextKit 2 rewrite would
 have to find another way to hide characters.
 
+**⌘Z in the notes is the editor's own to take.** The editor has an undo
+manager of its own (the window's replayed other notes' edits into this
+one), and the Edit menu's Undo is SwiftUI's and asks the window's: the
+key did nothing, with every edit waiting in the editor's.
+`performKeyEquivalent` takes ⌘Z and ⇧⌘Z while the editor has the
+keyboard. The editing check calls `undo()` directly and could not see
+it; `CLIO_UNDO` sends the key. The menu item itself is still the
+window's.
+
 **A list item's second line hangs under its first word.** `headIndent`
 on the item's paragraph, as wide as the room its marker takes
 (`MarkdownStyle`, `.listMarker`). And a to-do's leading "- " is not hidden
@@ -818,6 +830,9 @@ Not verified, and worth knowing:
 - **the level in Settings ▸ Audio, on screen.** It builds and the monitor
   behind it is the recorder the sweep exercises, but nobody has watched the
   bar move, or confirmed the microphone is let go when the window closes.
+  The mark for where speech begins moves with the Sensitivity slider
+  (seen); the bar lighting grey short of it and in the accent past it has
+  not been, for the same reason — `swift run` cannot open a microphone.
 - **paste-back into other apps.** §5.7 asks for Terminal, Safari, Slack and a
   full-screen app. Nobody has done it. It is the highest-consequence untested
   path in the app.
@@ -892,9 +907,11 @@ Not verified, and worth knowing:
 - **a note's time, written in a real meeting.** The editing check stamps
   lines and finds a click; nobody has typed notes during a recording and
   then clicked a time to hear it.
-- **playing kept audio.** The control and the clickable times are on the
-  page (`CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1`); nobody has
-  pressed Play, heard both sides in step, or clicked a time. The files
+- **playing kept audio, on a real meeting.** Play pressed in the real
+  window on the sample meeting (`CLIO_PLAY`): the time advances and the
+  process tap hears its tone. Not heard: a recorded meeting, both sides
+  in step, a click on a time, or the player on the page of a meeting
+  that has just stopped — that one is written and has no tool. The files
   are written and are the right length (`MeetingTests`, keepsAudio).
 - **an import from the app.** The importer is proven underneath; the menu
   item, the drop on the window, the progress row in the sidebar and

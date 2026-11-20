@@ -240,13 +240,6 @@ struct LibraryView: View {
                     .fixedSize()
                     .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
                 Spacer(minLength: 0)
-                // The way to the days either side: there while the pointer
-                // is over the sidebar, gone otherwise. ⌘[ and ⌘] work
-                // either way.
-                dayArrows
-                    .opacity(showsDayArrows ? 1 : 0)
-                    .allowsHitTesting(showsDayArrows)
-                    .animation(.easeOut(duration: 0.18), value: showsDayArrows)
             }
             // The same insets as a document's bar, so the two line up
             // across the split.
@@ -295,7 +288,7 @@ struct LibraryView: View {
     /// Over the list: the date — with the day's name above it when it has
     /// one, in a section title's type. The name's line is always there,
     /// empty or not, so the date does not move as the days go by. The
-    /// arrows to the days either side are at the sidebar's foot.
+    /// arrows to the days either side are on its line, at the right edge.
     private var dayHeader: some View {
         HStack(alignment: .bottom, spacing: 8) {
             Button { coordinator.libraryDay = Self.today } label: {
@@ -317,6 +310,13 @@ struct LibraryView: View {
             .help(isToday ? "Today" : "Back to today")
             .accessibilityLabel([dayName, dayTitle].compactMap { $0 }.joined(separator: ", "))
             Spacer(minLength: 0)
+            // The way to the days either side, on the date's line at the
+            // sidebar's right edge: there while the pointer is over the
+            // sidebar, gone otherwise. ⌘[ and ⌘] work either way.
+            dayArrows
+                .opacity(showsDayArrows ? 1 : 0)
+                .allowsHitTesting(showsDayArrows)
+                .animation(.easeOut(duration: 0.18), value: showsDayArrows)
         }
         // In line with the section titles under it.
         .padding(.leading, 26)
@@ -329,6 +329,15 @@ struct LibraryView: View {
             EdgeFade(edge: .top)
                 .padding(.bottom, -28)
         }
+        // And over the date, up through the title bar, nothing at all:
+        // the fade is solid only as far as the header's own top, and the
+        // rows went on above it, blurred behind the window's buttons.
+        .background(alignment: .top) {
+            Color(nsColor: .windowBackgroundColor)
+                .frame(height: 120)
+                .offset(y: -120)
+                .allowsHitTesting(false)
+        }
     }
 
     /// Whether the day's arrows show: only while the pointer is over the
@@ -336,9 +345,9 @@ struct LibraryView: View {
     /// keyboard from the moment the window opens, so they never went away.
     private var showsDayArrows: Bool { isOverSidebar }
 
-    /// Two arrows on one piece of glass, nothing drawn between them. Each
-    /// is clickable over the whole height of the glass and out to its end,
-    /// not just the few points of the glyph.
+    /// Two arrows side by side with nothing behind them: beside the date
+    /// a capsule read as a second title. Each is clickable over a box the
+    /// height of the date's line, not just the few points of the glyph.
     private var dayArrows: some View {
         HStack(spacing: 0) {
             Button { move(-1) } label: { dayArrow(.chevronBack) }
@@ -351,19 +360,17 @@ struct LibraryView: View {
                 .keyboardShortcut("]", modifiers: .command)
         }
         .buttonStyle(.borderless)
+        // Click targets, not stops for the keyboard, as the date is: at
+        // the head of the sidebar they were the first thing in it, and
+        // took the focus — and its ring — when the window opened.
+        .focusable(false)
         .fixedSize()
-        // The arrows' frames are the capsule's padding now. Flat, as
-        // everything along either foot is: no glass.
-        .padding(.horizontal, -14)
-        .barCapsule()
     }
 
-    /// A day arrow in a frame the height of the glass, wide enough to
-    /// reach its rounded end; the glyph sits where the capsule's padding
-    /// put it before.
+    /// A day arrow in a box as tall as the date's line.
     private func dayArrow(_ icon: LibraryIcon) -> some View {
         Chevron(icon: icon)
-            .frame(width: 34, height: 35)
+            .frame(width: 22, height: 24)
             .contentShape(Rectangle())
     }
 
@@ -893,6 +900,12 @@ struct MeetingDocumentView: View {
         }
         // A new summary landed in the file: take it, and only it — the
         // notes here may be newer than the file's.
+        // Opened while its meeting was still being recorded or finished,
+        // this page looked for audio before any was written: look again
+        // whenever the meeting moves on.
+        .onChange(of: coordinator.meeting?.phase) { _, _ in
+            if !player.hasAudio { player.load(meeting: url) }
+        }
         .onChange(of: isSummarizing) { was, now in
             guard was, !now, let fresh = library.record(at: url)?.summary else { return }
             record?.summary = fresh
@@ -923,6 +936,24 @@ struct MeetingDocumentView: View {
         if let name = ProcessInfo.processInfo.environment["CLIO_MEETING_PANE"],
            let chosen = MeetingView.Pane.allCases.first(where: { $0.rawValue.lowercased() == name }) {
             pane = chosen
+        }
+        // CLIO_PLAY=<seconds>: presses Play, as a click on the control
+        // would, and says each second where the playback has got to —
+        // the one way to hear a meeting's audio without a hand on it.
+        if let seconds = ProcessInfo.processInfo.environment["CLIO_PLAY"].flatMap(Int.init) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.5))
+                FileHandle.standardError.write(Data(
+                    "[player] audio: \(player.hasAudio) duration: \(player.duration)\n".utf8))
+                player.toggle()
+                for _ in 0..<seconds {
+                    try? await Task.sleep(for: .seconds(1))
+                    FileHandle.standardError.write(Data(String(
+                        format: "[player] playing: %@ at %.2f\n",
+                        "\(player.isPlaying)", player.time).utf8))
+                }
+                exit(0)
+            }
         }
         #endif
     }
