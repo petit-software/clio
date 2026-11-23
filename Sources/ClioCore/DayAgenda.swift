@@ -39,29 +39,59 @@ public struct DayAgenda: Equatable, Sendable {
 
         var unclaimed = todays
         var items: [Event] = []
-        // Notes that say which event they were taken for, first — then, for
-        // older notes and ones started from the menu, by time: notes that
-        // began while the event was on, or just before it, the same title
-        // first.
         var linked: [String: MeetingFile] = [:]
+
+        /// How far notes began from an event: nothing while it was on.
+        func distance(_ file: MeetingFile, _ event: MeetingEvent) -> TimeInterval {
+            if file.start < event.start { return event.start.timeIntervalSince(file.start) }
+            if file.start > event.end { return file.start.timeIntervalSince(event.end) }
+            return 0
+        }
+        /// Of the notes nobody has yet that pass, the ones begun nearest.
+        func nearest(to event: MeetingEvent, where passes: (MeetingFile) -> Bool) -> Int? {
+            unclaimed.indices.filter { passes(unclaimed[$0]) }
+                .min { distance(unclaimed[$0], event) < distance(unclaimed[$1], event) }
+        }
+
+        // 1. Notes that say which event they were taken for, or were given
+        // to. An id is shared by a repeating event's occurrences, so of two
+        // on one day each takes the notes begun nearest it.
         for event in shown {
-            if let index = unclaimed.firstIndex(where: { $0.eventID == event.id }) {
+            if let index = nearest(to: event, where: { $0.eventID == event.id }) {
                 linked[event.id] = unclaimed.remove(at: index)
             }
         }
+        // 2. The same, by the name the calendar's server gives the event:
+        // a sync from scratch hands every event a new id, and notes that
+        // carried the old one were under nothing at all.
         for event in shown where linked[event.id] == nil {
-            let during = unclaimed.indices.filter { index in
-                let file = unclaimed[index]
-                return file.eventID == nil
-                    && file.start >= event.start.addingTimeInterval(-earlyStart)
-                    && file.start < event.end
-            }
-            let titled = during.first {
-                unclaimed[$0].title.localizedCaseInsensitiveCompare(event.title) == .orderedSame
-            }
-            if let index = titled ?? during.first {
+            guard let key = event.externalID else { continue }
+            if let index = nearest(to: event, where: { $0.eventKey == key }) {
                 linked[event.id] = unclaimed.remove(at: index)
             }
+        }
+        // 3. Notes called what an event on the day is called — whenever
+        // they began, and whatever event they once named: the nearest pair
+        // first, so of two events with one name each gets its own.
+        var pairs: [(file: URL, event: MeetingEvent, apart: TimeInterval)] = []
+        for event in shown where linked[event.id] == nil {
+            for file in unclaimed
+            where file.title.localizedCaseInsensitiveCompare(event.title) == .orderedSame {
+                pairs.append((file.url, event, distance(file, event)))
+            }
+        }
+        for pair in pairs.sorted(by: { $0.apart < $1.apart }) where linked[pair.event.id] == nil {
+            if let index = unclaimed.firstIndex(where: { $0.url == pair.file }) {
+                linked[pair.event.id] = unclaimed.remove(at: index)
+            }
+        }
+        // 4. By time alone: notes that began while the event was on, or
+        // just before it.
+        for event in shown where linked[event.id] == nil {
+            let during = unclaimed.firstIndex { file in
+                file.start >= event.start.addingTimeInterval(-earlyStart) && file.start < event.end
+            }
+            if let during { linked[event.id] = unclaimed.remove(at: during) }
         }
         for event in shown {
             items.append(Event(event: event, notes: linked[event.id]))

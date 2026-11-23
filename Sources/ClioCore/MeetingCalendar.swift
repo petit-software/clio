@@ -7,6 +7,10 @@ import Observation
 /// A calendar event, as much of it as a meeting note needs.
 public struct MeetingEvent: Sendable, Equatable, Identifiable {
     public var id: String
+    /// What the calendar's server calls it. `id` is this Mac's own name for
+    /// the event and a full sync gives it another; this one survives that,
+    /// and is the same for every occurrence of a repeating event.
+    public var externalID: String?
     public var title: String
     public var start: Date
     public var end: Date
@@ -18,11 +22,12 @@ public struct MeetingEvent: Sendable, Equatable, Identifiable {
     /// The colour of the calendar it is on, for telling calendars apart.
     public var calendarColor: CalendarColor?
 
-    public init(id: String, title: String, start: Date, end: Date,
+    public init(id: String, externalID: String? = nil, title: String, start: Date, end: Date,
                 isAllDay: Bool = false, attendees: [MeetingAttendee] = [],
                 joinURL: URL? = nil, declinedByMe: Bool = false,
                 calendarColor: CalendarColor? = nil) {
         self.id = id
+        self.externalID = externalID
         self.title = title
         self.start = start
         self.end = end
@@ -245,6 +250,7 @@ public final class MeetingCalendar {
                 + " me: \(mine.map { "status \($0.participantStatus.rawValue)" } ?? "not among them")"
                 + " link: \(event.joinURL?.host ?? "none")"
                 + " allDay: \(event.isAllDay) declinedByMe: \(event.declinedByMe)"
+                + " id: \(event.id) key: \(event.externalID ?? "none")"
                 + " → \(event.isCall && !event.isAllDay && !event.declinedByMe ? "announced" : "not announced")")
         }
         if found.isEmpty { lines.append("[calendar] no events today") }
@@ -279,6 +285,8 @@ public final class MeetingCalendar {
         }
         return MeetingEvent(
             id: event.calendarItemIdentifier,
+            externalID: (event.calendarItemExternalIdentifier as String?)
+                .flatMap { $0.isEmpty ? nil : $0 },
             title: event.title?.isEmpty == false ? event.title! : "Meeting",
             start: event.startDate,
             end: event.endDate,

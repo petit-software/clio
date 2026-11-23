@@ -466,6 +466,7 @@ public final class MeetingSession {
         record.attendees = existing.attendees
         record.joinURL = existing.joinURL
         record.eventID = existing.eventID
+        record.eventKey = existing.eventKey
         // The file is this meeting's from here on: written over, and
         // renamed for the time the recording starts.
         fileURL = url
@@ -478,7 +479,7 @@ public final class MeetingSession {
         titleIsPlaceholder = false
         record.attendees = event.attendees
         record.joinURL = event.joinURL
-        record.eventID = event.id
+        record.link(to: event)
         save()
     }
 

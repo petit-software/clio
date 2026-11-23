@@ -1187,15 +1187,67 @@ struct DayAgendaTests {
     private func at(_ hour: Double) -> Date { day.addingTimeInterval(hour * 3600) }
 
     private func event(_ id: String, _ title: String, from: Double, to: Double,
-                       allDay: Bool = false, declined: Bool = false) -> MeetingEvent {
-        MeetingEvent(id: id, title: title, start: at(from), end: at(to),
+                       allDay: Bool = false, declined: Bool = false,
+                       key: String? = nil) -> MeetingEvent {
+        MeetingEvent(id: id, externalID: key, title: title, start: at(from), end: at(to),
                      isAllDay: allDay, declinedByMe: declined)
     }
 
-    private func file(_ title: String, at hour: Double, event: String? = nil) -> MeetingFile {
+    private func file(_ title: String, at hour: Double, event: String? = nil,
+                      key: String? = nil) -> MeetingFile {
         MeetingFile(url: URL(fileURLWithPath: "/\(title)-\(hour).md"), title: title,
-                    start: at(hour), end: nil, attendees: [], eventID: event,
+                    start: at(hour), end: nil, attendees: [], eventID: event, eventKey: key,
                     preview: "", searchText: "")
+    }
+
+    @Test("Notes whose event has a new id since are still its: by the server's name, then by title")
+    func survivesANewID() {
+        let events = [event("new-1", "Weekly Demos", from: 17, to: 17.5, key: "server-1"),
+                      event("new-2", "Design Hangout", from: 16, to: 17)]
+        let files = [file("Renamed since", at: 17.05, event: "old-1", key: "server-1"),
+                     // No key, as every file before there was one; and begun
+                     // long before the hour.
+                     file("Design Hangout", at: 8.6, event: "old-2")]
+        let agenda = DayAgenda.make(day: day, events: events, files: files, dictations: [],
+                                    calendar: calendar)
+        #expect(agenda.events.map(\.notes?.title) == ["Design Hangout", "Renamed since"])
+        #expect(agenda.otherNotes.isEmpty)
+    }
+
+    @Test("Notes with a stale id and another name are matched by time, as notes with none are")
+    func staleIDByTime() {
+        let events = [event("new", "Sync", from: 10, to: 11)]
+        let files = [file("My own title", at: 10.2, event: "old")]
+        let agenda = DayAgenda.make(day: day, events: events, files: files, dictations: [],
+                                    calendar: calendar)
+        #expect(agenda.events.first?.notes?.title == "My own title")
+    }
+
+    @Test("Two events with one name each take the notes begun nearest them")
+    func sameNameTwice() {
+        let events = [event("am", "Standup", from: 9, to: 9.5), event("pm", "Standup", from: 15, to: 15.5)]
+        let files = [file("Standup", at: 15.1), file("Standup", at: 8.7)]
+        let agenda = DayAgenda.make(day: day, events: events, files: files, dictations: [],
+                                    calendar: calendar)
+        #expect(agenda.events.map(\.notes?.start) == [at(8.7), at(15.1)])
+    }
+
+    @Test("Notes given to an event are its, whatever they are called and whenever they began")
+    func givenToAnEvent() {
+        let events = [event("e1", "Planning", from: 10, to: 11, key: "k1")]
+        var record = MeetingRecord(title: "Thoughts", startDate: at(19))
+        record.link(to: events[0])
+        let read = try! #require(MeetingMarkdown.parse(MeetingMarkdown.render(record)))
+        #expect(read.eventID == "e1" && read.eventKey == "k1")
+        // Its own notes, by title and time, lose to the ones it was given.
+        let files = [file("Planning", at: 10.1),
+                     file("Thoughts", at: 19, event: read.eventID, key: read.eventKey)]
+        let agenda = DayAgenda.make(day: day, events: events, files: files, dictations: [],
+                                    calendar: calendar)
+        #expect(agenda.events.first?.notes?.title == "Thoughts")
+        #expect(agenda.otherNotes.map(\.title) == ["Planning"])
+        record.unlink()
+        #expect(!MeetingMarkdown.render(record).contains("event"))
     }
 
     @Test("Notes that name their event are its; the rest are matched by time, the same title first")

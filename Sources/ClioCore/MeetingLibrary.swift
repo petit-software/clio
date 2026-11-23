@@ -11,6 +11,8 @@ public struct MeetingFile: Identifiable, Sendable, Equatable {
     public var attendees: [MeetingAttendee]
     /// The calendar event it was taken for, if any.
     public var eventID: String?
+    /// The event again, by the name that survives a calendar sync.
+    public var eventKey: String? = nil
     /// A line to show under the title: the summary's first point, else the
     /// notes', else the first thing said.
     public var preview: String
@@ -176,7 +178,7 @@ public final class MeetingLibrary {
         else { return nil }
         return MeetingFile(url: url, title: record.title, start: record.startDate,
                            end: record.endDate, attendees: record.attendees,
-                           eventID: record.eventID,
+                           eventID: record.eventID, eventKey: record.eventKey,
                            preview: preview(of: record),
                            searchText: text.lowercased())
     }

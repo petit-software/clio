@@ -168,6 +168,8 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
     /// the note is called what the meeting is called; Stop while one runs.
     private func addMeetingItems(to menu: NSMenu) {
         let coordinator = coordinator
+        // The window first: it is where everything else here ends up.
+        menu.addItem(item("Open Clio…", key: "o") { coordinator.showLibrary() })
         if let meeting = coordinator.meeting, meeting.isActive {
             menu.addItem(item("Meeting Notes — \(meeting.record.title)") {
                 coordinator.showMeetingWindow()
@@ -206,12 +208,11 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(Self.submenu("Later Today", submenu))
         }
 
-        menu.addItem(item("Open Clio…", key: "o") { coordinator.showLibrary() })
+        // Importing is started from the window's File menu; here is only
+        // one that is running, and the way to stop it.
         if let importing = coordinator.importStatus {
             menu.addItem(Self.disabled(importing.line))
             menu.addItem(item("Stop Importing") { coordinator.cancelImport() })
-        } else {
-            menu.addItem(item("Import a Recording…") { coordinator.chooseRecordingToImport() })
         }
         if let problem = coordinator.meetingProblem {
             menu.addItem(Self.disabled(problem))

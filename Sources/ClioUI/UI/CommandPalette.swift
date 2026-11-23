@@ -10,9 +10,17 @@ import ClioCore
 ///
 /// It replaced the sidebar's search field: the sidebar is a day, and a
 /// search across every day did not belong at the head of it.
+///
+/// Given a `picking`, it is the same panel asked a narrower question: which
+/// of one day's calendar events some notes belong to. Only those events
+/// are listed, and Return gives the notes to the one highlighted.
 struct CommandPalette: View {
     let coordinator: AppCoordinator
     @Binding var isShown: Bool
+    var picking: EventPick?
+
+    /// The day's events, when picking: read once, as the palette opens.
+    @State private var dayEvents: [MeetingEvent] = []
 
     @State private var query = ""
     @State private var highlighted = 0
@@ -23,7 +31,7 @@ struct CommandPalette: View {
 
     /// Something the palette can do with Return.
     struct Item: Identifiable {
-        enum Kind { case action, meeting, dictation }
+        enum Kind { case action, meeting, dictation, event }
         let id: String
         let kind: Kind
         let title: String
@@ -83,8 +91,35 @@ struct CommandPalette: View {
         return file.preview.isEmpty ? when : "\(when) · \(file.preview)"
     }
 
+    /// The day's events that have each word in their name or among their
+    /// people; the ones the sidebar shows, in its order.
+    private var events: [Item] {
+        guard let picking else { return [] }
+        return dayEvents
+            .filter { event in
+                let text = ([event.title] + event.attendees.map(\.name)).joined(separator: " ").lowercased()
+                return words.allSatisfy { text.contains($0) }
+            }
+            .map { event in
+                Item(id: "event.\(event.id).\(event.start.timeIntervalSince1970)", kind: .event,
+                     title: event.title, subtitle: subtitle(event), icon: .calendar) {
+                    picking.choose(event)
+                }
+            }
+    }
+
+    private func subtitle(_ event: MeetingEvent) -> String {
+        let time = "\(event.start.formatted(date: .omitted, time: .shortened))–\(event.end.formatted(date: .omitted, time: .shortened))"
+        let people = event.attendees.filter { !$0.isMe }.map(\.name)
+        return people.isEmpty ? time : "\(time) · \(people.joined(separator: ", "))"
+    }
+
     private var sections: [(title: String, items: [Item])] {
-        [("Actions", actions),
+        if let picking {
+            let day = picking.day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+            return [(day, events)].filter { !$0.items.isEmpty }
+        }
+        return [("Actions", actions),
          (words.isEmpty ? "Recent meetings" : "Meetings", meetings),
          ("Dictations", dictations)]
             .filter { !$0.items.isEmpty }
@@ -102,7 +137,7 @@ struct CommandPalette: View {
 
             VStack(spacing: 0) {
                 field(items)
-                if !items.isEmpty || !words.isEmpty {
+                if !items.isEmpty || !words.isEmpty || picking != nil {
                     Divider()
                     results(sections, items)
                 }
@@ -126,16 +161,22 @@ struct CommandPalette: View {
         }
         .onAppear {
             query = ""
-            // Opened by a link that said what to look for.
-            if let asked = coordinator.requestedSearch {
-                query = asked
-                coordinator.requestedSearch = nil
+            if let picking {
+                dayEvents = coordinator.dayEvents(on: picking.day)
+                    .filter { !$0.isAllDay && !$0.declinedByMe }
+                    .sorted { $0.start < $1.start }
+            } else {
+                // Opened by a link that said what to look for.
+                if let asked = coordinator.requestedSearch {
+                    query = asked
+                    coordinator.requestedSearch = nil
+                }
+                #if DEBUG
+                if let typed = ProcessInfo.processInfo.environment["CLIO_PALETTE_SHOW"], typed != "1" {
+                    query = typed
+                }
+                #endif
             }
-            #if DEBUG
-            if let typed = ProcessInfo.processInfo.environment["CLIO_PALETTE_SHOW"], typed != "1" {
-                query = typed
-            }
-            #endif
             highlighted = 0
             fieldFocused = true
         }
@@ -146,7 +187,8 @@ struct CommandPalette: View {
         HStack(spacing: 10) {
             Glyph(icon: .search, size: 22)
                 .foregroundStyle(Chevron.colour)
-            TextField("Search meetings and dictations", text: $query)
+            TextField(picking.map { "Add “\($0.title)” to a calendar event" }
+                      ?? "Search meetings and dictations", text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 17))
                 .focused($fieldFocused)
@@ -162,7 +204,7 @@ struct CommandPalette: View {
     @ViewBuilder
     private func results(_ sections: [(title: String, items: [Item])], _ items: [Item]) -> some View {
         if items.isEmpty {
-            Text("Nothing matches “\(query.trimmingCharacters(in: .whitespaces))”.")
+            Text(emptyLine)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
@@ -200,6 +242,19 @@ struct CommandPalette: View {
                 }
             }
         }
+    }
+
+    /// What the list says when it has nothing: nothing matched — or, when
+    /// picking, that the day has no events to give the notes to, and why.
+    private var emptyLine: String {
+        if !words.isEmpty {
+            return "Nothing matches “\(query.trimmingCharacters(in: .whitespaces))”."
+        }
+        guard let picking else { return "" }
+        if coordinator.libraryCalendarAccess != .granted {
+            return "Clio cannot see your calendar. Allow it in the sidebar first."
+        }
+        return "No calendar events on \(picking.day.formatted(.dateTime.day().month(.wide)))."
     }
 
     private func row(_ item: Item, isHighlighted: Bool) -> some View {

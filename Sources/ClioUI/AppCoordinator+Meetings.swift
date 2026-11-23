@@ -130,6 +130,21 @@ extension AppCoordinator {
         }
     }
 
+    /// An event has one set of notes. When others are given to it, the ones
+    /// that named it — by either name — are notes of no event again, so
+    /// the day's calendar shows the ones just chosen.
+    public func releaseNotes(of event: MeetingEvent, except kept: URL) {
+        guard let library else { return }
+        let day = Calendar.current
+        for file in library.files where file.url != kept
+            && day.isDate(file.start, inSameDayAs: event.start)
+            && (file.eventID == event.id || (file.eventKey != nil && file.eventKey == event.externalID)) {
+            guard var record = library.record(at: file.url) else { continue }
+            record.unlink()
+            _ = try? library.save(record, at: file.url)
+        }
+    }
+
     /// Join from the day's calendar: the call, and notes for it — or, if
     /// notes are already being taken, only the call, to rejoin it.
     public func join(_ event: MeetingEvent) {

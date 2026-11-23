@@ -34,7 +34,7 @@ once is recognised next time. Trashing a meeting removes its voiceprints;
 Settings ▸ Model ▸ Speakers turns the remembering off and forgets them all.
 
 A recording made somewhere else becomes a meeting too: drop it on Clio's
-window, or choose Import a Recording… from the menu.
+window, or choose File ▸ Import Recording… while it is open.
 
 Nothing Clio writes is read by anything but Clio — unless you turn on
 Settings ▸ Meetings ▸ Other apps. That starts a Model Context Protocol

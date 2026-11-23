@@ -45,9 +45,9 @@ One meeting, end to end.
 | 7 | stop: drain, then a summary — by Apple's on-device model (macOS 26), or by a downloaded GGUF run by llama.cpp, whichever Settings ▸ Model names; any saved meeting can be summarized again from its ⋯ menu | `MeetingSession.stop`, `ClioCore/MeetingSummarizer`, `LocalSummaryModel`, `ClioUI/AppCoordinator+Summaries` |
 | 8 | the call app lets go of the mic for 30 s → a card says the call seems to have ended and counts fifteen seconds down; Keep Recording, or the meeting stops itself | `CallWatch`, `AppCoordinator.offerToKeepRecording` |
 | 9 | the folder is the library: every file read back, watched, searchable, edited in place | `ClioCore/MeetingLibrary`, `ClioUI/UI/LibraryView` |
-| 9½ | a recording made elsewhere, dropped on the window or chosen from the menu, is put through a session of its own — the file as the call's side, a clock that runs as fast as it is read — and comes out a meeting like any other | `ClioCore/MeetingImport`, `ClioUI/AppCoordinator+Import` |
+| 9½ | a recording made elsewhere, dropped on the window or chosen from File ▸ Import Recording… (the menu bar Clio has while its window is open; the status menu only shows one running, and stops it), is put through a session of its own — the file as the call's side, a clock that runs as fast as it is read — and comes out a meeting like any other | `ClioCore/MeetingImport`, `ClioUI/AppCoordinator+Import` |
 | 9¾ | with Settings ▸ Meetings ▸ Other apps on: an MCP server on 127.0.0.1 answers three read-only tools — find meetings, read one, read its transcript; and `clio://` links open a meeting, a search, or start notes | `ClioCore/MCPServer` (`MCPProtocol`), `MeetingTools` (`AppLink`), `ClioUI/AppCoordinator+Sharing` |
-| 10 | the sidebar is a day: its calendar events with their notes, then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)` |
+| 10 | the sidebar is a day: its calendar events with their notes — the ones that name the event, by its id or the server's name for it, then the ones called what it is called, then the ones begun while it was on; a note's ⋯ gives it to an event by hand — then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)`, `CommandPalette` (`EventPick`) |
 
 The library window is Clio's one real window: meetings down the side (the
 live one first, then Today, Yesterday, months), dictations under them —
@@ -57,7 +57,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 283 tests live here.
+  without standing up an app. All 287 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -67,7 +67,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 283 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
+swift test                                  # 287 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -121,6 +121,8 @@ CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing r
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =event the call to come, =empty nothing
 CLIO_PALETTE_SHOW=pricing CLIO_LIBRARY_SHOW=1 swift run Clio   # the search palette open, with that typed (=1 for empty)
+CLIO_ASSIGN_SHOW=1 CLIO_LIBRARY_SHOW=1 swift run Clio      # the ⋯'s Add to Calendar Event…: the palette on the day's events; =lunch gives the notes to the event with that in its name and prints the file's event lines
+CLIO_SIDEBAR_HIDE=1 CLIO_LIBRARY_SHOW=empty swift run Clio  # …with the sidebar hidden: the empty page has Take Notes then
 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short window, so the sidebar scrolls under its foot
 CLIO_LIBRARY_WIDTH=1240 CLIO_LIBRARY_SHOW=1 swift run Clio  # …wide, so the page takes its wide margins (the breakpoint is 520 pt of page)
 CLIO_SCROLLER_SHOW=1 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # the sidebar scrolled a little, its scroll bar kept on screen
@@ -418,6 +420,35 @@ time and a stop (⌘.), centred over the `DocumentBar` —
 laid over it, not inside its `GlassGroup`: inside, its surface and
 everything on it were blended into the group's glass and all but vanished.
 The meter reads `MeetingSession.micLevel`/`micBands`.
+
+**An event's id does not outlive a calendar sync.** Notes were tied to
+their event by `calendarItemIdentifier` alone, which a sync from scratch
+replaces — a repeating Google event had a new one two hours after notes
+were taken for it — and notes that carried a dead id were then kept out of the match by
+time and title, which took only notes with no id at all: they sat under
+Notes, beside an event of the same name. A file now carries the server's
+name for the event too (`event-key:`, `calendarItemExternalIdentifier`),
+and `DayAgenda` goes id, key, same title anywhere in the day, then time —
+with whatever is still unclaimed, stale id or none. Giving notes to an
+event by hand (`releaseNotes`) takes the event's name off any others that
+had it: an event has one set of notes, and the first two passes would
+otherwise show the older.
+
+**The library window's smallest size is said in SwiftUI.** `minSize` on
+the window read back as zero a moment after it was set: the hosting view
+sets the window's from what its content needs. So the content has a
+`frame(minWidth: 780, minHeight: 440)`, and the window reads back 780 —
+the 680 that was on the window before was never held.
+
+**Nothing in the library window has the keyboard until Tab.** Left to
+itself the first control that can take focus does, and when the sidebar
+is hidden what had it goes and the next takes it: Take Notes, ringed, one
+press of Space from recording — a tool run did start a meeting that way,
+into the real folder. `LibraryWindowController.dropFocus` clears the first
+responder when the window opens and when the sidebar is toggled, never
+from a text view. The empty page's Take Notes, shown only with the
+sidebar hidden, keeps its room and is disabled and clear otherwise, so
+the page does not move and the button cannot be focused unseen.
 
 **Search is a palette, not a field.** `CommandPalette`, over the whole
 library window: ⌘F or the magnifier top right (`SearchToolbarItem`, on
@@ -927,6 +958,18 @@ Not verified, and worth knowing:
 - **a meeting renamed by the model, in the app.** The session renames the
   record and its file (`MeetingTests`); the library window following a file
   that changes name under it at the end of a meeting has not been watched.
+- **the server's name for an event, over time.** That the id changes is
+  seen: notes taken at 17:03 for a repeating Google Calendar event hold
+  one id, and `CLIO_CALENDAR_REPORT`, which now prints each event's id
+  and key, gave the same event another two hours later. The key
+  (`…@google.com/RID=…`, one per occurrence) is assumed to stay; nobody
+  has watched it across a sync, and other calendar servers have not been
+  looked at. The picker has been opened and has moved notes on the sample
+  library (`CLIO_ASSIGN_SHOW`); the menu item has not been clicked, nor
+  used on a real calendar.
+- **focus in the library window, by hand.** A still of the window shows
+  no ring; nobody has pressed Tab in it, toggled the sidebar and looked,
+  or dragged the window down to its 780 points.
 - **the UI has no tests.** `ClioUI` is a library the test target could import,
   but nothing does yet. Previews cover the states; no assertions do.
 

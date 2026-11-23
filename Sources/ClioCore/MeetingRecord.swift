@@ -145,6 +145,10 @@ public struct MeetingRecord: Sendable, Equatable {
     /// The calendar event it was taken for, so the day's calendar can open
     /// its notes. Nil for notes taken without one.
     public var eventID: String?
+    /// The same event as the calendar's server names it: `eventID` is lost
+    /// when the calendar syncs from scratch, and this is what still finds
+    /// the event afterwards.
+    public var eventKey: String?
     /// Ordered by start time, whichever stream finished transcribing first.
     public internal(set) var lines: [MeetingLine] = []
     /// The voices on the call that have a name, by number. One without an
@@ -164,8 +168,21 @@ public struct MeetingRecord: Sendable, Equatable {
         record.endDate = event.end
         record.attendees = event.attendees
         record.joinURL = event.joinURL
-        record.eventID = event.id
+        record.link(to: event)
         return record
+    }
+
+    /// Makes these the notes of `event`: the day's calendar shows them
+    /// under it. Nothing else about them changes.
+    public mutating func link(to event: MeetingEvent) {
+        eventID = event.id
+        eventKey = event.externalID
+    }
+
+    /// Notes of no event in particular again.
+    public mutating func unlink() {
+        eventID = nil
+        eventKey = nil
     }
 
     /// Adds a line in time order, unless it is the other side's words heard
@@ -349,6 +366,7 @@ public enum MeetingMarkdown {
         if let end = record.endDate { out.append("end: \(iso.string(from: end))") }
         if let url = record.joinURL { out.append("link: \(url.absoluteString)") }
         if let event = record.eventID { out.append("event: \(event)") }
+        if let key = record.eventKey { out.append("event-key: \(key)") }
         // The names of the voices, and who gave them: the transcript shows
         // the name, and this is what says which voice it belongs to and
         // whether a model may still change it.
@@ -492,6 +510,7 @@ public enum MeetingMarkdown {
         record.endDate = front["end"].flatMap(iso.date(from:))
         record.joinURL = front["link"].flatMap(URL.init(string:))
         record.eventID = front["event"].flatMap { $0.isEmpty ? nil : $0 }
+        record.eventKey = front["event-key"].flatMap { $0.isEmpty ? nil : $0 }
         record.attendees = attendees
         let notes = block(sections["notes"])
         record.notes = notes == "*No notes.*" ? "" : notes

@@ -22,6 +22,8 @@ public enum LibrarySelection: Hashable, Sendable {
 @MainActor
 final class LibraryWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
+    /// The smallest the window's content goes; the toolbar is on top of it.
+    private static let smallest = NSSize(width: 780, height: 440)
 
     func show(coordinator: AppCoordinator) {
         NSApp.setActivationPolicy(.regular)
@@ -40,7 +42,6 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         // the Window menu and Mission Control.
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 680, height: 440)
         // A toolbar holding the sidebar button (Clio's glyph, in the place
         // the system's had), the document's name and date at the page's
         // leading edge, and the ⋯ at its trailing one. Every other control
@@ -56,7 +57,11 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         // one style. Each page draws a fade under the toolbar instead
         // (`pageTopFade`).
         window.titlebarAppearsTransparent = true
-        let host = NSHostingView(rootView: LibraryView(coordinator: coordinator))
+        // The window's smallest size is the content's, said in SwiftUI: the
+        // hosting view sets the window's from what the content needs, and
+        // `minSize` set on the window read back as zero a moment later.
+        let host = NSHostingView(rootView: LibraryView(coordinator: coordinator)
+            .frame(minWidth: Self.smallest.width, minHeight: Self.smallest.height))
         host.sceneBridgingOptions = [.toolbars, .title]
         window.contentView = host
         window.setFrameAutosaveName("ClioLibraryWindow")
@@ -77,6 +82,26 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        // Nothing in the window has the keyboard until Tab is pressed:
+        // left to itself the first thing that can take it does — Take
+        // Notes, with a focus ring nobody asked for.
+        Self.dropFocus()
+    }
+
+    /// Takes the keyboard's focus off whatever in the library window has
+    /// it, now and once SwiftUI has finished laying the window out. Tab
+    /// still starts from the first control.
+    static func dropFocus() {
+        func drop() {
+            guard let window = NSApp.windows.first(where: { $0.title == "Clio" && $0.toolbar != nil })
+            else { return }
+            // Never from text being written: the notes keep their caret.
+            if window.firstResponder is NSTextView { return }
+            window.makeFirstResponder(nil)
+        }
+        drop()
+        DispatchQueue.main.async(execute: drop)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: drop)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -91,6 +116,8 @@ struct LibraryView: View {
     @Bindable var coordinator: AppCoordinator
     /// The search palette (`CommandPalette`), over the whole window.
     @State private var paletteShown = false
+    /// What the palette is picking an event for, when it is not searching.
+    @State private var eventPick: EventPick?
     @State private var dayEvents: [MeetingEvent] = []
     /// Whether the sidebar shows. The button for it is Clio's own, in the
     /// toolbar where the system's was: SwiftUI hosts the system's as a view
@@ -129,9 +156,10 @@ struct LibraryView: View {
         }
         // Search is the palette, over the window: the magnifier beside each
         // page's ⋯ (`SearchButton`) and ⌘F, from anywhere in the window.
-        .environment(\.openSearch) { paletteShown = true }
+        .environment(\.openSearch) { eventPick = nil; paletteShown = true }
+        .environment(\.pickEvent) { eventPick = $0; paletteShown = true }
         .background {
-            Button("Search") { paletteShown = true }
+            Button("Search") { eventPick = nil; paletteShown = true }
                 .keyboardShortcut("f", modifiers: .command)
                 .opacity(0)
                 .frame(width: 0, height: 0)
@@ -139,19 +167,21 @@ struct LibraryView: View {
         }
         .overlay {
             if paletteShown {
-                CommandPalette(coordinator: coordinator, isShown: $paletteShown)
+                CommandPalette(coordinator: coordinator, isShown: $paletteShown, picking: eventPick)
                     .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.15), value: paletteShown)
         // A `clio://search` link: the palette, open on what it asked for.
         .onChange(of: coordinator.requestedSearch, initial: true) { _, query in
-            if query != nil { paletteShown = true }
+            if query != nil { eventPick = nil; paletteShown = true }
         }
         #if DEBUG
         // CLIO_PALETTE_SHOW: the palette open on launch, its value typed in.
         .onAppear {
             if ProcessInfo.processInfo.environment["CLIO_PALETTE_SHOW"] != nil { paletteShown = true }
+            // CLIO_SIDEBAR_HIDE: the window with its sidebar hidden.
+            if ProcessInfo.processInfo.environment["CLIO_SIDEBAR_HIDE"] != nil { columns = .detailOnly }
         }
         #endif
         // A meeting that has just finished is a file now; follow it there.
@@ -170,6 +200,11 @@ struct LibraryView: View {
         let hidden = columns == .detailOnly
         return Button {
             withAnimation { columns = hidden ? .all : .detailOnly }
+            // What had the keyboard may have just gone, and AppKit hands
+            // it to the next thing that can take it — Take Notes, ringed,
+            // and one press of Space from recording. Nothing has it until
+            // Tab is pressed.
+            LibraryWindowController.dropFocus()
         } label: {
             // The chevrons' grey, as Copy is.
             Glyph(icon: .sidebar, size: 20)
@@ -214,31 +249,7 @@ struct LibraryView: View {
         // The foot of the sidebar: Take Notes.
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
-                Button { coordinator.startMeeting() } label: {
-                    // A record dot and what it does. As wide as its words:
-                    // the room at its sides is four points more than the
-                    // room above and below.
-                    // The pill's ring lime, with a black dot and label in
-                    // either appearance: the lime is as light in the dark.
-                    // While a meeting is on it only shows it, and is grey
-                    // with an ink label: the lime button is the one that
-                    // starts something.
-                    let label = liveMeeting == nil ? Color.black : Color(nsColor: .textColor)
-                    HStack(spacing: 7) {
-                        Circle()
-                            .fill(label)
-                            .frame(width: 9, height: 9)
-                        Text(liveMeeting == nil ? "Take Notes" : "Show Meeting")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(label)
-                    }
-                    .padding(.vertical, TakeNotesButtonStyle.vertical)
-                    .padding(.horizontal, TakeNotesButtonStyle.vertical + 4)
-                    .contentShape(Capsule())
-                }
-                    .buttonStyle(TakeNotesButtonStyle(ink: liveMeeting == nil))
-                    .fixedSize()
-                    .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
+                takeNotesButton
                 Spacer(minLength: 0)
             }
             // The same insets as a document's bar, so the two line up
@@ -565,15 +576,64 @@ struct LibraryView: View {
         }
     }
 
+    /// Take Notes, as the sidebar's foot has it — and the empty page, when
+    /// the sidebar is hidden and its button with it.
+    private var takeNotesButton: some View {
+        Button { coordinator.startMeeting() } label: {
+            // A record dot and what it does. As wide as its words:
+            // the room at its sides is four points more than the
+            // room above and below.
+            // The pill's ring lime, with a black dot and label in
+            // either appearance: the lime is as light in the dark.
+            // While a meeting is on it only shows it, and is grey
+            // with an ink label: the lime button is the one that
+            // starts something.
+            let label = liveMeeting == nil ? Color.black : Color(nsColor: .textColor)
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(label)
+                    .frame(width: 9, height: 9)
+                Text(liveMeeting == nil ? "Take Notes" : "Show Meeting")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(label)
+            }
+            .padding(.vertical, TakeNotesButtonStyle.vertical)
+            .padding(.horizontal, TakeNotesButtonStyle.vertical + 4)
+            .contentShape(Capsule())
+        }
+            .buttonStyle(TakeNotesButtonStyle(ink: liveMeeting == nil))
+            .fixedSize()
+            .help(liveMeeting == nil ? "Take notes for the meeting on now" : "Show the meeting")
+    }
+
     private var nothingSelected: some View {
-        ContentUnavailableView {
+        // With the sidebar hidden there is no Take Notes in the window: the
+        // page has the button, and its line ends in "or" to lead into it.
+        // The line is otherwise the same, and the button keeps its room
+        // while it is not shown, so nothing on the page moves when the
+        // sidebar comes and goes — and nothing fades: the sidebar's own
+        // animation is kept off this page.
+        let hidden = columns == .detailOnly
+        return ContentUnavailableView {
             Label {
-                Text("Pick a meeting\nor a dictation on the left.")
+                // The text's own ink — black on light, white on dark — not
+                // the grey an empty view gives its label.
+                Text("Pick a meeting\nor a dictation on the left" + (hidden ? " or" : "."))
                     .multilineTextAlignment(.center)
+                    .foregroundStyle(Color(nsColor: .textColor))
             } icon: {
                 Glyph(icon: .calendar, size: 48)
             }
+        } actions: {
+            takeNotesButton
+                .padding(.top, 8)
+                .opacity(hidden ? 1 : 0)
+                // Disabled while it is not shown: a button nobody can see
+                // must not take a click, nor the keyboard's focus.
+                .disabled(!hidden)
+                .accessibilityHidden(!hidden)
         }
+        .transaction { $0.animation = nil }
         .navigationTitle("Clio")
         .toolbar { SearchToolbarItem() }
     }
@@ -872,6 +932,7 @@ struct MeetingDocumentView: View {
     @State private var isDirty = false
     /// The meeting's audio, where Settings had it kept.
     @State private var player = MeetingPlayer()
+    @Environment(\.pickEvent) private var pickEvent
 
     init(url: URL, library: MeetingLibrary, coordinator: AppCoordinator,
          selection: Binding<LibrarySelection?>) {
@@ -936,6 +997,24 @@ struct MeetingDocumentView: View {
         if let name = ProcessInfo.processInfo.environment["CLIO_MEETING_PANE"],
            let chosen = MeetingView.Pane.allCases.first(where: { $0.rawValue.lowercased() == name }) {
             pane = chosen
+        }
+        // CLIO_ASSIGN_SHOW: "Add to Calendar Event…" chosen from the ⋯, so
+        // the picker can be looked at; =<words> gives the notes to the
+        // first event with them in its name and says what the file holds.
+        if let asked = ProcessInfo.processInfo.environment["CLIO_ASSIGN_SHOW"], let record {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                if asked == "1" {
+                    pickEvent?(EventPick(day: record.startDate, title: record.title) { assign($0) })
+                } else if let event = coordinator.dayEvents(on: record.startDate)
+                    .first(where: { $0.title.localizedCaseInsensitiveContains(asked) }) {
+                    assign(event)
+                    let front = (try? String(contentsOf: url, encoding: .utf8))?
+                        .components(separatedBy: "\n").filter { $0.hasPrefix("event") } ?? []
+                    FileHandle.standardError.write(Data(
+                        "[assign] “\(record.title)” → “\(event.title)”: \(front)\n".utf8))
+                }
+            }
         }
         // CLIO_PLAY=<seconds>: presses Play, as a click on the control
         // would, and says each second where the playback has got to —
@@ -1086,6 +1165,14 @@ struct MeetingDocumentView: View {
                         }
                     }
                     Divider()
+                    // The day's calendar puts notes under the event they
+                    // were taken for; this says which, when it guessed
+                    // wrong or could not tell.
+                    Button("Add to Calendar Event…", systemImage: "calendar.badge.plus") {
+                        pickEvent?(EventPick(day: record.startDate, title: record.title) { assign($0) })
+                    }
+                    .disabled(pickEvent == nil)
+                    Divider()
                     // With the model Settings ▸ Model names now — so a
                     // meeting summarised by Apple's model can be done again
                     // by a downloaded one, or after the notes were edited.
@@ -1130,6 +1217,19 @@ struct MeetingDocumentView: View {
                     flush()
                 }
             })
+    }
+
+    /// These are `event`'s notes: it names them, any other notes that
+    /// named it let go, and what the notes lack — who was invited, the
+    /// call's link — comes from it. The title stays the notes' own.
+    private func assign(_ event: MeetingEvent) {
+        guard record != nil else { return }
+        coordinator.releaseNotes(of: event, except: url)
+        record?.link(to: event)
+        if record?.attendees.isEmpty == true { record?.attendees = event.attendees }
+        if record?.joinURL == nil { record?.joinURL = event.joinURL }
+        isDirty = true
+        flush()
     }
 
     private func flush() {

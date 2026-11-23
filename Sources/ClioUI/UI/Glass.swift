@@ -127,6 +127,22 @@ enum BarFill {
     static let colour = Color.primary.opacity(0.08)
 }
 
+/// The ink of Copy and the ⋯ along a document's foot: the text's own —
+/// black on a light window, white on a dark one. They were the chevrons'
+/// grey, and read as switched off.
+enum BarInk {
+    static let colour = Color(nsColor: .textColor)
+}
+
+/// A request to pick one of a day's calendar events, in the palette.
+struct EventPick {
+    /// The day whose events are offered.
+    let day: Date
+    /// What is being given to the event, for the field's prompt.
+    let title: String
+    let choose: (MeetingEvent) -> Void
+}
+
 /// The ink of the two glyphs in the window's toolbar, the sidebar button
 /// and search: #333 — and, where the window is dark and #333 would be
 /// lost, the same distance from white.
@@ -157,6 +173,8 @@ struct SearchToolbarItem: ToolbarContent {
 extension EnvironmentValues {
     /// Opens the library window's search palette; nil where there is none.
     @Entry var openSearch: (() -> Void)? = nil
+    /// Opens the palette on a day's calendar events, to pick one.
+    @Entry var pickEvent: ((EventPick) -> Void)? = nil
 }
 
 /// The magnifier that opens the search palette, a glass disc the size of
@@ -312,9 +330,9 @@ struct MoreMenu<Content: View>: View {
         Menu {
             content
         } label: {
-            // The chevrons' grey, as Copy beside it.
+            // The text's own ink, as Copy beside it.
             Glyph(icon: .ellipsis, size: 20)
-                .foregroundStyle(Chevron.colour)
+                .foregroundStyle(BarInk.colour)
                 .frame(width: 35, height: 35)
                 .contentShape(Circle())
         }
@@ -350,9 +368,9 @@ extension View {
     func inkButton() -> some View { modifier(InkButton()) }
 }
 
-/// Copy, as a glass disc the size of the ⋯, its glyph in the chevrons'
-/// grey. Glass drawn around a plain button, as the ⋯ is: the glass button
-/// style recolours its label, and left this one a grey of its own.
+/// Copy, as a disc the size of the ⋯, its glyph in the text's ink. Drawn
+/// around a plain button, as the ⋯ is: the glass button style recolours
+/// its label, and left this one a grey of its own.
 struct CopyButton: View {
     let help: String
     let action: () -> Void
@@ -360,7 +378,7 @@ struct CopyButton: View {
     var body: some View {
         Button(action: action) {
             Glyph(icon: .copy, size: 20)
-                .foregroundStyle(Chevron.colour)
+                .foregroundStyle(BarInk.colour)
                 .frame(width: 35, height: 35)
                 .contentShape(Circle())
         }

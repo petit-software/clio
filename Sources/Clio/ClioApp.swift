@@ -14,6 +14,18 @@ struct ClioApp: App {
             SettingsView(coordinator: delegate.coordinator)
                 .onAppear { delegate.coordinator.permissions.refresh() }
         }
+        // File ▸ Import Recording…, in the menu bar Clio has while its
+        // window is open — the only place it is offered; a recording
+        // dropped on the window does the same.
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                if delegate.coordinator.importStatus != nil {
+                    Button("Stop Importing") { delegate.coordinator.cancelImport() }
+                } else {
+                    Button("Import Recording…") { delegate.coordinator.chooseRecordingToImport() }
+                }
+            }
+        }
     }
 }
 
