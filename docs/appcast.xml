@@ -3,6 +3,16 @@
     <channel>
         <title>Clio</title>
         <item>
+            <title>1.12</title>
+            <pubDate>Mon, 23 Nov 2026 22:11:57 +0100</pubDate>
+            <link>https://github.com/petit-software/clio/releases</link>
+            <sparkle:version>212</sparkle:version>
+            <sparkle:shortVersionString>1.12</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/petit-software/clio/releases/download/v1.12/Clio-1.12.dmg" length="11681740" type="application/octet-stream" sparkle:edSignature="UmxZGW9VnjpTuXmcd4WOB+up1pgWFOv2gnnseECkstSTCmGvjQimFZFkx6tnrAcu2g4c4OcbPLZn4lDsoGuICQ=="/>
+        </item>
+        <item>
             <title>1.11</title>
             <pubDate>Fri, 20 Nov 2026 01:18:32 +0100</pubDate>
             <link>https://github.com/petit-software/clio/releases</link>
@@ -21,16 +31,6 @@
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/petit-software/clio/releases/download/v1.10/Clio-1.10.dmg" length="11640708" type="application/octet-stream" sparkle:edSignature="Nn5Wd7p5hQRj0gYyGqjVt8vGSMF2pDiJSuWBqqlyXHCHOWGZpM7pmQsRa2yyitndgYUoFS18z6ICcpVN7+jTAQ=="/>
-        </item>
-        <item>
-            <title>1.9</title>
-            <pubDate>Thu, 19 Nov 2026 22:10:04 +0100</pubDate>
-            <link>https://github.com/petit-software/clio/releases</link>
-            <sparkle:version>203</sparkle:version>
-            <sparkle:shortVersionString>1.9</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/petit-software/clio/releases/download/v1.9/Clio-1.9.dmg" length="11640642" type="application/octet-stream" sparkle:edSignature="84nBNA4+hdDtQ/8fs3Ym+F2JlQ79ieTmbKoFFnq1J8Ow0mBqzRbs4sEThhPFnkUYbLKyusXbkNKryABh68GZBg=="/>
         </item>
     </channel>
 </rss>
