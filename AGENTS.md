@@ -49,6 +49,24 @@ One meeting, end to end.
 | 9¾ | with Settings ▸ Meetings ▸ Other apps on: an MCP server on 127.0.0.1 answers three read-only tools — find meetings, read one, read its transcript; and `clio://` links open a meeting, a search, or start notes | `ClioCore/MCPServer` (`MCPProtocol`), `MeetingTools` (`AppLink`), `ClioUI/AppCoordinator+Sharing` |
 | 10 | the sidebar is a day: its calendar events with their notes — the ones that name the event, by its id or the server's name for it, then the ones called what it is called, then the ones begun while it was on; a note's ⋯ gives it to an event by hand — then other notes, then dictations; search spans every day | `ClioCore/DayAgenda`, `MeetingCalendar.events(on:)`, `CommandPalette` (`EventPick`) |
 
+## The day
+
+The day view: a card with the day's events. It was an app of its own
+(DayView, a menu bar item and nothing else) and is here whole, less its
+onboarding window and its menu bar icon.
+
+| | | |
+|---|---|---|
+| 1 | asked for from the status menu (Show Day View, and Hide while it is up) or Settings' Preview; shows itself at launch and when the Mac wakes — after the unlock, where the wake lands on the lock screen — and some minutes before a meeting, where Settings ▸ Day View says so; both off until turned on | `ClioUI/AppCoordinator+DayView`, `ClioUI/UI/WakeObserver`, `ClioCore/DayView` (`DayReminder`) |
+| 2 | the day read from the calendar: declined and cancelled events left out, a meeting that sits in two calendars shown once, all-day ones first, a link from the event, its location or its notes | `MeetingCalendar.dayEvents(on:)`, `DayEvents` |
+| 3 | a non-activating panel on the screen the pointer is on, centred or in a corner: all-day events as chips, the rest as a list or a timeline of the whole day with the hour it is now in the middle, overlaps side by side | `ClioUI/UI/DayPanelController`, `DayPanelView`, `DayTimeline`, `DayScrollView`, `DayEventColumns` |
+| 4 | counts down — a ring or a line round its edge — and goes; the count holds while the pointer is over it; Esc or ✕ closes it | `DayPanelController` |
+
+Its settings are fields of `Settings` like any others (`dayView…`). The tab's
+Developer section — made-up events, a made-up time — is
+`AppCoordinator.dayDeveloper`, in memory only, shown and honoured only where
+`isDeveloperBuild` is true.
+
 The library window is Clio's one real window: meetings down the side (the
 live one first, then Today, Yesterday, months), dictations under them —
 whatever Settings ▸ history keeps, nothing more — and the picked one as a
@@ -57,7 +75,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 287 tests live here.
+  without standing up an app. All 298 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -67,7 +85,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 287 tests, 37 suites, no network (one of them over HTTP, on the loopback address)
+swift test                                  # 298 tests, 38 suites, no network (one of them over HTTP, on the loopback address)
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -106,7 +124,7 @@ CLIO_METER_DUMP=/tmp/meter CLIO_METER_VOICE=voice.wav swift test --filter MeterD
 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio      # start/stop 40 times in a hurry on each built-in and USB input, then listen to it, then switch between them; from the bundle, not swift run
 CLIO_RECORDER_STRESS_ALL=1 CLIO_RECORDER_STRESS=40 Clio.app/Contents/MacOS/Clio   # the same, on Bluetooth headsets and iPhones too — ask whoever is wearing them first
 CLIO_SETTINGS_SHOW=1 swift run Clio                       # the Settings window, alone
-CLIO_PREVIEW=countdown swift run Clio                     # one of Settings ▸ About ▸ Developer's previews, without the click: dictation, nothing, error, call, calendar, countdown, welcome, setup
+CLIO_PREVIEW=countdown swift run Clio                     # one of Settings ▸ About ▸ Developer's previews, without the click: dictation, nothing, error, call, calendar, countdown, welcome, setup, day
 CLIO_MENU_SHOW=1 swift run Clio                           # the app, with its menu bar menu open; no intro, so Clio stays inactive as it is for a user
 CLIO_SETTINGS_TAB=meetings CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings on a given tab
 CLIO_SETTINGS_HEIGHT=1000 CLIO_MEMORY_GB=8 CLIO_SETTINGS_TAB=model CLIO_SETTINGS_SHOW=1 swift run Clio   # …tall enough to show the whole tab (nothing there can scroll it), as an 8 GB Mac would list the models
@@ -114,6 +132,10 @@ CLIO_SETTINGS_PROMPT=1 CLIO_SETTINGS_HEIGHT=760 CLIO_SETTINGS_TAB=meetings CLIO_
 CLIO_MEETING_SHOW=recording swift run Clio                # the meeting window, simulated: recording, silent, refused, finishing, finished
 CLIO_MEETING_PANE=transcript CLIO_MEETING_SHOW=recording swift run Clio   # …on a given pane
 CLIO_OFFER_SHOW=1 swift run Clio                          # the "Take notes for …?" card
+CLIO_DAY_TIME=13:30 CLIO_DAY_SHOW=1 swift run Clio        # the day view's card on a made-up day, until closed; CLIO_DAY_TIMED / CLIO_DAY_ALLDAY how many events (0 and 0: the empty day), CLIO_DAY_LAYOUT=list, CLIO_DAY_POSITION=topRight, CLIO_DAY_COUNTDOWN=border with CLIO_DAY_SECONDS=8 to watch it count
+CLIO_DAY_OFFER=calendar CLIO_DAY_POSITION=topRight CLIO_DAY_SHOW=1 swift run Clio   # …and a meeting card a moment later (calendar, call, countdown), where it goes against the day view
+CLIO_DAY_POSITION=bottomRight CLIO_DAY_SHOW=call swift run Clio   # the card for a call that is starting, alone: it brings the day up under it, and both go after its 45 s
+CLIO_SETTINGS_HEIGHT=1150 CLIO_SETTINGS_TAB=dayview CLIO_SETTINGS_SHOW=1 swift run Clio   # Settings ▸ Day View, Developer section and all
 CLIO_TYPE=$'## Agenda\n- [ ] item' CLIO_LIBRARY_SHOW=live .build/debug/Clio   # types into the notes editor in the real window and reports how it laid out
 CLIO_UNDO=late CLIO_TYPE="hello" CLIO_MEETING_PANE=notes CLIO_LIBRARY_SHOW=1 .build/debug/Clio   # …then ⌘Z as the keyboard sends it, after the save (=now: at once); says how long the text was each side
 CLIO_PLAY=5 CLIO_MEETING_PANE=transcript CLIO_LIBRARY_SHOW=1 .build/debug/Clio   # presses Play on the sample meeting that has audio and says each second where it has got to
@@ -650,6 +672,49 @@ release: `release.sh` stamps the commit count. A new popup belongs there
 the day it is written; the ones that existed before it were only ever seen
 by arranging a call.
 
+**The day view's panel is the pill's rules over again.** Non-activating,
+`orderFrontRegardless`, never key unless clicked (then Esc closes it), no
+window shadow — the card draws its own inside a 64-point clear margin, so
+the corner inset is 14 less that margin. The hosting view resizes the
+window after SwiftUI lays out a change, and AppKit grows a window downward
+from its top-left: in a bottom corner that ran off the screen, so every
+resize puts the panel back against its corner (`reanchor`).
+
+**The meeting cards go where the day view goes.** Call detected, call
+starting and call ended used to sit top right whatever was there. They are
+placed and animated by the day view's own rules now (`DayPanelPlacement`):
+Settings ▸ Day View's position, the screen the pointer is on, 14 points in,
+growing out of that corner and leaving the same way, one window level above
+the day view so a card in its corner covers it. Call starting is
+`prominent`: drawn at 1.05 (`MeetingOfferController.prominentScale`), over
+the middle of the day view's card — which it brings up with it and holds
+(`AppCoordinator.holdDayForCall`, `DayPanelController.hold`): the day's own
+countdown and the pointer are ignored while the card is up, and when the
+card goes, by a button or its 45 seconds, a day it brought up goes with it
+and one that was there already carries on counting. Whether Settings shows
+the day on wake or before meetings has no say in it; without calendar
+access, or the day to show, the card comes alone.
+
+**Both panels refuse `constrainFrameRect`.** AppKit keeps a window's top
+out from under the menu bar and counts the clear room for the shadow as
+window, so in a top corner the day view's card sat 50 points lower than it
+was put — 64 from the menu bar, not 14, as it had in DayView all along.
+Measured with the window list, which is how it was found: the card's own
+position cannot be read off a screenshot of glass.
+
+**`MeetingCalendar.onChange` has one listener, and it is the day view.**
+It runs after every `refresh` — and the call watch refreshes every dozen
+checks, the status menu each time it opens — so what hangs off it has to be
+cheap and safe to repeat: re-reading a panel that is up, and working out
+the next reminder again, which cancels the last.
+
+**Day View is off until turned on.** DayView the app showed the day on
+every wake by default, because that was all it did. In Clio that would be
+a card nobody asked for, on every wake, for everyone who had already
+granted the calendar for meetings — so `dayViewOnWake` starts false, and
+nothing was carried over from DayView's own preferences
+(`com.bartbak.dayview`).
+
 **One WhisperKit pipeline, two callers.** The engine is an actor, but actors
 re-enter at every `await` and `transcribe` awaits throughout: a dictation
 during a meeting would have run on the pipeline alongside a chunk. Everything
@@ -970,6 +1035,20 @@ Not verified, and worth knowing:
 - **focus in the library window, by hand.** A still of the window shows
   no ring; nobody has pressed Tab in it, toggled the sidebar and looked,
   or dragged the window down to its 780 points.
+- **the day view, anywhere but a made-up day.** The card has been looked at
+  on sample events (`CLIO_DAY_SHOW`, timeline, top right) and the tab in
+  the Settings window; its decisions are tested on values (`DayViewTests`).
+  Not seen: a real calendar's day, the card on wake or after an unlock,
+  the card before a real meeting, the count holding under the pointer, a
+  click on an event's link, the list layout and the border countdown, the
+  menu item, and every control in the tab — nothing here can click them.
+  The meeting cards in the day view's place have been measured (same
+  corner, call starting centred on the day's card at 1.05, the day coming
+  up with it and both gone at 45 s — by the window list) and looked at
+  still; their entrance and exit have not been watched frame by frame, nor
+  any of it on a second screen.
+  The made-up time reads a minute early (13:29 for 13:30), as it did in
+  DayView.
 - **the UI has no tests.** `ClioUI` is a library the test target could import,
   but nothing does yet. Previews cover the states; no assertions do.
 

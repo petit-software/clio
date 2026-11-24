@@ -100,6 +100,21 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Offer to take notes when a call starts during a calendar event.
     public var meetingDetection: Bool = true
 
+    // Day View — the card with the day's events: see DayView.swift.
+    /// How long the card stays up, in seconds. Zero: until it is closed.
+    public var dayViewSeconds: Double = 4.5
+    public var dayViewPosition: DayPanelPosition = .center
+    public var dayViewCountdown: DayCountdownStyle = .ring
+    public var dayViewLayout: DayLayout = .timeline
+    /// Show the day at launch and whenever the Mac wakes. Off until asked
+    /// for: a card nobody chose, on every wake, is not what an update to a
+    /// dictation app should bring.
+    public var dayViewOnWake: Bool = false
+    /// Show the day shortly before each meeting starts.
+    public var dayViewBeforeMeetings: Bool = false
+    /// How many minutes before.
+    public var dayViewReminderMinutes: Int = 1
+
     public init() {}
 
     /// Every chord that starts a dictation, primary first.
@@ -194,6 +209,16 @@ public struct Settings: Codable, Equatable, Sendable {
         mcpPort = read(.mcpPort, defaults.mcpPort)
         summaryModelID = readOptional(.summaryModelID, String.self)
         meetingDetection = read(.meetingDetection, defaults.meetingDetection)
+
+        dayViewSeconds = read(.dayViewSeconds, defaults.dayViewSeconds)
+        dayViewPosition = read(.dayViewPosition, defaults.dayViewPosition)
+        dayViewCountdown = read(.dayViewCountdown, defaults.dayViewCountdown)
+        dayViewLayout = read(.dayViewLayout, defaults.dayViewLayout)
+        dayViewOnWake = read(.dayViewOnWake, defaults.dayViewOnWake)
+        dayViewBeforeMeetings = read(.dayViewBeforeMeetings, defaults.dayViewBeforeMeetings)
+        let minutes = read(.dayViewReminderMinutes, defaults.dayViewReminderMinutes)
+        dayViewReminderMinutes = Settings.dayViewReminderChoices.contains(minutes)
+            ? minutes : defaults.dayViewReminderMinutes
     }
 }
 

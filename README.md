@@ -20,6 +20,10 @@ once in Settings ▸ Model, which also summarizes any earlier meeting again.
 "Open Clio…" in the menu shows them all — searchable, editable, with recent
 dictations alongside.
 
+And it shows the day: a card with today's calendar, as a list or a timeline,
+from "Show Day View" in the menu — and, where Settings ▸ Day View says so,
+when the Mac starts or wakes and a few minutes before each meeting.
+
 With the speaker models installed (Settings ▸ Model ▸ Speakers, 17 MB), the
 others on a call are told apart — "Speaker 1", "Speaker 2" — and named where
 the conversation or an earlier meeting says who they are; click a name in a
@@ -60,6 +64,7 @@ Working end to end, signed, notarized and updating itself through Sparkle.
 | Models | catalog, download, SHA-256 verified, shared-cache discovery |
 | Input | microphone picker, live device list, Bluetooth warning |
 | Meetings | mic + system audio (process tap), calendar (EventKit), live transcript, Markdown, on-device summary (Apple Intelligence or a downloaded GGUF via llama.cpp) |
+| Day View | today's events on a floating card: list or timeline, a countdown, on wake and before meetings |
 | Distribution | Developer ID signed, notarized, stapled DMG, Sparkle updates |
 
 ## Install with Homebrew

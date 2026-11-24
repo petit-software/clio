@@ -29,7 +29,7 @@ extension AppCoordinator {
     /// Shows one of the meeting cards as it would appear, top right. Its
     /// buttons close it and do nothing else.
     public func previewOffer(_ kind: OfferPreview) {
-        if meetingOffer == nil { meetingOffer = MeetingOfferController() }
+        prepareMeetingOffer()
         let event = MeetingEvent(
             id: "preview", title: "Weekly product sync",
             start: Date(), end: Date().addingTimeInterval(45 * 60),
@@ -41,12 +41,13 @@ extension AppCoordinator {
                                app: CallApp(bundleID: "us.zoom.xos", name: "Zoom", isBrowser: false),
                                event: event, accept: {})
         case .calendar:
+            let releaseDay = holdDayForCall()
             meetingOffer?.show(
                 MeetingOffer(headline: "“Weekly product sync” is starting",
                              detail: "Join the call and take notes? Both sides are transcribed on this Mac.",
                              acceptTitle: "Join & Take Notes", declineTitle: "Not Now",
                              event: event, offersLink: true),
-                timeout: 45, accept: {})
+                prominent: true, timeout: 45, accept: {}, onGone: releaseDay)
         case .countdown:
             let seconds = CallWatch.stopCountdown
             meetingOffer?.show(

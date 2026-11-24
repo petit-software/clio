@@ -49,6 +49,9 @@ public struct SettingsView: View {
             MeetingsTab(coordinator: coordinator)
                 .tabItem { Label { Text("Meetings") } icon: { SettingsIcon.meetings } }
                 .tag("meetings")
+            DayViewTab(coordinator: coordinator)
+                .tabItem { Label { Text("Day View") } icon: { SettingsIcon.dayView } }
+                .tag("dayview")
             FeedbackTab(coordinator: coordinator)
                 .tabItem { Label { Text("Feedback") } icon: { SettingsIcon.feedback } }
                 .tag("feedback")
@@ -57,8 +60,8 @@ public struct SettingsView: View {
                 .tag("about")
         }
         .softTopEdge()
-        // Wide enough for eight tabs in one row.
-        .frame(width: 560, height: Self.toolHeight ?? 420)
+        // Wide enough for nine tabs in one row.
+        .frame(width: 620, height: Self.toolHeight ?? 420)
         .floatingWindow()
     }
 }
@@ -119,14 +122,7 @@ private struct GeneralTab: View {
             }
 
             Section {
-                // Reads the login item itself, not the stored flag. The two
-                // drift: the registration is per bundle identifier, so a rename
-                // strands it, and the user then sees a switch that is on while
-                // nothing launches. A control that lies about the system is
-                // worse than one that is simply off.
-                Toggle("Launch at login", isOn: Binding(
-                    get: { SMAppService.mainApp.status == .enabled },
-                    set: { setLaunchAtLogin($0) }))
+                LaunchAtLoginToggle(coordinator: coordinator)
 
                 Toggle("Show icon in menu bar", isOn: Binding(
                     get: { coordinator.settingsStore.settings.showMenuBarIcon },
@@ -161,6 +157,33 @@ private struct GeneralTab: View {
                 : "The fn (Globe) key only reports on Apple keyboards."
         }
         return nil
+    }
+
+}
+
+/// "Launch at login", in General and again in Day View, where showing the
+/// day on startup depends on it.
+///
+/// Reads the login item itself, not the stored flag. The two drift: the
+/// registration is per bundle identifier, so a rename strands it, and the
+/// user then sees a switch that is on while nothing launches. A control
+/// that lies about the system is worse than one that is simply off.
+struct LaunchAtLoginToggle: View {
+    let coordinator: AppCoordinator
+    var title = "Launch at login"
+
+    var body: some View {
+        // Read here, so that mirroring the outcome into the settings below
+        // draws the switch again.
+        let _ = coordinator.settingsStore.settings.launchAtLogin
+        Toggle(title, isOn: Binding(
+            get: { SMAppService.mainApp.status == .enabled },
+            set: { setLaunchAtLogin($0) }))
+        if SMAppService.mainApp.status == .requiresApproval {
+            Text("Waiting for approval in System Settings ▸ General ▸ Login Items.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {

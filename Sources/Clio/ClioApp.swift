@@ -12,7 +12,12 @@ struct ClioApp: App {
         // MenuBarController for why it is not a MenuBarExtra.
         Settings {
             SettingsView(coordinator: delegate.coordinator)
-                .onAppear { delegate.coordinator.permissions.refresh() }
+                .onAppear {
+                    delegate.coordinator.permissions.refresh()
+                    // Calendar access granted in System Settings reaches
+                    // the Day View tab only if it is read again.
+                    delegate.coordinator.calendar.refresh()
+                }
         }
         // File ▸ Import Recording…, in the menu bar Clio has while its
         // window is open — the only place it is offered; a recording
@@ -49,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || env["CLIO_INTRO_SHOW"] != nil || env["CLIO_SETTINGS_SHOW"] != nil
             || env["CLIO_MENU_SHOW"] != nil || env["CLIO_MEETING_SHOW"] != nil
             || env["CLIO_OFFER_SHOW"] != nil || env["CLIO_LIBRARY_SHOW"] != nil
-            || env["CLIO_MARKDOWN_CHECK"] != nil
+            || env["CLIO_MARKDOWN_CHECK"] != nil || env["CLIO_DAY_SHOW"] != nil
         #else
         return false
         #endif
@@ -209,6 +214,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator.showSimulatedLibrary(which)
             return
         }
+        // The day view's card on a made-up day, until closed.
+        if ProcessInfo.processInfo.environment["CLIO_DAY_SHOW"] != nil {
+            NSApp.setActivationPolicy(.accessory)
+            Self.applyToolAppearance()
+            coordinator.showSimulatedDay()
+            // CLIO_DAY_OFFER=calendar|call|countdown: one of the meeting
+            // cards a moment later, to see it against the day view.
+            if let kind = ProcessInfo.processInfo.environment["CLIO_DAY_OFFER"]
+                .flatMap(AppCoordinator.OfferPreview.init) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [coordinator] in
+                    coordinator.previewOffer(kind)
+                }
+            }
+            return
+        }
         // The card offered when a call starts, top right.
         if ProcessInfo.processInfo.environment["CLIO_OFFER_SHOW"] != nil {
             NSApp.setActivationPolicy(.accessory)
@@ -285,7 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar = MenuBarController(coordinator: coordinator) { [weak self] in self?.showSetup() }
         #if DEBUG
         // One of the Developer section's previews, without the click:
-        // dictation, nothing, error, call, calendar, countdown, welcome, setup.
+        // dictation, nothing, error, call, calendar, countdown, welcome, setup, day.
         if let which = ProcessInfo.processInfo.environment["CLIO_PREVIEW"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 guard let self else { return }
@@ -295,6 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case "error": self.coordinator.previewDictationError()
                 case "welcome": self.coordinator.showIntro?(.welcome)
                 case "setup": self.coordinator.showIntro?(.setup)
+                case "day": self.coordinator.showDay()
                 default:
                     if let kind = AppCoordinator.OfferPreview(rawValue: which) {
                         self.coordinator.previewOffer(kind)

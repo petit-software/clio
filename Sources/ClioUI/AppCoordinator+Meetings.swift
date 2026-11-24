@@ -293,7 +293,7 @@ extension AppCoordinator {
             return
         }
         guard settingsStore.settings.meetingDetection, activeModel != nil else { return }
-        if meetingOffer == nil { meetingOffer = MeetingOfferController() }
+        prepareMeetingOffer()
         let event = calendar.access == .granted ? calendar.current : nil
         if let app = callWatch.offer(apps: apps, event: event) {
             meetingOffer?.show(title: event?.title, app: app, event: event, accept: { [weak self] in
@@ -308,6 +308,8 @@ extension AppCoordinator {
         guard calendar.access == .granted, meetingOffer?.isShowing != true,
               let starting = callWatch.starting(events: dayEvents(on: Date())) else { return }
         let joins = starting.joinURL != nil
+        // The day comes up with it, and goes when it does.
+        let releaseDay = holdDayForCall()
         meetingOffer?.show(
             MeetingOffer(headline: "“\(starting.title)” is starting",
                          detail: joins ? "Join the call and take notes? Both sides are transcribed on this Mac."
@@ -315,9 +317,23 @@ extension AppCoordinator {
                          acceptTitle: joins ? "Join & Take Notes" : "Take Notes",
                          declineTitle: "Not Now",
                          event: starting, offersLink: true),
-            timeout: 45,
+            // The one card that is not to be missed: over the day view
+            // when that is up, and larger.
+            prominent: true, timeout: 45,
             accept: { [weak self] in self?.startMeeting(event: starting, join: joins) },
-            decline: { [weak self] in self?.callWatch.decline(starting) })
+            decline: { [weak self] in self?.callWatch.decline(starting) },
+            onGone: releaseDay)
+    }
+
+    /// The meeting cards' controller, made once and told where the day
+    /// view goes: the cards go there too.
+    func prepareMeetingOffer() {
+        guard meetingOffer == nil else { return }
+        let offer = MeetingOfferController()
+        offer.dayPlacement = { [weak self] in
+            (self?.settingsStore.settings.dayViewPosition ?? .topRight, self?.dayPanel?.cardFrame)
+        }
+        meetingOffer = offer
     }
 
     /// The call a meeting was started for has let go of the microphone for
@@ -326,7 +342,7 @@ extension AppCoordinator {
     /// headphones, and a meeting ended behind the user's back is one they
     /// find out about afterwards.
     private func offerToKeepRecording(_ meeting: MeetingSession) {
-        if meetingOffer == nil { meetingOffer = MeetingOfferController() }
+        prepareMeetingOffer()
         let seconds = CallWatch.stopCountdown
         let stop: () -> Void = { [weak self, weak meeting] in
             guard let self, let meeting, self.meeting === meeting, meeting.isActive else { return }
@@ -605,7 +621,7 @@ extension AppCoordinator {
 
     /// For CLIO_OFFER_SHOW.
     public func showSimulatedOffer() {
-        if meetingOffer == nil { meetingOffer = MeetingOfferController() }
+        prepareMeetingOffer()
         meetingOffer?.show(title: "Weekly product sync",
                            app: CallApp(bundleID: "us.zoom.xos", name: "Zoom", isBrowser: false)) {
             FileHandle.standardError.write(Data("[offer] Take Notes pressed\n".utf8))

@@ -2,16 +2,31 @@ import AppKit
 import SwiftUI
 import ClioCore
 
-/// "Take notes for Weekly sync?" — a small card in the top-right corner when
-/// a call starts.
+/// "Take notes for Weekly sync?" — a small card when a call starts.
 ///
 /// A non-activating panel, like the pill: it must never take focus from the
 /// call the user is joining. It goes away on its own after half a minute,
 /// since saying nothing is also an answer.
+///
+/// It goes where the day view goes and arrives as the day view does
+/// (`DayPanelPlacement`): the corner or the centre Settings ▸ Day View
+/// names, on the screen the pointer is on, growing out of that corner and
+/// leaving the same way. The card for a call that is starting is the
+/// exception in one respect — it is `prominent`: over the middle of the
+/// day view, which it brings up with it (`AppCoordinator.holdDayForCall`),
+/// and drawn larger.
 @MainActor
 final class MeetingOfferController {
     private var panel: NSPanel?
+    private var presentation: OfferPresentation?
     private var timeout: Task<Void, Never>?
+    /// Runs once when the card on screen goes, however it goes: a button,
+    /// its time running out, another card taking its place.
+    private var onGone: (() -> Void)?
+
+    /// Where the day view goes, and where its card is while it is up.
+    /// Asked each time a card shows.
+    var dayPlacement: () -> (position: DayPanelPosition, dayCard: CGRect?) = { (.topRight, nil) }
 
     /// The card, with the point either side of it its hairline is drawn in.
     /// The width is the card's; the height is only the most it has been —
@@ -22,9 +37,8 @@ final class MeetingOfferController {
     /// Room round the card for the shadow it casts: the card draws its
     /// own, as the onboarding card does, and the panel casts none.
     static let shadowMargin: CGFloat = 36
-    /// The panel: the card and its shadow's room.
-    static let size = CGSize(width: cardSize.width + 2 * shadowMargin,
-                             height: cardSize.height + 2 * shadowMargin)
+    /// How much larger the card for a call that is starting is drawn.
+    static let prominentScale: CGFloat = 1.05
 
     /// A call app has opened its microphone: take notes for it?
     func show(title: String?, app: CallApp, event: MeetingEvent? = nil,
@@ -39,10 +53,12 @@ final class MeetingOfferController {
 
     /// Shows a card. It goes after `timeout` seconds, with `onTimeout` if
     /// nothing was pressed — saying nothing is an answer too.
-    func show(_ offer: MeetingOffer, timeout seconds: TimeInterval = 30,
+    func show(_ offer: MeetingOffer, prominent: Bool = false, timeout seconds: TimeInterval = 30,
               accept: @escaping () -> Void, decline: @escaping () -> Void = {},
-              onTimeout: @escaping () -> Void = {}) {
-        dismiss()
+              onTimeout: @escaping () -> Void = {}, onGone: @escaping () -> Void = {}) {
+        // Whatever card was up is replaced, not walked off.
+        remove()
+        self.onGone = onGone
         let view = MeetingOfferView(
             offer: offer,
             accept: { [weak self] in
@@ -55,10 +71,25 @@ final class MeetingOfferController {
             })
 
         // As tall as this card's own content, measured before it is shown.
-        let host = FirstClickHostingView(rootView: view)
-        let fitted = host.fittingSize
-        let size = CGSize(width: Self.size.width,
-                          height: fitted.height > 0 ? fitted.height : Self.size.height)
+        let fitted = NSHostingView(rootView: view).fittingSize
+        let card = CGSize(width: Self.cardSize.width,
+                          height: fitted.height > 0 ? fitted.height : Self.cardSize.height)
+        let scale = prominent ? Self.prominentScale : 1
+        // The shadow grows with the card.
+        let margin = (Self.shadowMargin * scale).rounded(.up)
+        let size = CGSize(width: (card.width * scale).rounded(.up) + 2 * margin,
+                          height: (card.height * scale).rounded(.up) + 2 * margin)
+
+        let (position, dayCard) = dayPlacement()
+        // Over the middle of the day view, the card grows from its own
+        // middle; anywhere else, from the corner it is in.
+        let over = prominent ? dayCard : nil
+        let presentation = OfferPresentation(
+            position: over != nil ? .center : position, scale: scale,
+            size: CGSize(width: size.width - 2 * margin, height: size.height - 2 * margin),
+            margin: margin)
+        let host = FirstClickHostingView(rootView: OfferPresentationView(presentation: presentation,
+                                                                         card: view))
         let panel = OfferPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -68,22 +99,32 @@ final class MeetingOfferController {
         // The card's own shadow (`OfferSurface`), which is where the card
         // is; the window's is wherever the card was when it was taken.
         panel.hasShadow = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // One above the day view, which a card can share a corner with.
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         panel.becomesKeyOnlyIfNeeded = true
+        panel.animationBehavior = .none
         panel.contentView = host
+        panel.setContentSize(size)
 
-        if let screen = NSScreen.main {
-            let frame = screen.visibleFrame
-            // The card where it always was — 16 in from the right, 12 down
-            // from the top — with its shadow's room hanging outside that.
-            panel.setFrameOrigin(NSPoint(
-                x: frame.maxX - Self.cardSize.width - 16 - Self.shadowMargin,
-                y: frame.maxY - 12 + Self.shadowMargin - size.height))
+        if let over {
+            panel.setFrameOrigin(NSRect(x: over.midX - size.width / 2, y: over.midY - size.height / 2,
+                                        width: size.width, height: size.height).integral.origin)
+        } else if let visible = DayPanelPlacement.visibleFrame() {
+            panel.setFrameOrigin(NSRect(
+                origin: DayPanelPlacement.origin(for: size, in: visible, position: position,
+                                                 shadowMargin: margin),
+                size: size).integral.origin)
         }
         panel.orderFrontRegardless()
         self.panel = panel
+        self.presentation = presentation
+        // A runloop later, so the first frame is drawn in the hidden pose
+        // and there is something to animate from.
+        DispatchQueue.main.async {
+            withAnimation(DayPanelPlacement.entrance) { presentation.isShown = true }
+        }
 
         timeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
@@ -113,11 +154,78 @@ final class MeetingOfferController {
     }
     #endif
 
+    /// Puts the card away as the day view goes: shrinking back to where it
+    /// came from. It stops counting as showing at once.
     func dismiss() {
+        timeout?.cancel()
+        timeout = nil
+        guard let panel, let presentation else { return }
+        self.panel = nil
+        self.presentation = nil
+        gone()
+        withAnimation(DayPanelPlacement.exit) { presentation.isShown = false }
+        Task {
+            try? await Task.sleep(for: DayPanelPlacement.exitTime)
+            panel.orderOut(nil)
+        }
+    }
+
+    /// Takes the card away with no exit, for the one that replaces it.
+    private func remove() {
         timeout?.cancel()
         timeout = nil
         panel?.orderOut(nil)
         panel = nil
+        presentation = nil
+        gone()
+    }
+
+    private func gone() {
+        let ended = onGone
+        onGone = nil
+        ended?()
+    }
+}
+
+/// How a card is on screen: where, how large, and whether it has arrived.
+@MainActor
+@Observable
+final class OfferPresentation {
+    let position: DayPanelPosition
+    let scale: CGFloat
+    /// The card's size on screen, scale and all.
+    let size: CGSize
+    /// Clear room round it for its shadow.
+    let margin: CGFloat
+    /// Drives the entrance and exit; the window itself stays opaque to them.
+    var isShown = false
+
+    init(position: DayPanelPosition, scale: CGFloat, size: CGSize, margin: CGFloat) {
+        self.position = position
+        self.scale = scale
+        self.size = size
+        self.margin = margin
+    }
+}
+
+/// A card at its place in its window, arriving and leaving as the day view
+/// does.
+private struct OfferPresentationView: View {
+    let presentation: OfferPresentation
+    let card: MeetingOfferView
+
+    var body: some View {
+        card
+            // Its size on screen first, about its own middle, so the room
+            // it takes is the room it is drawn in.
+            .scaleEffect(presentation.scale)
+            .frame(width: presentation.size.width, height: presentation.size.height)
+            .scaleEffect(presentation.isShown ? 1 : DayPanelPlacement.hiddenScale,
+                         anchor: DayPanelPlacement.anchor(for: presentation.position))
+            .offset(y: presentation.isShown
+                    ? 0 : DayPanelPlacement.entryOffset(for: presentation.position))
+            .opacity(presentation.isShown ? 1 : 0)
+            .padding(presentation.margin)
     }
 }
 
@@ -126,6 +234,10 @@ final class MeetingOfferController {
 private final class OfferPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    /// As the day view's panel: its clear margin may go under the menu bar.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
 }
 
 /// Clio is never the active app while the card is up, so the first click on
@@ -289,7 +401,6 @@ struct MeetingOfferView: View {
         .fixedSize(horizontal: false, vertical: true)
         .background(OfferSurface(palette: palette))
         .padding(1)
-        .padding(MeetingOfferController.shadowMargin)
     }
 }
 

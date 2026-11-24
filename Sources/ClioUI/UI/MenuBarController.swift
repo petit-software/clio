@@ -208,6 +208,11 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(Self.submenu("Later Today", submenu))
         }
 
+        // The day at a glance; a second pick puts it away.
+        menu.addItem(item(coordinator.isDayVisible ? "Hide Day View" : "Show Day View") {
+            coordinator.toggleDay()
+        })
+
         // Importing is started from the window's File menu; here is only
         // one that is running, and the way to stop it.
         if let importing = coordinator.importStatus {

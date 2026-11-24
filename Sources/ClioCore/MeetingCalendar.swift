@@ -149,6 +149,11 @@ public final class MeetingCalendar {
     /// day knows to read it again.
     public private(set) var revision = 0
 
+    /// Runs after every `refresh`: a calendar change, or access granted.
+    /// For what follows the calendar without being a view — the day panel
+    /// on screen, the reminder before the next meeting.
+    @ObservationIgnored public var onChange: (() -> Void)?
+
     private let store: EKEventStore?
     private var simulated: [MeetingEvent] = []
     private var observer: NSObjectProtocol?
@@ -214,6 +219,7 @@ public final class MeetingCalendar {
         access = Self.currentAccess()
         guard access == .granted else {
             events = []
+            onChange?()
             return
         }
         let calendar = Calendar.current
@@ -222,6 +228,44 @@ public final class MeetingCalendar {
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
         events = store.events(matching: predicate).map(Self.meetingEvent)
         revision += 1
+        onChange?()
+    }
+
+    /// A day as the day panel shows it: every event that touches it,
+    /// all-day ones first, then by start. Events the user has declined, and
+    /// cancelled ones, are left out: they are not plans. Empty without
+    /// access.
+    public func dayEvents(on day: Date) -> [DayEvent] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: day)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        guard let store else {
+            return DayEvents.arranged(simulated
+                .filter { $0.start < end && $0.end > start && !$0.declinedByMe }
+                .map { DayEvent(id: "\($0.id)-\($0.start.timeIntervalSince1970)", title: $0.title,
+                                start: $0.start, end: $0.end, isAllDay: $0.isAllDay,
+                                url: $0.joinURL, color: $0.calendarColor) })
+        }
+        guard Self.currentAccess() == .granted else { return [] }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        return DayEvents.arranged(store.events(matching: predicate)
+            .filter { event in
+                let me = event.attendees?.first { $0.isCurrentUser }
+                return me?.participantStatus != .declined && event.status != .canceled
+            }
+            .map { event in
+                DayEvent(
+                    // Occurrences of a repeating event share an identifier.
+                    id: "\(event.eventIdentifier ?? UUID().uuidString)-\(event.startDate.timeIntervalSince1970)",
+                    title: event.title?.isEmpty == false ? event.title! : "Untitled",
+                    start: event.startDate,
+                    end: event.endDate,
+                    isAllDay: event.isAllDay,
+                    location: event.location?.isEmpty == false ? event.location : nil,
+                    url: event.url ?? DayEvents.firstLink(in: event.location)
+                        ?? DayEvents.firstLink(in: event.notes),
+                    color: CalendarColor(event.calendar?.cgColor))
+            })
     }
 
     /// Today's events as EventKit gives them and as the call watch reads

@@ -91,6 +91,16 @@ public final class AppCoordinator {
     /// A search asked for from outside — a `clio://search` link — for the
     /// library window to open its palette on.
     public var requestedSearch: String?
+    /// The day view — the card with the day's events:
+    /// `AppCoordinator+DayView`. The panel is made the first time it shows.
+    var dayPanel: DayPanelController?
+    var wakeObserver: WakeObserver?
+    var dayReminderTask: Task<Void, Never>?
+    /// The meeting starts the day has already been shown ahead of.
+    var dayRemindedStarts = Set<Date>()
+    var lastAutomaticDay: Date?
+    /// Made-up events and a made-up time, for the tab's Developer section.
+    public var dayDeveloper = DayViewDeveloper()
     /// The voices of past meetings: `AppCoordinator+Voices`.
     let voiceMemory = VoiceMemory()
     /// How many voices are kept, of how many people — for Settings.
@@ -194,6 +204,7 @@ public final class AppCoordinator {
         sweepMeetingAudio()
         updateMCPServer()
         watchForCalls()
+        startDayView()
 
         overlay = OverlayController()
         // Clicking the pill while it is transcribing abandons the run.
@@ -281,6 +292,7 @@ public final class AppCoordinator {
         // Quitting mid-meeting keeps what was transcribed; the chunks still
         // in flight are lost, which beats holding the quit up for them.
         callWatchTask?.cancel()
+        stopDayView()
         meeting?.abandon()
         settingsStore.flush()
     }

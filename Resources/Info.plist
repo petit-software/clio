@@ -40,7 +40,7 @@
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Clio listens to the other side of a call while it takes meeting notes. Audio is transcribed entirely on this Mac and is never uploaded.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Clio reads your calendar to name meeting notes and list who was invited. Nothing is changed or uploaded.</string>
+	<string>Clio reads your calendar to name meeting notes, list who was invited and show your day. Nothing is changed or uploaded.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
