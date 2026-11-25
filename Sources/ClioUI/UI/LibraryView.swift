@@ -158,6 +158,7 @@ struct LibraryView: View {
         // page's ⋯ (`SearchButton`) and ⌘F, from anywhere in the window.
         .environment(\.openSearch) { eventPick = nil; paletteShown = true }
         .environment(\.pickEvent) { eventPick = $0; paletteShown = true }
+        .environment(\.copyWithToast) { text, what in coordinator.copy(text, as: what) }
         .background {
             Button("Search") { eventPick = nil; paletteShown = true }
                 .keyboardShortcut("f", modifiers: .command)
@@ -172,6 +173,22 @@ struct LibraryView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: paletteShown)
+        // What was just done from a menu, said top right for five seconds:
+        // in the toolbar's own row, over the title, beside the search
+        // button and not on it.
+        .overlay(alignment: .topTrailing) {
+            if let toast = coordinator.toast {
+                LibraryToastView(toast: toast,
+                                 close: { coordinator.dismissToast() },
+                                 undo: { coordinator.undoToast() })
+                    .padding(.top, LibraryToastView.top)
+                    .padding(.trailing, LibraryToastView.trailing)
+                    .id(toast.id)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .ignoresSafeArea(edges: .top)
+            }
+        }
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: coordinator.toast?.id)
         // A `clio://search` link: the palette, open on what it asked for.
         .onChange(of: coordinator.requestedSearch, initial: true) { _, query in
             if query != nil { eventPick = nil; paletteShown = true }
@@ -180,6 +197,43 @@ struct LibraryView: View {
         // CLIO_PALETTE_SHOW: the palette open on launch, its value typed in.
         .onAppear {
             if ProcessInfo.processInfo.environment["CLIO_PALETTE_SHOW"] != nil { paletteShown = true }
+            // CLIO_TOAST_SHOW: a toast, kept up a minute; =undo, one with Undo.
+            if let which = ProcessInfo.processInfo.environment["CLIO_TOAST_SHOW"] {
+                if which == "undo" || which == "click" {
+                    coordinator.showToast(symbol: "trash.circle.fill",
+                                          "“Weekly product sync” moved to Trash", seconds: 60, undo: {
+                        FileHandle.standardError.write(Data("[toast] Undo pressed\n".utf8))
+                    })
+                    // =click: a mouse down and up on Undo, as the window
+                    // server would send them — the toast is in the title
+                    // bar's row, where a click could have been the bar's.
+                    if which == "click" {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(2))
+                            guard let window = NSApp.windows.first(where: {
+                                $0.isVisible && $0.frame.height > 300 }) else { exit(2) }
+                            let point = NSPoint(
+                                x: window.frame.width - LibraryToastView.trailing - 30,
+                                y: window.frame.height - LibraryToastView.top - 17)
+                            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                                if let event = NSEvent.mouseEvent(
+                                    with: type, location: point, modifierFlags: [],
+                                    timestamp: ProcessInfo.processInfo.systemUptime,
+                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                    clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) {
+                                    NSApp.sendEvent(event)
+                                }
+                            }
+                            try? await Task.sleep(for: .seconds(0.5))
+                            FileHandle.standardError.write(Data(
+                                "[toast] click sent; toast \(coordinator.toast == nil ? "gone" : "still up")\n".utf8))
+                            exit(coordinator.toast == nil ? 0 : 1)
+                        }
+                    }
+                } else {
+                    coordinator.showToast(symbol: "checkmark.circle.fill", "Summary copied", seconds: 60)
+                }
+            }
             // CLIO_SIDEBAR_HIDE: the window with its sidebar hidden.
             if ProcessInfo.processInfo.environment["CLIO_SIDEBAR_HIDE"] != nil { columns = .detailOnly }
         }
@@ -476,10 +530,10 @@ struct LibraryView: View {
         selectable(.dictation(entry.id)) { DictationRow(entry: entry) }
             .contextMenu {
                 Button("Copy", systemImage: "square.fill.on.square.fill") {
-                    TextInjector.copy(entry.text)
+                    coordinator.copy(entry.text, as: "Dictation")
                 }
                 Button("Remove", systemImage: "minus.circle.fill", role: .destructive) {
-                    coordinator.removeDictation(id: entry.id)
+                    coordinator.removeDictationWithUndo(id: entry.id)
                 }
             }
     }
@@ -533,9 +587,7 @@ struct LibraryView: View {
         Button("Open in Default App", systemImage: "doc.text") { NSWorkspace.shared.open(url) }
         Divider()
         Button("Move to Trash", systemImage: "minus.circle.fill", role: .destructive) {
-            coordinator.forgetVoices(ofMeetingAt: url)
-            try? library?.trash(url)
-            if coordinator.librarySelection == .meeting(url) { coordinator.librarySelection = nil }
+            coordinator.trashMeeting(at: url)
         }
     }
 
@@ -826,7 +878,7 @@ private struct EventView: View {
                 if let url = event.joinURL {
                     MoreMenu {
                         Button("Copy Meeting URL", systemImage: "link") {
-                            TextInjector.copy(url.absoluteString)
+                            coordinator.copy(url.absoluteString, as: "Meeting URL")
                         }
                     }
                 }
@@ -976,11 +1028,10 @@ struct MeetingDocumentView: View {
         .confirmationDialog("Move “\(record?.title ?? "this meeting")” to the Trash?",
                             isPresented: $confirmingTrash) {
             Button("Move to Trash", role: .destructive) {
-                save?.cancel()
-                isDirty = false
-                coordinator.cancelSummary(url)
-                coordinator.forgetVoices(ofMeetingAt: url)
-                try? library.trash(url)
+                // What was typed last goes with it, so Undo brings back
+                // the notes as they were left.
+                flush()
+                coordinator.trashMeeting(at: url)
                 selection = nil
             }
         } message: {
@@ -1146,22 +1197,24 @@ struct MeetingDocumentView: View {
                     }
                     Divider()
                     // Each part on its own; the foot's Copy takes the pane showing.
-                    Button("Copy Notes", systemImage: "note.text") { TextInjector.copy(record.notes) }
-                        .disabled(record.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Copy Notes", systemImage: "note.text") {
+                        coordinator.copy(record.notes, as: "Notes")
+                    }
+                    .disabled(record.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Button("Copy Summary", systemImage: "text.badge.star") {
-                        TextInjector.copy(record.titledSummary ?? "")
+                        coordinator.copy(record.titledSummary ?? "", as: "Summary")
                     }
                     .disabled(record.summary == nil)
                     Button("Copy Transcript", systemImage: "text.quote") {
-                        TextInjector.copy(record.transcriptText)
+                        coordinator.copy(record.transcriptText, as: "Transcript")
                     }
                     .disabled(record.lines.isEmpty)
                     Button("Copy Meeting as Markdown", systemImage: "doc.plaintext") {
-                        TextInjector.copy(MeetingMarkdown.render(record))
+                        coordinator.copy(MeetingMarkdown.render(record), as: "Meeting")
                     }
                     if let link = record.joinURL {
                         Button("Copy Meeting URL", systemImage: "link") {
-                            TextInjector.copy(link.absoluteString)
+                            coordinator.copy(link.absoluteString, as: "Meeting URL")
                         }
                     }
                     Divider()
@@ -1404,9 +1457,7 @@ struct TranscriptList: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(colour)
         if let play {
-            Button { play(line.start) } label: { label.underline().contentShape(Rectangle()) }
-                .buttonStyle(.plain)
-                .help("Play from here")
+            PlayableTime(label: label, colour: colour) { play(line.start) }
         } else {
             label
         }
@@ -1419,6 +1470,36 @@ struct TranscriptList: View {
             .filter { !$0.declined && !$0.name.isEmpty && !$0.name.contains("@") }
             .map(\.name)
             .filter { !taken.contains($0.lowercased()) }
+    }
+}
+
+/// A line's time where the meeting's audio was kept: the time as it is
+/// anywhere, and under the pointer a play button beside it. No underline —
+/// the button says what a click does, and only when it is being aimed at.
+private struct PlayableTime: View {
+    let label: Text
+    let colour: Color
+    let play: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: play) {
+            HStack(spacing: 4) {
+                label
+                // Always there, so the line does not shift when it shows.
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(colour)
+                    .scaleEffect(isHovering ? 1 : 0.8)
+                    .opacity(isHovering ? 1 : 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .help("Play from here")
     }
 }
 

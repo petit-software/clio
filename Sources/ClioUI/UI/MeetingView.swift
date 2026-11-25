@@ -281,22 +281,24 @@ struct MeetingView: View {
                     .disabled(meeting.fileURL == nil)
                     Divider()
                     // Each part on its own; the foot's Copy takes the pane showing.
-                    Button("Copy Notes", systemImage: "note.text") { TextInjector.copy(notes) }
-                        .disabled(notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Copy Notes", systemImage: "note.text") {
+                        coordinator.copy(notes, as: "Notes")
+                    }
+                    .disabled(notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Button("Copy Summary", systemImage: "text.badge.star") {
-                        TextInjector.copy(meeting.record.titledSummary ?? "")
+                        coordinator.copy(meeting.record.titledSummary ?? "", as: "Summary")
                     }
                     .disabled(meeting.record.summary == nil)
                     Button("Copy Transcript", systemImage: "text.quote") {
-                        TextInjector.copy(meeting.record.transcriptText)
+                        coordinator.copy(meeting.record.transcriptText, as: "Transcript")
                     }
                     .disabled(meeting.record.lines.isEmpty)
                     Button("Copy Meeting as Markdown", systemImage: "doc.plaintext") {
-                        TextInjector.copy(MeetingMarkdown.render(meeting.record))
+                        coordinator.copy(MeetingMarkdown.render(meeting.record), as: "Meeting")
                     }
                     if let link = meeting.record.joinURL {
                         Button("Copy Meeting URL", systemImage: "link") {
-                            TextInjector.copy(link.absoluteString)
+                            coordinator.copy(link.absoluteString, as: "Meeting URL")
                         }
                     }
                 }

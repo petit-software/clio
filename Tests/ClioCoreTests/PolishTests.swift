@@ -298,3 +298,26 @@ func defaultIsWholeMinutes() {
     let stored = Settings().maxRecordingSeconds
     #expect(RecordingLimit.seconds(minutes: RecordingLimit.minutes(seconds: stored)) == stored)
 }
+
+@MainActor
+@Test("A removed dictation goes back where it was, once")
+func historyRestoresWhatWasRemoved() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("clio-history-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory,
+                                            withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let store = HistoryStore(fileURL: directory.appendingPathComponent("h.json"))
+    for text in ["first", "second", "third"] { store.add(text) }
+    let middle = store.entries[1]
+
+    let removed = try #require(store.remove(id: middle.id))
+    #expect(removed.index == 1)
+    #expect(store.entries.map(\.text) == ["third", "first"])
+    #expect(store.remove(id: middle.id) == nil)
+
+    store.restore(removed.entry, at: removed.index)
+    store.restore(removed.entry, at: removed.index)
+    #expect(store.entries.map(\.text) == ["third", "second", "first"])
+}

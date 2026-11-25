@@ -47,8 +47,17 @@ struct DocumentSubtitle: View {
     /// Nil leaves the chevron out — a dictation has no one invited.
     var attendees: [MeetingAttendee]?
     var chevronSize: CGFloat = 8
+    @Environment(\.copyWithToast) private var copyWithToast
 
     var body: some View {
+        #if DEBUG
+        // For CLIO_TOAST_SHOW: this line is in the toolbar, a long way from
+        // where the window's environment is set — say whether it arrived.
+        let _ = ProcessInfo.processInfo.environment["CLIO_TOAST_SHOW"].map { _ in
+            FileHandle.standardError.write(Data(
+                "[toast] participants menu can toast: \(copyWithToast != nil)\n".utf8))
+        }
+        #endif
         HStack(spacing: 5) {
             if let subtitle {
                 Text(subtitle)
@@ -57,7 +66,7 @@ struct DocumentSubtitle: View {
             if let attendees, !attendees.isEmpty {
                 if subtitle != nil { Text("·") }
                 Menu {
-                    AttendeesMenu(attendees: attendees)
+                    AttendeesMenu(attendees: attendees, copyWithToast: copyWithToast)
                 } label: {
                     HStack(spacing: 3) {
                         Text(attendees.count == 1 ? "1 participant" : "\(attendees.count) participants")

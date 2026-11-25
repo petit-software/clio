@@ -56,6 +56,11 @@ extension AppCoordinator {
     /// A meeting is being thrown away: its voices are not kept without it.
     public func forgetVoices(ofMeetingAt url: URL) {
         guard let record = library?.record(at: url) else { return }
+        forgetVoices(of: record)
+    }
+
+    /// The same, for a meeting whose file has already gone.
+    func forgetVoices(of record: MeetingRecord) {
         let key = VoiceMemory.key(for: record)
         Task {
             await voiceMemory.forget(meeting: key)

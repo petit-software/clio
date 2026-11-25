@@ -75,7 +75,7 @@ document. Clio has a Dock icon only while it is open.
 ## Three targets, and why
 
 - **`ClioCore`** — no SwiftUI. Everything with real logic, so it is testable
-  without standing up an app. All 298 tests live here.
+  without standing up an app. All 299 tests live here.
 - **`ClioUI`** — every view, plus `AppCoordinator`. A **library**, not part of
   the executable, because Xcode renders `#Preview` dependably in a library and
   flakily in an executable. That is the only reason it exists.
@@ -85,7 +85,7 @@ document. Clio has a Dock icon only while it is open.
 
 ```sh
 swift build
-swift test                                  # 298 tests, 38 suites, no network (one of them over HTTP, on the loopback address)
+swift test                                  # 299 tests, 38 suites, no network (one of them over HTTP, on the loopback address)
 ./scripts/build-app.sh                      # Clio.app, Developer ID signed
 ./scripts/release.sh                        # notarized, stapled DMG in dist/
 ./scripts/generate-appcast.sh               # signs it, writes dist/appcast.xml
@@ -143,6 +143,7 @@ CLIO_MARKDOWN_CHECK=1 .build/debug/Clio                  # every notes-editing r
 CLIO_OVERLAY_LIGHT=1 …                                    # any tool above, forced light (CLIO_OVERLAY_DARK forces dark)
 CLIO_LIBRARY_SHOW=1 swift run Clio                        # the library window on sample meetings in a temp folder; =live adds a recording, =dictation picks one, =event the call to come, =empty nothing
 CLIO_PALETTE_SHOW=pricing CLIO_LIBRARY_SHOW=1 swift run Clio   # the search palette open, with that typed (=1 for empty)
+CLIO_TOAST_SHOW=undo CLIO_LIBRARY_SHOW=1 swift run Clio    # the window's toast, kept up a minute: =undo the one with Undo, =click presses that Undo and exits 0 if it was heard, anything else "Summary copied"
 CLIO_ASSIGN_SHOW=1 CLIO_LIBRARY_SHOW=1 swift run Clio      # the ⋯'s Add to Calendar Event…: the palette on the day's events; =lunch gives the notes to the event with that in its name and prints the file's event lines
 CLIO_SIDEBAR_HIDE=1 CLIO_LIBRARY_SHOW=empty swift run Clio  # …with the sidebar hidden: the empty page has Take Notes then
 CLIO_LIBRARY_HEIGHT=460 CLIO_LIBRARY_SHOW=1 swift run Clio   # …in a short window, so the sidebar scrolls under its foot
@@ -476,6 +477,31 @@ the page does not move and the button cannot be focused unseen.
 library window: ⌘F or the magnifier top right (`SearchToolbarItem`, on
 every page). The sidebar is a day and has no search. A document's ⋯ is
 along its foot, beside Copy; the toolbar holds the title and search only.
+
+**A menu says what it did, top right, for five seconds.** A menu closes
+and leaves nothing to show it worked, so the library window has a toast
+(`AppCoordinator+Toast`, `LibraryToastView`): a filled symbol, what was
+copied or removed, and one way out — ✕ for a copy, Undo for a dictation
+removed or a meeting moved to the Trash. Undo takes the files back out of
+the Trash to where they were (`MeetingLibrary.restore`, from what `trash`
+returns) and overwrites nothing. A trashed meeting's voices are forgotten
+only when the toast goes without Undo (`settle`) — at once they could not
+come back with it. The participants' menu copies with a toast too — one
+address or all of them — and is handed the means by the line that shows it
+(`DocumentSubtitle`, from `\.copyWithToast`): a menu's content is built
+only when it opens. It is in the toolbar's own row — laid over the top
+safe area, on the row's centre line, over the document's name and ten
+points clear of the search button — with the window's colour under its
+glass, since glass alone let the date show through. A click there reaches
+it and not the title bar (`CLIO_TOAST_SHOW=click`). The foot's own Copy has no toast: its glyph shrinks
+and fades out as a filled check in a circle grows in where it was, in Take
+Notes' lime with the check black, and they change back the same way a
+moment later (`CopyButton`, `CLIO_COPY_SHOW` to see it held) — the eye is
+already on it.
+
+**A transcript's time has no underline.** Where audio was kept, a play
+button shows beside the time while the pointer is over it (`PlayableTime`),
+its room always there so the line does not shift.
 
 **One chevron.** `Chevron` is the grey mark on everything that
 opens or steps — the pane pull-down, the participants, the day arrows — at
@@ -1049,6 +1075,13 @@ Not verified, and worth knowing:
   any of it on a second screen.
   The made-up time reads a minute early (13:29 for 13:30), as it did in
   DayView.
+- **the toast, the Copy check and the play button, by clicking.** Both
+  toasts and the hover's play button have been looked at in the real
+  window (`CLIO_TOAST_SHOW`), and Undo hears a click sent inside the app;
+  trash-and-restore and a dictation put back
+  are tested underneath. Nobody has picked Copy from a ⋯ or an address from the participants' menu, pressed Undo,
+  watched five seconds run out, or pressed the foot's Copy and seen the
+  check — nothing here can click them.
 - **the UI has no tests.** `ClioUI` is a library the test target could import,
   but nothing does yet. Previews cover the states; no assertions do.
 

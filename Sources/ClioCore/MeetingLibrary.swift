@@ -102,12 +102,31 @@ public final class MeetingLibrary {
         return written
     }
 
-    /// To the Trash, not gone: Finder can put it back.
-    public func trash(_ url: URL) throws {
-        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-        MeetingAudio.trash(for: url)
+    /// To the Trash, not gone: Finder can put it back — and so can
+    /// `restore`, given what this returns: the Markdown and any kept audio,
+    /// each with where in the Trash it went.
+    @discardableResult
+    public func trash(_ url: URL) throws -> [TrashedFile] {
+        var trashed: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+        var moved = MeetingAudio.trash(for: url)
+        if let trashed = trashed as URL? {
+            moved.insert(TrashedFile(original: url, trashed: trashed), at: 0)
+        }
         files.removeAll { $0.url == url }
         scheduleReload()
+        return moved
+    }
+
+    /// Out of the Trash again, to where each file was. A file that has
+    /// since been taken out of the Trash, or whose place something else
+    /// has taken, is left where it is: nothing is overwritten.
+    public func restore(_ trashed: [TrashedFile]) {
+        for file in trashed
+        where !FileManager.default.fileExists(atPath: file.original.path) {
+            try? FileManager.default.moveItem(at: file.trashed, to: file.original)
+        }
+        reload()
     }
 
     // MARK: Grouping

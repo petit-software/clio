@@ -65,9 +65,15 @@ public enum MeetingAudio {
     }
 
     /// To the Trash with the meeting, so Finder puts back all of it.
-    public static func trash(for meeting: URL) {
-        for file in files(for: meeting).values {
-            try? FileManager.default.trashItem(at: file, resultingItemURL: nil)
+    /// Returns where each file was and where in the Trash it went, for
+    /// putting it back (`MeetingLibrary.restore`).
+    @discardableResult
+    public static func trash(for meeting: URL) -> [TrashedFile] {
+        files(for: meeting).values.compactMap { file in
+            var trashed: NSURL?
+            guard (try? FileManager.default.trashItem(at: file, resultingItemURL: &trashed)) != nil,
+                  let trashed = trashed as URL? else { return nil }
+            return TrashedFile(original: file, trashed: trashed)
         }
     }
 
@@ -132,5 +138,16 @@ public enum MeetingAudio {
     static func isMeetingAudio(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
         return Side.allCases.contains { name.hasSuffix(".\($0.rawValue).m4a") }
+    }
+}
+
+/// A file moved to the Trash: where it was, and where it is now.
+public struct TrashedFile: Sendable, Equatable {
+    public var original: URL
+    public var trashed: URL
+
+    public init(original: URL, trashed: URL) {
+        self.original = original
+        self.trashed = trashed
     }
 }

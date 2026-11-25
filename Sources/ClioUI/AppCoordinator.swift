@@ -91,6 +91,12 @@ public final class AppCoordinator {
     /// A search asked for from outside — a `clio://search` link — for the
     /// library window to open its palette on.
     public var requestedSearch: String?
+    /// What the library window is saying, top right, about something just
+    /// done from a menu: `AppCoordinator+Toast`.
+    public internal(set) var toast: LibraryToast?
+    var toastTask: Task<Void, Never>?
+    var toastUndo: (() -> Void)?
+    var toastSettle: (() -> Void)?
     /// The day view — the card with the day's events:
     /// `AppCoordinator+DayView`. The panel is made the first time it shows.
     var dayPanel: DayPanelController?
@@ -292,6 +298,8 @@ public final class AppCoordinator {
         // Quitting mid-meeting keeps what was transcribed; the chunks still
         // in flight are lost, which beats holding the quit up for them.
         callWatchTask?.cancel()
+        // What a toast was holding back until it could not be undone.
+        dismissToast()
         stopDayView()
         meeting?.abandon()
         settingsStore.flush()

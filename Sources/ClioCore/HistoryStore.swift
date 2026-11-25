@@ -68,8 +68,19 @@ public final class HistoryStore {
     }
 
     /// Forgets one dictation, on disk too if history is kept there.
-    public func remove(id: UUID) {
-        entries.removeAll { $0.id == id }
+    /// Returns it and where it was, for `restore`.
+    @discardableResult
+    public func remove(id: UUID) -> (entry: TranscriptEntry, index: Int)? {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return nil }
+        let entry = entries.remove(at: index)
+        if persistsToDisk { save() }
+        return (entry, index)
+    }
+
+    /// Puts back a dictation `remove` took, where it was.
+    public func restore(_ entry: TranscriptEntry, at index: Int) {
+        guard !entries.contains(where: { $0.id == entry.id }) else { return }
+        entries.insert(entry, at: min(max(index, 0), entries.count))
         if persistsToDisk { save() }
     }
 

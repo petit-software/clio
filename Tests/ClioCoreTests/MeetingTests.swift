@@ -902,6 +902,13 @@ struct MeetingSessionTests {
         #expect(MeetingAudio.files(for: file).isEmpty)
         #expect(MeetingAudio.files(for: renamed).count == 2)
         let library = MeetingLibrary(folder: folder)
+        let trashed = try library.trash(renamed)
+        #expect(MeetingAudio.files(for: renamed).isEmpty)
+        // Put back, the audio comes with the notes; then both go again.
+        #expect(trashed.count == 3)
+        library.restore(trashed)
+        #expect(MeetingAudio.files(for: renamed).count == 2)
+        #expect(FileManager.default.fileExists(atPath: renamed.path))
         try library.trash(renamed)
         #expect(MeetingAudio.files(for: renamed).isEmpty)
 
@@ -1137,6 +1144,13 @@ struct MeetingLibraryTests {
         #expect(library.record(at: moved)?.notes == "decided: ship")
         #expect(library.record(at: moved)?.lines.count == 1)
 
+        let trashed = try library.trash(moved)
+        #expect(!FileManager.default.fileExists(atPath: moved.path))
+        #expect(trashed.map(\.original) == [moved])
+
+        // Undo: back where it was, as it was — and to the Trash again.
+        library.restore(trashed)
+        #expect(library.record(at: moved)?.notes == "decided: ship")
         try library.trash(moved)
         #expect(!FileManager.default.fileExists(atPath: moved.path))
     }

@@ -175,6 +175,10 @@ extension EnvironmentValues {
     @Entry var openSearch: (() -> Void)? = nil
     /// Opens the palette on a day's calendar events, to pick one.
     @Entry var pickEvent: ((EventPick) -> Void)? = nil
+    /// Copies text and says so in the window's toast: what, then what to
+    /// call it ("Summary" → "Summary copied"). Nil outside the library
+    /// window, where a copy is only a copy.
+    @Entry var copyWithToast: ((String, String) -> Void)? = nil
 }
 
 /// The magnifier that opens the search palette, a glass disc the size of
@@ -294,8 +298,16 @@ struct PaneMenu: View {
 /// their address, and all of them together.
 struct AttendeesMenu: View {
     let attendees: [MeetingAttendee]
+    /// The window's copy-and-say-so, handed in by whoever shows the menu:
+    /// a menu's content is built when it opens, somewhere the window's
+    /// environment was not seen to reach.
+    var copyWithToast: ((String, String) -> Void)?
 
     private var emails: [String] { attendees.compactMap(\.email) }
+
+    private func copy(_ text: String, as what: String) {
+        if let copyWithToast { copyWithToast(text, what) } else { TextInjector.copy(text) }
+    }
 
     var body: some View {
         if attendees.isEmpty {
@@ -304,7 +316,7 @@ struct AttendeesMenu: View {
             ForEach(Array(attendees.enumerated()), id: \.offset) { _, person in
                 if let email = person.email {
                     Button(person.declined ? "\(person.name) (declined)" : person.name) {
-                        TextInjector.copy(email)
+                        copy(email, as: "\(person.name)’s email")
                     }
                 } else {
                     Text(person.declined ? "\(person.name) (declined)" : person.name)
@@ -312,7 +324,9 @@ struct AttendeesMenu: View {
             }
             if emails.count > 1 {
                 Divider()
-                Button("Copy All Emails") { TextInjector.copy(emails.joined(separator: ", ")) }
+                Button("Copy All Emails") {
+                    copy(emails.joined(separator: ", "), as: "\(emails.count) emails")
+                }
             }
         }
     }
@@ -371,21 +385,126 @@ extension View {
 /// Copy, as a disc the size of the ⋯, its glyph in the text's ink. Drawn
 /// around a plain button, as the ⋯ is: the glass button style recolours
 /// its label, and left this one a grey of its own.
+///
+/// Pressed, the copy glyph shrinks and fades out as a filled check in a
+/// circle grows and fades in where it was — in the lime of Take Notes, the
+/// colour the window's buttons that do something have — and a moment later
+/// the two change back the same way. The button is where the eye already
+/// is, so it is the button that says it worked.
 struct CopyButton: View {
     let help: String
     let action: () -> Void
 
+    @State private var confirmed: Bool = {
+        #if DEBUG
+        // CLIO_COPY_SHOW: the button as it is just after a press.
+        ProcessInfo.processInfo.environment["CLIO_COPY_SHOW"] != nil
+        #else
+        false
+        #endif
+    }()
+    @State private var revert: Task<Void, Never>?
+
     var body: some View {
-        Button(action: action) {
-            Glyph(icon: .copy, size: 20)
-                .foregroundStyle(BarInk.colour)
-                .frame(width: 35, height: 35)
-                .contentShape(Circle())
+        Button {
+            action()
+            confirmed = true
+            revert?.cancel()
+            revert = Task {
+                try? await Task.sleep(for: .seconds(1.6))
+                guard !Task.isCancelled else { return }
+                confirmed = false
+            }
+        } label: {
+            ZStack {
+                Glyph(icon: .copy, size: 20)
+                    .foregroundStyle(BarInk.colour)
+                    .opacity(confirmed ? 0 : 1)
+                    .scaleEffect(confirmed ? 0.5 : 1)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 17, weight: .medium))
+                    // Two colours: the disc lime, the check on it black, as
+                    // the label on Take Notes is.
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.black, ActivityRing.lime)
+                    .opacity(confirmed ? 1 : 0)
+                    .scaleEffect(confirmed ? 1 : 0.5)
+            }
+            .frame(width: 35, height: 35)
+            .contentShape(Circle())
+            // One spring for both ways: the one going shrinks and fades as
+            // the one coming grows and appears.
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: confirmed)
         }
         .buttonStyle(.plain)
         .barDisc()
         .help(help)
-        .accessibilityLabel(help)
+        .accessibilityLabel(confirmed ? "Copied" : help)
+    }
+}
+
+/// The library window's toast: an icon for what was done, what it was, and
+/// one way out — Undo where it can be taken back, ✕ where it cannot.
+struct LibraryToastView: View {
+    /// From the window's top edge, so it sits on the toolbar's centre line.
+    static let top: CGFloat = 9
+    /// From the window's right edge: clear of the search button.
+    static let trailing: CGFloat = 49
+
+    let toast: LibraryToast
+    let close: () -> Void
+    let undo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: toast.symbol)
+                .font(.system(size: 16))
+                .foregroundStyle(BarInk.colour)
+            Text(toast.message)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(BarInk.colour)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if toast.canUndo {
+                Button(action: undo) {
+                    Text("Undo")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(BarInk.colour)
+                        .padding(.horizontal, 10)
+                        .frame(height: 23)
+                        .background(Color.primary.opacity(0.1), in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 2)
+                .help("Put it back")
+            } else {
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 23, height: 23)
+                        .background(Color.primary.opacity(0.08), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 2)
+                .help("Close")
+                .accessibilityLabel("Close")
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .frame(height: 35)
+        // The window's own colour under the glass: it sits over the
+        // document's name and date, which glass alone lets through.
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.9), in: Capsule())
+        .glassSurface(Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        // As wide as what it says, up to this; a long title gives way in
+        // its middle.
+        .frame(maxWidth: 380, alignment: .trailing)
+        .accessibilityElement(children: .contain)
     }
 }
 

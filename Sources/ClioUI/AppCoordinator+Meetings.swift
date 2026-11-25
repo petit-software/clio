@@ -215,12 +215,28 @@ extension AppCoordinator {
 
     /// Forgets one dictation, and leaves the library on nothing if it was
     /// the one showing.
-    public func removeDictation(id: UUID) {
-        history.remove(id: id)
+    @discardableResult
+    public func removeDictation(id: UUID) -> (entry: TranscriptEntry, index: Int)? {
+        var removed = history.remove(id: id)
         #if DEBUG
-        libraryDictationsOverride?.removeAll { $0.id == id }
+        if let index = libraryDictationsOverride?.firstIndex(where: { $0.id == id }),
+           let entry = libraryDictationsOverride?.remove(at: index) {
+            removed = (entry, index)
+        }
         #endif
         if librarySelection == .dictation(id) { librarySelection = nil }
+        return removed
+    }
+
+    /// Puts back a dictation `removeDictation` took.
+    func restoreDictation(_ entry: TranscriptEntry, at index: Int) {
+        #if DEBUG
+        if let count = libraryDictationsOverride?.count {
+            libraryDictationsOverride?.insert(entry, at: min(index, count))
+            return
+        }
+        #endif
+        history.restore(entry, at: index)
     }
 
     /// Whether the library can show the calendar.
